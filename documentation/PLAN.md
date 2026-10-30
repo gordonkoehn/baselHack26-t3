@@ -1,6 +1,6 @@
 # Plan: Friday, Now (working title)
 
-**Status:** first draft, Fri 30 Oct. Nothing below has been tested yet. Vendor details are still being checked.
+**Status:** draft, Fri 30 Oct. Nothing below has been tested yet.
 
 **Challenge:** [How might we generate live, interviewable AI test users for instant sprint validation?](https://www.baselhack.ch/challenges/how-might-we-generate-live-interviewable-ai-test-users-for-instant-sprint-validation) (Sprintbox AI)
 
@@ -14,10 +14,16 @@ The demo:
 4. **Debrief:** themes and quotes, each labelled **grounded in real interviews** or **persona's guess**.
 5. **Coaching (cut first):** flags leading interviewer questions.
 
-## Why it stands out
-- A synthetic persona can't reveal anything that isn't in its inputs. The labels show what comes from real data and what's invented, so results are treated as hypotheses, not user evidence.
-- The value is immersion, team buy-in and testing inside the sprint.
-- Grounding, labelling and the prototype test are our own work, so this is more than a wrapper around a bought tool.
+## Positioning
+Most of the parts already exist: transcript-grounded personas, cited answers, live voice, real-time avatars and AI usability testers. Simile, Actual Simulation, Dovetail Digital Twins, Listen Twins and TheySaid each cover some of this, so we shouldn't claim those parts as novel.
+
+What we didn't find elsewhere (limited search, so not proof of a gap):
+- Interrupting a persona while it's using a prototype.
+- Clearly marking answers the interviews can't back up as guesses.
+
+Results are hypotheses that complement real users. They don't replace them.
+
+**Pitch line:** "Simile predicts what a population will choose. We let a sprint team interrupt one test user mid-click, and we mark every answer the interviews can't back up as a guess."
 
 ## Must-haves (from the challenge)
 - [ ] End-to-end flow from persona data to a rendered avatar with voice
@@ -68,7 +74,6 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 ## Constraints
 - Vercel can't hold live connections, so the backend issues short-lived tokens and the browser talks to the voice provider directly.
 - Serverless memory disappears, so personas, sessions and transcripts need a real store.
-- No API keys are set up yet. The list depends on the chosen stack.
 
 ## Consent and disclosure
 - The avatar is permanently labelled as AI and says so when a session starts.
@@ -89,5 +94,46 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 - What's our spending cap?
 - Who leads overnight?
 
-## Coming next in this doc
-Chosen stack, exact API keys, data contract and ready-to-paste issues.
+## Proposed stack (nothing here has been run)
+LiveKit Agents worker on LiveKit Cloud, with Deepgram speech-to-text, an LLM, ElevenLabs voice and Simli preset faces. Vercel only issues tokens and serves the API. Upstash Redis holds personas, sessions and transcripts.
+
+**Why this one:** lowest estimated cost, screen share arrives as a normal room track, and it's the design with the most room to swap parts.
+
+**LLM:** the analysis assumed Claude, but we now have OpenAI credits. Use OpenAI through the same pipeline if it passes the latency test. Avoid the OpenAI Realtime API as the default: worst-case cost was estimated at about $25 per call, which would burn the credits in a few interviews.
+
+**Acting:** not costed yet. It needs a remote browser (Kernel or Browserbase) and a driver such as Stagehand.
+
+| Service | Cost | Env var | Where |
+|---|---|---|---|
+| LiveKit Build | $0 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | API, local |
+| Simli Hobby | $10 | `SIMLI_API_KEY` | Worker, local |
+| Deepgram | Free credit | `DEEPGRAM_API_KEY` | Worker, local |
+| ElevenLabs Starter | $6 | `ELEVEN_API_KEY` | Worker, local |
+| OpenAI | Credits | `OPENAI_API_KEY` | API, worker, local |
+| Upstash Redis | Free | Check injected names | API, local |
+
+Also needed: `AGENT_SHARED_SECRET`, `DEMO_PASSCODE`, and `BACKEND_URL` on the worker.
+
+## Data contract (draft)
+```json
+Persona {"id":"p_1","name":"","language":"","summary":"","traits":[],"faceId":"","voiceId":"",
+ "evidence":[{"id":"e1","claim":"","quote":"","transcriptId":"t1"}]}
+Session {"id":"s_1","personaId":"p_1","roomName":"","status":"created|live|ended",
+ "readySeconds":null,"startedAt":null,"endedAt":null}
+TranscriptTurn {"sessionId":"s_1","seq":1,"speaker":"interviewer|persona",
+ "text":"","at":"ISO-8601","screenNote":null}
+Insight {"id":"i1","sessionId":"s_1","theme":"","quote":"","turnSeq":1,
+ "label":"grounded|guess","evidenceId":null}
+```
+
+Endpoints: `POST /api/personas`, `GET /api/personas/{id}`, `POST /api/sessions`, `GET` and `PATCH /api/sessions/{id}`, `POST /api/sessions/{id}/token`, `POST /api/sessions/{id}/turns`, `POST /api/sessions/{id}/debrief`, `GET /api/sessions/{id}/insights`.
+
+## Tests tonight and Saturday morning
+| Test | Pass | Fallback |
+|---|---|---|
+| Preset face talks | Lips and voice in sync | LemonSlice |
+| Avatar survives silence | Past 10 minutes, with 40 seconds of silence | LemonSlice |
+| Interruption, 5 tries | 4 of 5 stop within 1 second | Short replies, headset |
+| Latency, 20 turns | 90% under 2.5 seconds | Shorter replies, text notes |
+| Screen frame | Reads 3 of 3 labels | Screenshot button |
+| 35-minute soak by Sat 10:30 | Recalls 9 of 10 planted facts, no drop | Fix memory first |
