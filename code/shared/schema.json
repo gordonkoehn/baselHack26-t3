@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "baselhack26 API contracts",
-  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: backend/app/contracts.py, frontend/src/lib/contracts.ts. Examples in shared/examples/.",
+  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: code/backend/app/contracts.py, code/frontend/src/lib/contracts.ts. Examples in code/shared/examples/.",
   "$defs": {
     "Item": {
       "type": "object",
