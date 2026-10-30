@@ -92,8 +92,8 @@ elif e.get('code')=='conflict': print('exists, reusing $1')
 else: sys.exit(f'Vercel error: {e} — is the Vercel GitHub app allowed on this repo? (vercel.com → Settings → Git)')"
 }
 low=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
-mkproj "$low-api" backend '"fastapi"'
-mkproj "$low-web" frontend '"nextjs"'
+mkproj "$low-api" code/backend '"fastapi"'
+mkproj "$low-web" code/frontend '"nextjs"'
 # real production domain (the obvious *.vercel.app name may be taken by someone else)
 BACKEND_URL="https://$(vapi "https://api.vercel.com/v9/projects/$low-api/domains" | python3 -c "
 import json,sys;ds=[d['name'] for d in json.load(sys.stdin)['domains'] if d['name'].endswith('.vercel.app')];print(ds[0])")"
@@ -110,7 +110,7 @@ cat <<DONE
    Repo:     https://github.com/$REPO
    Frontend: $WEB_URL   (deploys on every merge to main, previews on PRs)
    Backend:  $BACKEND_URL/api/health
-   Next:     cd $(pwd)/$NAME && make setup && make dev
+   Next:     cd $(pwd)/$NAME/code && make setup && make dev
              fill in the pinned 🎯 issue together, then split it into Task issues.
              paste into the README top: Live: $WEB_URL · API: $BACKEND_URL/docs · Chat: <discord>
              API keys: add them to the $low-api Vercel project (Settings → Environment Variables).
