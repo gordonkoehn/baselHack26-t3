@@ -1,0 +1,1 @@
+Follow the conventions in /CLAUDE.md. When reviewing: flag only bugs, contract drift between shared/schema.json and the backend/frontend mirrors, and committed secrets. Skip style nits — this is a 48h hackathon and reviews are advisory.

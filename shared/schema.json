@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "baselhack26 API contracts",
+  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: backend/app/contracts.py, frontend/src/lib/contracts.ts. Examples in shared/examples/.",
+  "$defs": {
+    "Item": {
+      "type": "object",
+      "required": ["id", "title", "done"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "done": { "type": "boolean" }
+      }
+    },
+    "ItemCreate": {
+      "type": "object",
+      "required": ["title"],
+      "properties": { "title": { "type": "string" } }
+    }
+  },
+  "endpoints": {
+    "GET /api/health": { "response": { "status": "ok" } },
+    "GET /api/items": { "response": "Item[]" },
+    "POST /api/items": { "body": "ItemCreate", "response": "Item" }
+  }
+}

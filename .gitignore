@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+.vercel/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env*
+!.env.example
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
