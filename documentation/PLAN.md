@@ -5,14 +5,13 @@
 **Challenge:** [How might we generate live, interviewable AI test users for instant sprint validation?](https://www.baselhack.ch/challenges/how-might-we-generate-live-interviewable-ai-test-users-for-instant-sprint-validation) (Sprintbox AI)
 
 ## The idea
-A design sprint's Friday user test, on demand. Teams create an AI test user in minutes, interview it live, and watch it try their prototype.
+A design sprint's Friday user test, on demand. Teams create an AI test user in minutes, interview it live, and get a debrief that shows what's grounded and what's a guess.
 
 The demo:
 1. **Create:** paste sprint context and past interview transcripts. A timer shows the persona ready in under 10 minutes.
-2. **Interview:** talk to the persona by voice, with its avatar on screen, for 20–30 minutes.
-3. **Use the prototype:** the persona sees the prototype and, as the headline feature, operates it while thinking aloud. The team watches and asks questions.
-4. **Debrief:** themes and quotes, each labelled **grounded in real interviews** or **persona's guess**.
-5. **Coaching (cut first):** flags leading interviewer questions.
+2. **Interview:** talk to the persona by voice, with its avatar on screen, for 20–30 minutes while sharing a prototype. It reacts to what it sees.
+3. **Debrief:** themes and quotes, each labelled **grounded in real interviews** or **persona's guess**.
+4. **Compare:** show the same question answered by a text-only persona report, to make the immersion gap visible.
 
 ## Positioning
 Most of the parts already exist: transcript-grounded personas, cited answers, live voice, real-time avatars and AI usability testers. Simile, Actual Simulation, Dovetail Digital Twins, Listen Twins and TheySaid each cover some of this, so we shouldn't claim those parts as novel.
@@ -34,13 +33,21 @@ Results are hypotheses that complement real users. They don't replace them.
 **No-gos:** text-only, Custom GPT wrappers, only generation or only interaction, minor add-ons to off-the-shelf products, pre-recorded canned responses.
 
 ## Scope
-**In:** one persona from the Sprintbox sandbox, live voice, a visual avatar, screen awareness, the labelled debrief.
+This plan merges the original draft with the OpenTwin technical spec. The spec is the longer-term vision; this file is what we build this weekend.
 
-**Headline if the gates pass:** the persona operates the prototype.
+**Core (must work by Sat 13:00):**
+- One persona from the Sprintbox sandbox, every fact tagged with a source or marked as an assumption
+- Behaviour rules: admits confusion, hesitates, disagrees, gives no design advice
+- Live voice and a Simli preset avatar in our own LiveKit room
+- Screen awareness from shared-screen frames
+- Labelled debrief, in High German or English
 
-**Stretch:** multi-source persona generation, or interviewer coaching.
+**Only if the Sat 13:00 core works, in this order:**
+1. The persona operates the prototype
+2. rrweb page events on web prototypes we control
+3. Simple readiness score
 
-**Out:** group interviews, real Zoom/Teams joining, digital twins of team members, real logins or real data in the test browser.
+**Later (not this weekend):** Miro export, interviewer copilot, Letta or Mem0 memory, event bus, MCP server, Teams or Zoom bots, Langfuse, self-hosted stack, voice cloning, group interviews, digital twins of team members.
 
 ## Watch first, then act
 Watching and acting share the hard part: understanding the screen. So we build in this order:
@@ -56,17 +63,17 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 | Persona engine | Persona data and transcripts → in-character instructions | Build one sandbox persona |
 | Realtime voice | Tokens, browser audio, interruptions | Spoken conversation in the browser |
 | Avatar | Vendor test, rendering | Compare two vendors on lag, session length and cost |
-| Screen + browser | Screen understanding, then acting | Prove see → act → say what happened |
+| Screen + browser | Screen understanding, then acting | Persona reads the shared screen |
 | Debrief + product | UI flow, labelled insights, pitch | Clickable flow, debrief from a sample transcript |
 
 ## Timeline and gates
 | When | Goal | If it fails |
 |---|---|---|
-| Fri night | Voice conversation with a sandbox persona and static portrait. Vendor test. Up to 2 hours on see → act → say | Keep the portrait, decide at 09:30 |
+| Fri night | Voice conversation with a sandbox persona and static portrait. Vendor test. Persona reads a shared screen | Keep the portrait, decide at 09:30 |
 | Sat 09:30 | Pick the avatar vendor | Animated portrait, if a mentor accepts it |
 | Sat 13:00 | Core flow on the live URL. Acting becomes the headline only if this passes | Drop acting, focus on the core |
 | Sat 17:00 | First full 20–30 minute interview | Fix memory and context before anything else |
-| Sat 18:00 | Unscripted acting run, three times out of three | Cut acting, keep watching |
+| Sat 18:00 | If attempted: unscripted acting run, three times out of three | Cut acting, keep watching |
 | Sat 21:00 | Three raters average 5/10 or more. Feature freeze | Only immersion fixes after this |
 | Sun 09:00 | Backup demo video, pitch rehearsed twice | |
 | Sun 11:00 | Code freeze (official hands-off 12:00, pitches 13:00) | |
@@ -117,7 +124,7 @@ Also needed: `AGENT_SHARED_SECRET`, `DEMO_PASSCODE`, and `BACKEND_URL` on the wo
 ## Data contract (draft)
 ```json
 Persona {"id":"p_1","name":"","language":"","summary":"","traits":[],"faceId":"","voiceId":"",
- "evidence":[{"id":"e1","claim":"","quote":"","transcriptId":"t1"}]}
+ "evidence":[{"id":"e1","claim":"","quote":"","source":"transcript|assumption","transcriptId":"t1"}]}
 Session {"id":"s_1","personaId":"p_1","roomName":"","status":"created|live|ended",
  "readySeconds":null,"startedAt":null,"endedAt":null}
 TranscriptTurn {"sessionId":"s_1","seq":1,"speaker":"interviewer|persona",
@@ -137,3 +144,4 @@ Endpoints: `POST /api/personas`, `GET /api/personas/{id}`, `POST /api/sessions`,
 | Latency, 20 turns | 90% under 2.5 seconds | Shorter replies, text notes |
 | Screen frame | Reads 3 of 3 labels | Screenshot button |
 | 35-minute soak by Sat 10:30 | Recalls 9 of 10 planted facts, no drop | Fix memory first |
+| Sycophancy, 4 weak concepts among 8 | Rejects or questions at least 2 of the 4 | Tighten behaviour rules |
