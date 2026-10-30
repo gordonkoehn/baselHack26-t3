@@ -69,7 +69,7 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 ## Timeline and gates
 | When | Goal | If it fails |
 |---|---|---|
-| Fri night | Voice conversation with a sandbox persona and static portrait. Vendor test. Up to 2 hours on see → act → say | Keep the portrait, decide at 09:30 |
+| Fri night | Voice conversation with a sandbox persona and static portrait. Vendor test. Persona reads a shared screen | Keep the portrait, decide at 09:30 |
 | Sat 09:30 | Pick the avatar vendor | Animated portrait, if a mentor accepts it |
 | Sat 13:00 | Core flow on the live URL. Acting becomes the headline only if this passes | Drop acting, focus on the core |
 | Sat 17:00 | First full 20–30 minute interview | Fix memory and context before anything else |
