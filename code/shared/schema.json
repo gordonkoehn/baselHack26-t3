@@ -1,23 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "baselhack26 API contracts",
-  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: code/backend/app/contracts.py, code/frontend/src/lib/contracts.ts. Examples in code/shared/examples/. DRAFT: Persona, Session, SessionEvent and InsightReport are proposed (documentation/opentwin-review.md) and not yet mirrored in backend/frontend.",
+  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: code/backend/app/contracts.py, code/frontend/src/lib/contracts.ts. Examples in code/shared/examples/. Endpoints marked status=draft are agreed but not implemented yet.",
   "$defs": {
-    "Item": {
-      "type": "object",
-      "required": ["id", "title", "done"],
-      "properties": {
-        "id": { "type": "string" },
-        "title": { "type": "string" },
-        "done": { "type": "boolean" }
-      }
-    },
-    "ItemCreate": {
-      "type": "object",
-      "required": ["title"],
-      "properties": { "title": { "type": "string" } }
-    },
-
     "Label": {
       "description": "grounded = backed by an Evidence entry; guess = invented by the model, must be shown as a guess.",
       "enum": ["grounded", "guess"]
@@ -262,9 +247,6 @@
   },
   "endpoints": {
     "GET /api/health": { "response": { "status": "ok" } },
-    "GET /api/items": { "response": "Item[]" },
-    "POST /api/items": { "body": "ItemCreate", "response": "Item" },
-
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },

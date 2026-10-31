@@ -1,9 +1,11 @@
 [
-  { "sessionId": "s_1", "seq": 1, "at": "2026-10-31T14:00:05Z", "type": "utterance", "data": { "speaker": "interviewer", "text": "Wie kommst du heute zur Arbeit?", "tStart": 5.0, "tEnd": 7.1 } },
-  { "sessionId": "s_1", "seq": 2, "at": "2026-10-31T14:00:09Z", "type": "utterance", "data": { "speaker": "persona", "text": "Meistens mit dem Auto, ehrlich gesagt.", "tStart": 8.0, "tEnd": 10.4 } },
-  { "sessionId": "s_1", "seq": 3, "at": "2026-10-31T14:03:12Z", "type": "screen.caption", "data": { "caption": "Pricing page, headline 'E-Bike Abo', price CHF 89/month, small grey link 'Bedingungen' bottom right.", "source": "vision" } },
-  { "sessionId": "s_1", "seq": 4, "at": "2026-10-31T14:03:20Z", "type": "utterance", "data": { "speaker": "interviewer", "text": "Findest du den Preis nicht super fair?", "tStart": 200.0, "tEnd": 202.3 } },
-  { "sessionId": "s_1", "seq": 5, "at": "2026-10-31T14:03:22Z", "type": "copilot.suggestion", "data": { "kind": "leading_question", "text": "Leading question. Try: 'What do you think about the price?'", "turnSeq": 4 } },
-  { "sessionId": "s_1", "seq": 6, "at": "2026-10-31T14:03:24Z", "type": "twin.reaction", "data": { "kind": "sceptical", "intensity": 4 } },
-  { "sessionId": "s_1", "seq": 7, "at": "2026-10-31T14:30:00Z", "type": "session.ended", "data": { "durationSeconds": 1800 } }
+  { "sessionId": "s_1", "seq": 1, "at": "2026-10-31T14:12:05Z", "type": "screen.caption", "data": { "caption": "Screen '12 Shares verteilen': slider between 'Meine Prämien' and 'Quartier-Projekt', card 'Spielplatz Littau begrünen' 73 % financed, green badge 'Partner-Matching aktiv: Bäckerei Muff ×2', grey button 'Aufteilung bestätigen'.", "source": "vision" } },
+  { "sessionId": "s_1", "seq": 2, "at": "2026-10-31T14:12:10Z", "type": "utterance", "data": { "speaker": "interviewer", "text": "Verteilen Sie Ihre 12 Shares so, wie Sie es wirklich tun würden.", "tStart": 730.0, "tEnd": 733.2 } },
+  { "sessionId": "s_1", "seq": 3, "at": "2026-10-31T14:12:21Z", "type": "utterance", "data": { "speaker": "persona", "text": "Hmm, wenn die Bäckerei das verdoppelt, dann geb ich halt alles ins Projekt.", "tStart": 735.0, "tEnd": 740.5 } },
+  { "sessionId": "s_1", "seq": 4, "at": "2026-10-31T14:13:02Z", "type": "screen.caption", "data": { "caption": "Screen 'Angelegt.': 6 Shares für Prämien, '6 → 12 Shares im Projekt, verdoppelt', Spielplatz Littau 74 % finanziert, Prämien-Guthaben 44 Shares.", "source": "vision" } },
+  { "sessionId": "s_1", "seq": 5, "at": "2026-10-31T14:13:06Z", "type": "twin.reaction", "data": { "kind": "confused", "intensity": 4 } },
+  { "sessionId": "s_1", "seq": 6, "at": "2026-10-31T14:13:07Z", "type": "utterance", "data": { "speaker": "persona", "text": "Moment, ich hab doch alles ins Projekt gegeben? Da steht sechs und sechs.", "tStart": 777.0, "tEnd": 781.0 } },
+  { "sessionId": "s_1", "seq": 7, "at": "2026-10-31T14:13:15Z", "type": "utterance", "data": { "speaker": "interviewer", "text": "Ist das nicht ein tolles Gefühl, dem Quartier zu helfen?", "tStart": 785.0, "tEnd": 788.1 } },
+  { "sessionId": "s_1", "seq": 8, "at": "2026-10-31T14:13:16Z", "type": "copilot.suggestion", "data": { "kind": "leading_question", "text": "Leading question. Try: 'Wie fühlt sich diese Aufteilung für Sie an?'", "turnSeq": 7 } },
+  { "sessionId": "s_1", "seq": 9, "at": "2026-10-31T14:30:00Z", "type": "session.ended", "data": { "durationSeconds": 1800 } }
 ]
