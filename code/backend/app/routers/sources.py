@@ -38,7 +38,11 @@ async def extract_pdf(request: Request) -> ExtractedText:
 
     The body is the raw file, not multipart: the browser posts the File as-is.
     """
-    body = await request.body()
+    return read_pdf(await request.body())
+
+
+def read_pdf(body: bytes) -> ExtractedText:
+    """The PDF route's work on the raw bytes, shared with the MCP add_source tool."""
     if len(body) > MAX_BYTES:
         raise HTTPException(413, "PDF larger than 10 MB")
     if not body.startswith(b"%PDF"):
@@ -91,7 +95,11 @@ async def extract_image(request: Request) -> ExtractedText:
     The body is the raw file. Quotes are later checked against this transcription, like a PDF's
     text layer, so the transcription is the source of truth for evidence from this image.
     """
-    body = await request.body()
+    return read_image(await request.body())
+
+
+def read_image(body: bytes) -> ExtractedText:
+    """The image route's work on the raw bytes, shared with the MCP add_source tool."""
     if len(body) > MAX_BYTES:
         raise HTTPException(413, "image larger than 10 MB")
     mime = _image_type(body)
