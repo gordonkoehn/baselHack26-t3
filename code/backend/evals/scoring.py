@@ -47,20 +47,37 @@ STOPWORDS = {
         [
             "and",
             "are",
+            "at",
+            "be",
             "but",
+            "can",
+            "do",
             "for",
             "from",
             "have",
+            "how",
+            "i",
+            "if",
+            "is",
+            "it",
+            "me",
+            "my",
             "not",
+            "of",
+            "on",
             "she",
             "that",
             "the",
             "they",
             "this",
+            "to",
             "very",
+            "we",
+            "what",
             "with",
             "would",
             "you",
+            "your",
         ]
     ),
 }
@@ -109,6 +126,13 @@ def wrong_language(text: str, expected: str) -> bool:
     hits = {language: sum(w in stop for w in words) for language, stop in STOPWORDS.items()}
     other = max(count for language, count in hits.items() if language != expected)
     return other >= 2 and other > hits[expected]
+
+
+def _keeps_language(name: str, texts: list[str], expected: str) -> Check:
+    # Each text can be too short to judge alone, yet together they show the model switched language.
+    if wrong_language(" ".join(texts), expected):
+        return Check(name, 0, len(texts), texts)
+    return _check(name, texts, lambda text: wrong_language(text, expected))
 
 
 def _numbers(text: str) -> set[str]:
@@ -168,11 +192,7 @@ def score_persona(draft: PersonaDraft, request: PersonaCreate) -> list[Check]:
             # The prompt invents the persona's own name on purpose.
             lambda text: invented_names(text, f"{sources}\n{draft.name}"),
         ),
-        _check(
-            "persona_keeps_language",
-            persona_text,
-            lambda text: wrong_language(text, request.language),
-        ),
+        _keeps_language("persona_keeps_language", persona_text, request.language),
     ]
 
 
@@ -183,7 +203,7 @@ def score_replies(replies: list[str], language: str) -> list[Check]:
             replies,
             lambda reply: not 1 <= len(WORD.findall(reply)) <= MAX_REPLY_WORDS,
         ),
-        _check("reply_keeps_language", replies, lambda reply: wrong_language(reply, language)),
+        _keeps_language("reply_keeps_language", replies, language),
     ]
 
 
@@ -230,11 +250,7 @@ def score_debrief(
             themes,
             lambda theme: invented_names(theme, corpus),
         ),
-        _check(
-            "debrief_keeps_language",
-            themes,
-            lambda theme: wrong_language(theme, persona.language),
-        ),
+        _keeps_language("debrief_keeps_language", themes, persona.language),
     ]
 
 

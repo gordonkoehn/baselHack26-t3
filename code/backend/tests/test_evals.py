@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -272,6 +273,51 @@ def test_one_stopword_from_the_other_language_is_not_clear_evidence(reply):
 
 def test_two_stopwords_from_the_other_language_are_clear_evidence():
     assert scoring.wrong_language("Ja, the Börse and klingt gut.", "de")
+
+
+@pytest.mark.parametrize(
+    "reply", ["I like it.", "It is what I do.", "What do you think of it?", "My kids play on it."]
+)
+def test_short_english_counts_as_english(reply):
+    assert scoring.wrong_language(reply, "de")
+
+
+def test_the_demo_transcript_counts_as_german():
+    transcript = run.load_case()[0].sources[1].text
+    lines = re.findall(r"^(?:I|P1): (.+)$", transcript, re.MULTILINE)
+    assert len(lines) == 16
+    assert not [line for line in lines if scoring.wrong_language(line, "de")]
+
+
+# Each of these has at most one English stopword, so only the whole set gives the switch away.
+TOO_SHORT_ALONE = ["Not really.", "Sounds good.", "Maybe, but later.", "Okay."]
+
+
+def test_replies_too_short_to_judge_alone_fail_together():
+    assert not any(scoring.wrong_language(reply, "de") for reply in TOO_SHORT_ALONE)
+    checks = {c.name: c for c in score_replies(TOO_SHORT_ALONE, "de")}
+    assert checks["reply_keeps_language"].result == "0/4"
+    assert checks["reply_keeps_language"].failures == TOO_SHORT_ALONE
+
+
+def test_persona_too_short_to_judge_alone_fails_together():
+    facts = [Fact(text=text, label="guess", evidence_id=None) for text in TOO_SHORT_ALONE]
+    draft = persona_draft(summary="Okay.", jobs=[], pains=facts, objections=[])
+    assert "persona_keeps_language" in failed(score_persona(draft, REQUEST))
+
+
+def test_debrief_themes_too_short_to_judge_alone_fail_together():
+    draft = debrief_draft()
+    insight = draft.questions[0].insights[0]
+    draft.questions[0].insights = [
+        insight.model_copy(update={"theme": theme}) for theme in TOO_SHORT_ALONE
+    ]
+    assert "debrief_keeps_language" in failed(score_debrief(draft, session(), persona(), events()))
+
+
+def test_one_short_english_reply_among_german_ones_does_not_fail_the_set():
+    replies = ["Not really.", QUOTE, "Ja, klar."]
+    assert "reply_keeps_language" not in failed(score_replies(replies, "de"))
 
 
 def test_a_quote_copied_from_the_interviewer_fails_though_it_is_in_the_cited_turn():
