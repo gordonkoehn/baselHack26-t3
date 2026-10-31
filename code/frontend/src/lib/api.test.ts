@@ -69,7 +69,7 @@ describe("proxy paths", () => {
     ["createPersona", (a) => a.createPersona({ language: "de", sources: [] }), "POST", "/api/personas", true],
     ["extractPdf", (a) => a.extractPdf(file), "POST", "/api/sources/pdf", true],
     ["extractImage", (a) => a.extractImage(image), "POST", "/api/sources/image", true],
-    ["createSession", (a) => a.createSession({ personaId: "p" }), "POST", "/api/sessions", false],
+    ["createSession", (a) => a.createSession({ personaId: "p" }), "POST", "/api/sessions", true],
     ["updateSession", (a) => a.updateSession(ID, { status: "ended" }), "PATCH", `/api/sessions/${ENCODED}`, false],
     ["sessionToken", (a) => a.sessionToken(ID), "POST", `/api/sessions/${ENCODED}/token`, true],
     ["avatarToken", (a) => a.avatarToken(ID), "POST", `/api/sessions/${ENCODED}/avatar-token`, true],
@@ -77,6 +77,7 @@ describe("proxy paths", () => {
     ["debrief", (a) => a.debrief(ID), "POST", `/api/sessions/${ENCODED}/debrief`, true],
     ["updatePersona", (a) => a.updatePersona(ID, { jobs: [] }), "PATCH", `/api/personas/${ENCODED}`, true],
     ["getPersona", (a) => a.getPersona(ID), "GET", `/api/personas/${ENCODED}`, false],
+    ["listPersonaSessions", (a) => a.listPersonaSessions(ID), "GET", `/api/personas/${ENCODED}/sessions`, true],
     ["getSession", (a) => a.getSession(ID), "GET", `/api/sessions/${ENCODED}`, false],
     ["getInsights", (a) => a.getInsights(ID), "GET", `/api/sessions/${ENCODED}/insights`, false],
   ];

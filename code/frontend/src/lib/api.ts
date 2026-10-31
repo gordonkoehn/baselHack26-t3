@@ -139,7 +139,7 @@ export const api = {
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Session>),
   updateSession,
@@ -203,6 +203,9 @@ export const api = {
     ),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
+  // Newest first. Needs the passcode: a shared report link must not lead to the persona's other interviews.
+  listPersonaSessions: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/sessions`, { cache: "no-store", headers: passcode() }).then(json<Session[]>),
   getSession: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Session>),
   // The saved report only, 404 if there is none. Unlike debrief() it never calls the model, so it needs no passcode.

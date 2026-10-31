@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import exampleReport from "../../shared/examples/insight-report.json";
 import exampleEvents from "../../shared/examples/session-events.json";
+import examplePersonaSessions from "../../shared/examples/persona-sessions.json";
 import type { Persona, Session, SessionEvent, InsightReport } from "../src/lib/contracts";
 import { QUARTIER_BOERSE_GUIDE } from "../src/lib/sample";
 import { emit, installRealtime } from "./realtime";
@@ -72,6 +73,24 @@ async function pickFromLibrary(page: Page, request: APIRequestContext, id: strin
   await rows.nth(list.findIndex((persona) => persona.id === id)).click();
   await opened;
   await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+}
+
+// One whole interview on the open persona's Interview tab, up to its debrief on screen.
+async function completeInterview(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await page.getByLabel(guideLabel).fill(questions.join("\n"));
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: /^(Start video interview|Start again)$/ }).click();
+  const session: Session = await (await created).json();
+  await expect(page.getByRole("dialog", { name: "Interview with Sandra" }).getByText("Live, speak now")).toBeVisible();
+  for (const [index, quote] of answers.entries()) {
+    await page.getByLabel("Type a question").fill(typedQuestion);
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await answer(page, `${session.id}-answer-${index}`, quote);
+  }
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByTestId("debrief")).toBeVisible({ timeout: 10_000 });
+  return session.id;
 }
 
 let unexpected: string[] = [];
@@ -418,6 +437,92 @@ test("the persona list sends the passcode and stays away when refused", async ({
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Sources", exact: true }).click();
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+});
+
+test("two interviews with one persona are both listed, also after a reload, and both debriefs open", async ({ page, context }) => {
+  await createPersona(page);
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  const past = page.getByRole("region", { name: "Past interviews" });
+  await expect(past).toHaveCount(0);
+
+  const first = await completeInterview(page);
+  await expect(past.getByRole("link")).toHaveCount(1);
+  const second = await completeInterview(page);
+  const expectListed = async () => {
+    const links = past.getByRole("link");
+    await expect(links).toHaveCount(2);
+    await expect(links.nth(0)).toHaveAttribute("href", `/report/${second}`);
+    await expect(links.nth(1)).toHaveAttribute("href", `/report/${first}`);
+    for (const link of await links.all()) {
+      await expect(link).toContainText("Ended");
+      await expect(link).toContainText("Debrief ready");
+    }
+  };
+  await expectListed();
+
+  await page.reload();
+  // Newest first, and other tests share this store.
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await expectListed();
+
+  for (const id of [second, first]) {
+    const opened = context.waitForEvent("page");
+    await past.locator(`a[href="/report/${id}"]`).click();
+    const report = await opened;
+    await expect(report.getByTestId("debrief")).toContainText(answers[0]);
+    expect(new URL(report.url()).pathname).toBe(`/report/${id}`);
+    await report.close();
+  }
+  // Opening a debrief in its own tab leaves this one as it was.
+  await expectListed();
+});
+
+test("past interviews link only saved debriefs and leave out what was no interview", async ({ page }) => {
+  const guide = ["What did you try last week?"];
+  const base = { personaId: "p_1", status: "ended", provider: "openai-realtime", debriefReady: false };
+  const neverStarted = { ...base, id: "s_0", startedAt: null, interviewGuide: guide };
+  const testCall = { ...base, id: "s_test", startedAt: "2026-10-31T13:00:00Z", interviewGuide: [] };
+  const sample = { ...base, id: "s_sample", startedAt: "2026-10-31T13:00:00Z", interviewGuide: guide, sample: true, debriefReady: true };
+  await page.route("**/api/personas/*/sessions", (route) =>
+    route.fulfill({ json: [...examplePersonaSessions, neverStarted, testCall, sample] }),
+  );
+  const listed = page.waitForRequest((request) => request.url().endsWith("/sessions") && request.method() === "GET");
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  expect((await listed).headers()["x-demo-passcode"]).toBe("team-pass");
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  const rows = page.getByRole("region", { name: "Past interviews" }).getByRole("listitem");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText("Not ended");
+  await expect(rows.nth(0).getByRole("link")).toHaveCount(0);
+  await expect(rows.nth(1)).toContainText("13 min");
+  await expect(rows.nth(1).getByRole("link")).toHaveAttribute("href", "/report/s_1");
+});
+
+test("past interviews stay away when the passcode is refused", async ({ page }) => {
+  const refused = page.waitForResponse((response) => response.url().endsWith("/sessions") && response.status() === 401);
+  await page.route("**/api/personas/*/sessions", (route) => route.fulfill({ status: 401, json: { detail: "passcode missing or wrong" } }));
+  await createPersona(page);
+  await refused;
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await expect(page.getByTestId("interview-room")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Past interviews" })).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+});
+
+test("starting an interview sends the passcode and a refusal says what to do", async ({ page }) => {
+  const detail = "passcode missing or wrong: open the team link";
+  await page.route("**/api/sessions", (route) =>
+    route.request().method() === "POST" ? route.fulfill({ status: 401, json: { detail } }) : route.fallback(),
+  );
+  const started = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/sessions"));
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
+  expect((await started).headers()["x-demo-passcode"]).toBe("team-pass");
+  await expect(page.getByText(`Could not start (401): ${detail}`)).toBeVisible();
 });
 
 test("the sample sprint questions stay with the example, and a saved persona comes back without them", async ({ page }) => {
