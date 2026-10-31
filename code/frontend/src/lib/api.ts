@@ -127,7 +127,7 @@ export const api = {
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Session>),
   updateSession,

@@ -465,6 +465,19 @@ test("past interviews stay away when the passcode is refused", async ({ page }) 
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
+test("starting an interview sends the passcode and a refusal says what to do", async ({ page }) => {
+  const detail = "passcode missing or wrong: open the team link";
+  await page.route("**/api/sessions", (route) =>
+    route.request().method() === "POST" ? route.fulfill({ status: 401, json: { detail } }) : route.fallback(),
+  );
+  const started = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/sessions"));
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  expect((await started).headers()["x-demo-passcode"]).toBe("team-pass");
+  await expect(page.getByText(`Could not start (401): ${detail}`)).toBeVisible();
+});
+
 test("mute silences the microphone without ending the call; typing still works", async ({ page }) => {
   await startInterview(page);
   expect(await page.evaluate(() => window.e2eRealtime.audioConstraints)).toEqual([
