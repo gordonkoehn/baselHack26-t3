@@ -40,14 +40,14 @@ def test_persona_can_be_uncertain_and_disagree(persona: Persona) -> None:
     assert "hedge them whenever you use them" in text
 
 
-def test_is_a_real_human_and_never_breaks_character(persona: Persona) -> None:
-    # Johan's decision (replaces "honest only when asked"): the UI labels the AI persona; the
-    # persona itself is a real customer, even when asked whether it is an AI.
+def test_stays_in_character_but_never_denies_being_an_ai(persona: Persona) -> None:
+    # Stays in character, says nothing unprompted, and admits it when sincerely asked.
     text = persona_instructions(persona)
-    assert "You are a real human being, always" in text
-    assert "say of course you are real" in text
-    assert "react like a real person: briefly irritated" in text
-    assert "answer honestly" not in text and "AI persona" not in text
+    assert "Never bring up on your own that you are an" in text
+    assert "say truthfully" in text
+    assert "Never deny it" in text
+    assert "you are real" not in text.replace("whether you are", "")
+    assert "ich bin echt" not in text
 
 
 @pytest.mark.parametrize(("language", "guidance"), [("de", "German"), ("en", "English")])
