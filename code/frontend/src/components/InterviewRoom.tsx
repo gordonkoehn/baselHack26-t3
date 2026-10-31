@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
+import { productForSession } from "@/components/ProductBrief";
 import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
 import { ZoomStage } from "@/components/ZoomStage";
@@ -11,7 +12,7 @@ import { ApiError, api } from "@/lib/api";
 import { NETWORK_ERROR } from "@/lib/errorMessage";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
-import type { Persona, SessionEvent } from "@/lib/contracts";
+import type { Persona, Product, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { sampleTurns } from "@/lib/sample";
 import { ReplyTimer, describeLatency, summarizeLatency } from "@/lib/replyLatency";
@@ -55,11 +56,19 @@ type ServerEvent = {
 export function InterviewRoom({
   persona,
   startBlocked,
+  product,
+  guide: sharedGuide,
+  onGuideChange,
   initialGuide = "",
   questionsRequired = true,
 }: {
   persona: Persona;
   startBlocked: boolean;
+  /** From the Product step; sent with every session so the persona and the debrief know what is tested. */
+  product?: Product;
+  /** The sprint questions, shared with the Product step. Without them the room keeps its own. */
+  guide?: string;
+  onGuideChange?: (guide: string) => void;
   /** Questions the debrief will answer. Empty for a saved persona, so the sample sprint questions never come back. */
   initialGuide?: string;
   /** False for the short test call on the persona tab: no debrief questions needed. */
@@ -70,7 +79,10 @@ export function InterviewRoom({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
-  const [guide, setGuide] = useState(initialGuide);
+  const [ownGuide, setOwnGuide] = useState(sharedGuide ?? initialGuide);
+  const guide = sharedGuide ?? ownGuide;
+  const setGuide = onGuideChange ?? setOwnGuide;
+  const brief = product ? productForSession(product) : null;
   const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
@@ -82,8 +94,10 @@ export function InterviewRoom({
   const liveEstablished = useRef(false);
   const startupFailure = useRef<string | null>(null);
   // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
-  const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean } | null>(null);
+  const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean; productName?: string } | null>(null);
   const questions = useRef(0);
+  // The product name the running session was created with, for the debrief header.
+  const testedProduct = useRef<string | undefined>(undefined);
   // Provider work still in flight: committed speech awaiting its transcript, and open responses.
   // "End" waits for both, so the last turn isn't cut off by closing the call.
   const work = useRef(new TranscriptWork());
@@ -606,7 +620,8 @@ export function InterviewRoom({
         .map((q) => q.trim())
         .filter(Boolean);
       questions.current = interviewGuide.length;
-      const session = await api.createSession({ personaId: persona.id, interviewGuide });
+      testedProduct.current = brief?.name;
+      const session = await api.createSession({ personaId: persona.id, interviewGuide, product: brief });
       if (!current()) return;
       sessionId.current = session.id;
       const token = await api.sessionToken(session.id);
@@ -743,7 +758,8 @@ export function InterviewRoom({
         .split("\n")
         .map((q) => q.trim())
         .filter(Boolean);
-      const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true });
+      testedProduct.current = brief?.name;
+      const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true, product: brief });
       if (g !== gen.current) return;
       const script = sampleTurns(persona.name);
       const at = new Date().toISOString();
@@ -755,7 +771,7 @@ export function InterviewRoom({
       await api.updateSession(session.id, { status: "ended" });
       if (g !== gen.current) return;
       setTurns(script.map(({ speaker, text }) => ({ who: speaker, text })));
-      setEnded({ id: session.id, questions: interviewGuide.length, sample: true });
+      setEnded({ id: session.id, questions: interviewGuide.length, sample: true, productName: testedProduct.current });
       setPhase("ended");
     } catch (e) {
       if (g !== gen.current) return;
@@ -888,7 +904,9 @@ export function InterviewRoom({
           }
         }
         if (g !== gen.current) return;
-        if (liveEstablished.current) setEnded({ id: sid, questions: questions.current });
+        if (liveEstablished.current) {
+          setEnded({ id: sid, questions: questions.current, productName: testedProduct.current });
+        }
       }
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
@@ -931,6 +949,18 @@ export function InterviewRoom({
 
   return (
     <section className="mt-4 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
+      {(phase === "idle" || phase === "ended" || phase === "error") && (
+        <p className="mb-3 text-sm text-muted" data-testid="product-under-test">
+          {brief ? (
+            <>
+              Testing <span className="font-bold text-foreground">{brief.name}</span>. The persona hears its description as
+              background; edit it in the Product step.
+            </>
+          ) : (
+            "No product described. Add one in the Product step so the persona and the debrief know what you test."
+          )}
+        </p>
+      )}
       {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mb-1 block text-sm">
           <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
@@ -1230,7 +1260,13 @@ export function InterviewRoom({
         </details>
       )}
       {phase === "ended" && ended && ended.questions > 0 && (
-        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
+        <DebriefView
+          key={ended.id}
+          sessionId={ended.id}
+          personaName={persona.name}
+          sample={ended.sample}
+          productName={ended.productName}
+        />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
         <p className="mt-4 text-sm text-muted">

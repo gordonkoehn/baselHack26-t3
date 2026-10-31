@@ -5,7 +5,7 @@ import type { CoverageReport } from "../src/lib/contracts";
 test.use({ viewport: { width: 1280, height: 720 } });
 
 async function createPersona(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await expect(page.getByLabel("Source 2 text")).toContainText("SYNTHETIC INTERVIEW");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-score")).toBeVisible();

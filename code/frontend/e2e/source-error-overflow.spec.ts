@@ -35,14 +35,14 @@ test.beforeEach(async ({ context }) => {
 for (const width of [320, 360, 390, 414]) {
   test(`source file errors wrap inside their box at ${width} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto("/");
+    await page.goto("/studio");
     const input = page.getByLabel("Add files…", { exact: true });
     const titles = page.getByRole("textbox", { name: /^Source \d+ title$/ });
     await expect(input).toBeAttached();
     await expectPageFits(page);
     // Every step tab stays on screen, not just inside a bar that can be scrolled.
     const tabs = page.getByRole("navigation", { name: "Steps" }).getByRole("button");
-    await expect(tabs).toHaveCount(5);
+    await expect(tabs).toHaveCount(6);
     for (const tab of await tabs.all()) await expect(tab).toBeInViewport({ ratio: 1 });
 
     const text = "Synthetic source for the narrow-screen check.";

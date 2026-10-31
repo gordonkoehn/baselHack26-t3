@@ -12,5 +12,10 @@
   "readySeconds": 412,
   "startedAt": "2026-10-31T14:00:00Z",
   "endedAt": null,
-  "sample": false
+  "sample": false,
+  "product": {
+    "name": "Quartier-Börse",
+    "description": "A recycling pickup service pays users in Kilo-Shares (1 Share ≈ CHF 0.50). Users split their shares between their own rewards and a neighbourhood project; Bäckerei Muff doubles shares put into the project.",
+    "prototypeUrl": null
+  }
 }

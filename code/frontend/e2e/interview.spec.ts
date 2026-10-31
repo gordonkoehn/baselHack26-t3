@@ -13,7 +13,7 @@ const typedQuestion = exampleEvents[1].data.text!;
 const spokenQuestion = exampleEvents[6].data.text!;
 
 async function createPersona(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await expect(page.getByLabel("Source 2 text")).toContainText("SYNTHETIC INTERVIEW");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
@@ -215,7 +215,7 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
 });
 
 test("backend unavailable is announced and the same sources can be retried", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/studio");
   const source = await page.getByLabel("Source 2 text").inputValue();
   // Browser-to-backend connection outage, then recovery to the real API and store.
   await page.route("**/api/personas", (route) => route.abort("connectionrefused"));
@@ -253,7 +253,7 @@ test("the card shows the readiness score and explains when there is none", async
 });
 
 test("rate limit is announced with the backend's wait time and keeps the sources", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/studio");
   const source = await page.getByLabel("Source 2 text").inputValue();
   const detail = "Too many requests from this network. Try again in 12 min.";
   await page.route("**/api/personas", (route) => route.fulfill({ status: 429, headers: { "Retry-After": "720" }, json: { detail } }));
@@ -265,6 +265,7 @@ test("rate limit is announced with the backend's wait time and keeps the sources
 
 test("a failed turn still reaches a debrief that says the transcript may have gaps, and only quotes saved turns", async ({ page, request }) => {
   const session = await startInterview(page);
+  expect(session.product?.name).toBeTruthy();
   await page.getByLabel("Type a question").fill(typedQuestion);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await answer(page, "answer-1", answers[0]);
@@ -273,10 +274,11 @@ test("a failed turn still reaches a debrief that says the transcript may have ga
   await emit(page, { type: "response.done", response: { id: "lost-response", status: "completed", output: [] } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
   await expect(page.getByText("This transcript may have gaps", { exact: false }).first()).toBeVisible();
-  const details = page.getByTestId("interview-room").locator("details");
+  const details = page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (" });
   await expect(details.locator("summary")).toContainText("may have gaps");
   const debrief = page.getByTestId("debrief");
   await expect(debrief.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
+  await expect(debrief.getByTestId("debrief-product")).toHaveText(`Product tested: ${session.product?.name}`);
   // The fixed fake debrief quotes both fixture answers; the persona only said the first.
   await expect(debrief.locator("blockquote")).toHaveCount(1);
   await expect(debrief.locator("blockquote")).toContainText(answers[0]);
@@ -289,6 +291,7 @@ test("a failed turn still reaches a debrief that says the transcript may have ga
   expect(report.transcriptGaps).toBe(true);
   await page.goto(`/report/${session.id}`);
   await expect(page.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
+  await expect(page.getByTestId("debrief-product")).toHaveText(`Product tested: ${session.product?.name}`);
 });
 
 test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {
@@ -455,6 +458,7 @@ test("the sample sprint questions stay with the example, and a saved persona com
   await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await expect(guide).toHaveValue("");
+  await expect(room.getByTestId("product-under-test")).toContainText("No product described");
   await expect(room.getByTestId("guide-check")).toBeVisible();
   await expect(room.getByRole("button", { name: "Check questions" })).toBeDisabled();
   await expect(start).toBeDisabled();
@@ -468,7 +472,7 @@ test("the sample sprint questions stay with the example, and a saved persona com
 });
 
 test("sources that are not the sample sprint start the interview with an empty guide", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByLabel("Source 1 text").fill("A neighbour said the bins are always full.");
   await page.getByLabel("Source 2 text").fill("They want to see the money arrive.");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
@@ -478,6 +482,7 @@ test("sources that are not the sample sprint start the interview with an empty g
   const room = page.getByTestId("interview-room");
   const guide = page.getByLabel(guideLabel);
   await expect(guide).toHaveValue("");
+  await expect(room.getByTestId("product-under-test")).toContainText("No product described");
   await expect(room.getByTestId("guide-check")).toBeVisible();
   await expect(room.getByRole("button", { name: "Check questions" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Start video interview" })).toBeDisabled();

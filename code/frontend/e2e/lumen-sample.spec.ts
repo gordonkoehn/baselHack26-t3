@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import type { InsightReport, Persona, Session, SessionEvent } from "../src/lib/contracts";
-import { LUMEN_GUIDE } from "../src/lib/sample";
+import { LUMEN_GUIDE, LUMEN_PRODUCT, LUMEN_PERSONAS } from "../src/lib/sample";
 
 const personaName = "Dr. Miriam Kessler";
 const sampleLabel = "Sample interview: a scripted demo transcript with no live call.";
@@ -99,7 +99,12 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const renamed = await request.patch(`/api/personas/${persona.id}`, { data: { name: personaName } });
   expect(renamed.ok()).toBe(true);
 
-  await page.goto("/");
+  await page.goto("/studio");
+  const library = page.getByRole("region", { name: "Recent personas" });
+  await expect(page.getByLabel("Conversation language")).toHaveValue("en");
+  for (const entry of LUMEN_PERSONAS.filter((entry) => entry.surname !== "Kessler")) {
+    await expect(library.getByText(entry.name, { exact: true })).toBeVisible();
+  }
   const coverageChecked = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}/coverage`) && response.request().method() === "POST");
   await page.getByRole("button", { name: new RegExp(personaName.replaceAll(".", "\\.")) }).click();
   const score = page.getByTestId("persona-score");
@@ -114,7 +119,7 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Use sample interview", exact: true }).click();
   const response = await created;
-  expect(response.request().postDataJSON()).toEqual({ personaId: persona.id, interviewGuide: LUMEN_GUIDE, sample: true });
+  expect(response.request().postDataJSON()).toEqual({ personaId: persona.id, interviewGuide: LUMEN_GUIDE, sample: true, product: LUMEN_PRODUCT });
   const session: Session = await response.json();
   const debrief = page.getByTestId("debrief");
   await expect(debrief.getByTestId("sample-label")).toContainText(sampleLabel);
@@ -138,7 +143,7 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const savedResponse = await request.get(`/api/sessions/${session.id}`);
   expect(savedResponse.ok()).toBe(true);
   const saved: Session = await savedResponse.json();
-  expect(saved).toMatchObject({ personaId: persona.id, sample: true, status: "ended", startedAt: null, interviewGuide: LUMEN_GUIDE });
+  expect(saved).toMatchObject({ personaId: persona.id, sample: true, status: "ended", startedAt: null, interviewGuide: LUMEN_GUIDE, product: LUMEN_PRODUCT });
   const eventsResponse = await request.get(`/api/sessions/${session.id}/events`);
   expect(eventsResponse.ok()).toBe(true);
   const events: SessionEvent[] = await eventsResponse.json();
