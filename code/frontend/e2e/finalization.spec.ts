@@ -15,7 +15,7 @@ declare global {
 const complete = "Ended. Microphone and camera are off, transcript saved.";
 const incomplete = "Ended without the last turn. This transcript is incomplete, so there is no debrief for it.";
 const startupIncomplete = "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry.";
-const gaps = "Ended. Microphone and camera are off. This transcript has gaps: part of the call was not captured.";
+const gaps = "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured.";
 const sentence = exampleEvents[6].data.text!;
 
 async function start(page: Page, waitForLive = true, beforeStart?: () => Promise<void>): Promise<Session> {
@@ -66,9 +66,9 @@ async function expectGaps(page: Page, request: APIRequestContext, session: Sessi
   expect(events.filter((event) => event.type === "session.ended")).toHaveLength(1);
   expect(events.at(-1)).toMatchObject({ type: "session.ended", data: { transcriptGaps: true } });
   expect(await (await request.get(`/api/sessions/${session.id}`)).json()).toMatchObject({ status: "ended" });
-  if (events.some((event) => event.type === "utterance")) await expect(transcriptSummary(page)).toContainText(", has gaps");
+  if (events.some((event) => event.type === "utterance")) await expect(transcriptSummary(page)).toContainText(", may have gaps");
   const spoke = events.some((event) => event.type === "utterance" && event.data.speaker === "persona" && event.data.text !== "(interrupted)");
-  if (spoke) await expect(page.getByTestId("debrief").getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
+  if (spoke) await expect(page.getByTestId("debrief").getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
   else await expectNothingToDebrief(page);
 }
 
@@ -189,7 +189,7 @@ for (const playing of [true, false]) {
     if (!playing) await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
     await page.evaluate(() => window.e2eRealtime.lose());
     await expectGaps(page, request, session);
-    await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+    await expect(page.getByTestId("connection-lost")).toContainText("This transcript may have gaps");
   });
 }
 
@@ -200,7 +200,7 @@ test("a connection drop after End, with only the saved answer still playing, is 
   await page.evaluate(() => window.e2eRealtime.lose());
   await settle(page);
   await expectGaps(page, request, session);
-  await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript may have gaps");
 });
 
 // The browser reports "disconnected" 5 seconds before the call counts as lost, and End often comes
@@ -234,7 +234,7 @@ test("End while the connection is disconnected is marked as gaps when the grace 
   await page.clock.runFor(5_000);
   await settle(page);
   await expectGaps(page, request, session);
-  await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript may have gaps");
 });
 
 test("a connection going bad during the drain is marked as gaps, even if closing beats the grace", async ({ page, request }) => {
@@ -269,6 +269,35 @@ test("a provider error tied to no request is marked as gaps: it may have cost a 
   await end(page);
   await settle(page);
   await expectGaps(page, request, session);
+});
+
+// "Show screen to persona" asks for an answer like a typed question does, but no spoken turn depends on its image.
+test("a rejected screen image shown to the persona is not a gap", async ({ page, request }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", { value: async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 48;
+      canvas.getContext("2d")!.fillRect(0, 0, 64, 48);
+      return canvas.captureStream(1);
+    } });
+  });
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Share screen", exact: true }).click();
+  await dialog.getByRole("button", { name: "Show screen to persona", exact: true }).click();
+  await expect(dialog.getByText("Shown to the persona.")).toBeVisible();
+  const eventId = await page.evaluate(() => window.e2eRealtime.sent.findLast((event) => event.type === "conversation.item.create" && !event.item?.id)?.event_id);
+  expect(eventId).toBeDefined();
+  await emit(page, { type: "error", error: { event_id: eventId, message: "Image too large" } });
+  await emit(page, { type: "response.done", response: { id: "screen-answer", status: "completed", output: [
+    { id: "screen-item", content: [{ type: "output_audio", transcript: "I could not see that image." }] },
+  ] } });
+  await end(page);
+  await settle(page);
+  await expectCompleteWithDebrief(page, request, session);
 });
 
 test("a rejected typed question is marked as gaps, even if the persona still answers", async ({ page, request }) => {
@@ -893,7 +922,7 @@ for (const waiting of [false, true]) {
     await page.evaluate(() => window.e2eRealtime.lose());
     await settle(page);
     await expectGaps(page, request, session);
-    await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+    await expect(page.getByTestId("connection-lost")).toContainText("This transcript may have gaps");
     expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(true);
   });
 }

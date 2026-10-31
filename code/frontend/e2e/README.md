@@ -72,7 +72,7 @@ Startup timeout cases also exercise hung POST/PATCH Save again recovery with the
 payload/seq, visible captured turns and the debrief gate for calls that never went live. A
 call that did go live always gets an end marker: lost turns set `transcriptGaps` on it and the
 debrief says so (#156). A drop always counts, since turns it cut off leave no event, and so does
-a connection that is not healthy when End is pressed or when the drain closes. On a healthy
+any `disconnected` report during the call or the drain, even if it recovers. On a healthy
 connection, audio still playing after End is not a lost turn. Audio heard with no saved words
 is, and so are saved words answering speech that transcribed to nothing.
 It also covers server playback drain, empty/failed transcription, cancelled/

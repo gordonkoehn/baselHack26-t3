@@ -764,12 +764,13 @@ export function InterviewRoom({
 
   // Sends interviewer content (typed text or a screen frame) and asks the persona to answer it.
   // Every path goes through here so "End" always waits for the answer it triggered.
-  function askWith(content: object[]): boolean {
+  // idPrefix tells errors apart: only a rejected "q:" request can cost a spoken turn.
+  function askWith(content: object[], idPrefix = "q"): boolean {
     const dc = channel.current;
     if (finalizing.current || !dc || dc.readyState !== "open") return false;
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     const ask = `a:${++asks.current}`;
-    dc.send(JSON.stringify({ type: "conversation.item.create", event_id: `q:${asks.current}`, item: { type: "message", role: "user", content } }));
+    dc.send(JSON.stringify({ type: "conversation.item.create", event_id: `${idPrefix}:${asks.current}`, item: { type: "message", role: "user", content } }));
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
@@ -785,16 +786,8 @@ export function InterviewRoom({
     setTyped("");
   }
 
-  // Words said into a bad connection leave no event, so watchConnection marks any disconnect. This
-  // covers a state read before its event arrives. A browser that doesn't report a state can't show anything.
-  function markBadConnection() {
-    const state = pc.current?.connectionState;
-    if (state && state !== "connected") lost.current = true;
-  }
-
   async function end() {
     if (finalizing.current) return;
-    markBadConnection();
     finalizing.current = true;
     endStarted.current = Date.now();
     providerActivity.current = endStarted.current;
@@ -849,7 +842,6 @@ export function InterviewRoom({
 
   async function closeDrained() {
     if (finishing.current || draining.current) return;
-    markBadConnection();
     if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
@@ -993,7 +985,7 @@ export function InterviewRoom({
               : startupFailure.current
               ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
               : lastTurnMissing && ended
-              ? "Ended. Microphone and camera are off. This transcript has gaps: part of the call was not captured."
+              ? "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
@@ -1013,7 +1005,7 @@ export function InterviewRoom({
       {connectionLost && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
           Connection lost. Microphone, camera and screen sharing are off.
-          {lastTurnMissing ? (liveEstablished.current ? " This transcript has gaps." : " This transcript is incomplete; no debrief will be generated.") : ""}
+          {lastTurnMissing ? (liveEstablished.current ? " This transcript may have gaps." : " This transcript is incomplete; no debrief will be generated.") : ""}
           {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
@@ -1070,7 +1062,7 @@ export function InterviewRoom({
                 {muted ? "Unmute mic" : "Mute mic"}
               </button>
               {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
-              <ScreenShareButton pc={pc} ask={askWith} onSharing={sharing} />
+              <ScreenShareButton pc={pc} ask={(content) => askWith(content, "shown")} onSharing={sharing} />
               {avatarSwitch}
             </>
           )}
@@ -1201,7 +1193,7 @@ export function InterviewRoom({
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
         <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">
-            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", has gaps" : ""})
+            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", may have gaps" : ""})
           </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (

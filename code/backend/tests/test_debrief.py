@@ -248,7 +248,6 @@ def test_the_prompt_tells_the_model_to_keep_the_guides_order():
                 "Do they trust the money arrives?",
             ],
         ),
-        # Unrelated questions in one language: "When" scores 0.48 against "Wie haben Sie".
         (
             [
                 "Was kostet Sie das Problem heute?",

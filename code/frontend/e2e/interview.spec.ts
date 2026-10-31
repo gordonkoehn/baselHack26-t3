@@ -263,7 +263,7 @@ test("rate limit is announced with the backend's wait time and keeps the sources
   await expect(page.getByLabel("Source 2 text")).toHaveValue(source);
 });
 
-test("a failed turn still reaches a debrief that says the transcript has gaps, and only quotes saved turns", async ({ page, request }) => {
+test("a failed turn still reaches a debrief that says the transcript may have gaps, and only quotes saved turns", async ({ page, request }) => {
   const session = await startInterview(page);
   await page.getByLabel("Type a question").fill(typedQuestion);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -272,11 +272,11 @@ test("a failed turn still reaches a debrief that says the transcript has gaps, a
   await emit(page, { type: "conversation.item.input_audio_transcription.failed", item_id: "lost-1" });
   await emit(page, { type: "response.done", response: { id: "lost-response", status: "completed", output: [] } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
-  await expect(page.getByText("This transcript has gaps", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("This transcript may have gaps", { exact: false }).first()).toBeVisible();
   const details = page.getByTestId("interview-room").locator("details");
-  await expect(details.locator("summary")).toContainText("has gaps");
+  await expect(details.locator("summary")).toContainText("may have gaps");
   const debrief = page.getByTestId("debrief");
-  await expect(debrief.getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
+  await expect(debrief.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
   // The fixed fake debrief quotes both fixture answers; the persona only said the first.
   await expect(debrief.locator("blockquote")).toHaveCount(1);
   await expect(debrief.locator("blockquote")).toContainText(answers[0]);
@@ -288,7 +288,7 @@ test("a failed turn still reaches a debrief that says the transcript has gaps, a
   const report: InsightReport = await (await request.get(`/api/sessions/${session.id}/insights`)).json();
   expect(report.transcriptGaps).toBe(true);
   await page.goto(`/report/${session.id}`);
-  await expect(page.getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
+  await expect(page.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
 });
 
 test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {

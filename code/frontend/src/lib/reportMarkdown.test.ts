@@ -55,8 +55,8 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("Persona: Anna");
   });
 
-  it("says the transcript has gaps, and stays silent when it has none", () => {
-    expect(formatReportMarkdown(report({ transcriptGaps: true }), "Anna")).toContain("This transcript has gaps");
+  it("says the transcript may have gaps, and stays silent when it has none", () => {
+    expect(formatReportMarkdown(report({ transcriptGaps: true }), "Anna")).toContain("This transcript may have gaps");
     expect(formatReportMarkdown(report({ transcriptGaps: false }), "Anna")).not.toContain("gaps");
     expect(formatReportMarkdown(report(), "Anna")).not.toContain("gaps");
   });

@@ -67,14 +67,14 @@ describe("DebriefView", () => {
     expect(debrief.textContent).toContain("Anna, an AI persona: hypotheses to check with real users, not findings.");
   });
 
-  it("shows the gaps banner on a report whose transcript has gaps, generated or saved", async () => {
+  it("shows the gaps banner on a report whose transcript may have gaps, generated or saved", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, transcriptGaps: true });
     const { unmount } = show();
-    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript has gaps");
+    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript may have gaps");
     unmount();
 
     render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} />);
-    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript has gaps");
+    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript may have gaps");
   });
 
   it("opens a gapped report with the warning, before the summary", async () => {
