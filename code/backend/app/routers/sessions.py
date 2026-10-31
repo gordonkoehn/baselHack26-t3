@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app import avatar, realtime
+from app.auth import require_passcode
 from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
 from app.extract import ProviderUnavailable
 from app.store import Store, get_store
@@ -68,7 +69,9 @@ def update_session(session_id: str, body: SessionUpdate, store: StoreDep) -> Ses
     return session
 
 
-@router.post("/{session_id}/token", response_model_by_alias=True)
+@router.post(
+    "/{session_id}/token", response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+)
 def session_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
     session = _load(store, session_id)
     if session.status == "ended":
@@ -85,7 +88,11 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     return token
 
 
-@router.post("/{session_id}/avatar-token", response_model_by_alias=True)
+@router.post(
+    "/{session_id}/avatar-token",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode)],
+)
 def avatar_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
     """Short-lived Simli token for the persona's face; the browser opens the avatar stream itself."""
     session = _load(store, session_id)
