@@ -239,10 +239,16 @@ class Store:
     def get_report(self, session_id: str) -> InsightReport | None:
         return self._load(f"{PREFIX}:session:{session_id}:report", InsightReport)
 
-    def get_reports(self, session_ids: list[str]) -> list[InsightReport | None]:
-        """Several saved reports in one round trip, in order, None where there is none."""
-        raws = self._call("mget", *[f"{PREFIX}:session:{id_}:report" for id_ in session_ids])
-        return [None if raw is None else InsightReport.model_validate_json(raw) for raw in raws]
+    def get_debriefs(self, session_ids: list[str]) -> list[tuple[Session, InsightReport] | None]:
+        """Sessions with their saved reports in one round trip, in order, None where either is gone."""
+        keys = [f"{PREFIX}:session:{id_}" for id_ in session_ids]
+        raws = self._call("mget", *keys, *[f"{key}:report" for key in keys])
+        return [
+            None
+            if session is None or report is None
+            else (Session.model_validate_json(session), InsightReport.model_validate_json(report))
+            for session, report in zip(raws[: len(keys)], raws[len(keys) :], strict=True)
+        ]
 
     def append_events(self, session_id: str, events: list[SessionEvent]) -> int:
         """Store events, returns how many were new. Identical retries add nothing.

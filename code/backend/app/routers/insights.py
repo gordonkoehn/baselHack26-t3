@@ -78,9 +78,14 @@ def create_debrief(session_id: str, store: StoreDep, debriefer: DebrieferDep) ->
 @summary_router.post("/summary", response_model_by_alias=True)
 def summarize_interviews(body: InsightSummaryRequest, store: StoreDep) -> InsightSummary:
     session_ids = list(dict.fromkeys(body.session_ids))
-    reports = store.get_reports(session_ids)
+    rows = store.get_debriefs(session_ids)
     # A partial table would look like a complete count, so a missing debrief fails the whole request.
-    missing = [id_ for id_, report in zip(session_ids, reports, strict=True) if report is None]
+    missing = [id_ for id_, row in zip(session_ids, rows, strict=True) if row is None]
     if missing:
         raise HTTPException(404, f"report not found: {', '.join(missing)}")
-    return summary.summarize(reports)
+    debriefs = [row for row in rows if row is not None]
+    # A scripted transcript is nobody's answer, and a count can't carry a sample label.
+    samples = [session.id for session, _ in debriefs if session.sample]
+    if samples:
+        raise HTTPException(409, f"sample interview: {', '.join(samples)}")
+    return summary.summarize([report for _, report in debriefs])

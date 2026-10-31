@@ -168,7 +168,8 @@ test("the sample interview reaches a labelled debrief without a live call", asyn
 
   // Nothing of a live call happened.
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  expect(requests).toEqual([
+  // Past interviews refetch as the call ends and the debrief lands, however often that turns out to be.
+  expect(requests.filter((request) => !/^GET \/api\/personas\/[^/]+\/sessions$/.test(request))).toEqual([
     "POST /api/sessions",
     `POST /api/sessions/${session.id}/events`,
     `PATCH /api/sessions/${session.id}`,
@@ -192,6 +193,11 @@ test("the sample interview reaches a labelled debrief without a live call", asyn
   // The shared link keeps the label, from the persisted session.
   await page.goto(`/report/${session.id}`);
   await expect(page.getByTestId("sample-label")).toContainText(sampleLabel);
+
+  // A hand-edited comparison link can't count it as an interview.
+  await page.goto(`/compare?id=${session.id}`);
+  await expect(page.getByRole("heading", { name: "Sample interview included" })).toBeVisible();
+  await expect(page.getByTestId("compare-table")).toHaveCount(0);
 });
 
 test("a call stuck connecting can be cancelled and the sample interview still runs", async ({ page, request }) => {

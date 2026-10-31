@@ -7,6 +7,7 @@ import type { InsightSummary } from "@/lib/contracts";
 type State =
   | { kind: "loading" }
   | { kind: "missing" }
+  | { kind: "sample" }
   | { kind: "failed" }
   | { kind: "ready"; summary: InsightSummary };
 
@@ -34,7 +35,9 @@ export function CompareView({ sessionIds }: { sessionIds: string[] }) {
         if (!cancelled) setState({ kind: "ready", summary });
       })
       .catch((e) => {
-        if (!cancelled) setState({ kind: e instanceof ApiError && e.status === 404 ? "missing" : "failed" });
+        if (cancelled) return;
+        const status = e instanceof ApiError ? e.status : null;
+        setState({ kind: status === 404 ? "missing" : status === 409 ? "sample" : "failed" });
       });
     return () => {
       cancelled = true;
@@ -52,6 +55,15 @@ export function CompareView({ sessionIds }: { sessionIds: string[] }) {
       <Notice title="Debrief not found">
         The link may be wrong or expired, or one of these interviews has no debrief yet. Nothing is counted until all of
         them have one.
+      </Notice>
+    );
+  }
+
+  if (state.kind === "sample") {
+    return (
+      <Notice title="Sample interview included">
+        A sample interview is a scripted demo transcript, so it can&apos;t be counted as somebody&apos;s answer. Compare
+        real interviews only.
       </Notice>
     );
   }

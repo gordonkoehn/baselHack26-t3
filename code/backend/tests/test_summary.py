@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import InsightReport
+from app.contracts import InsightReport, Session
 from app.main import app
 from app.routers.insights import get_debriefer
 from app.store import Store, StoreUnavailable, get_store
@@ -38,6 +38,18 @@ def report(session_id, *questions):
             "questions": list(questions),
         }
     )
+
+
+def save(store, saved, sample=False):
+    session = Session(
+        id=saved.session_id,
+        persona_id="p_1",
+        status="ended",
+        provider="openai-realtime",
+        sample=sample,
+    )
+    store.save_session(session)
+    store.save_report(saved)
 
 
 @pytest.fixture
@@ -140,8 +152,8 @@ def test_every_interview_keeps_its_two_strongest_quotes():
 
 
 def test_route_summarises_saved_debriefs_without_a_model(client, store):
-    store.save_report(report("s_1", question(Q1, "supports", insight("i1"))))
-    store.save_report(report("s_2", question(Q1, "supports", insight("i1"))))
+    save(store, report("s_1", question(Q1, "supports", insight("i1"))))
+    save(store, report("s_2", question(Q1, "supports", insight("i1"))))
     provider = Mock(side_effect=AssertionError("a summary must not call a model"))
     app.dependency_overrides[get_debriefer] = lambda: provider
     try:
@@ -156,18 +168,33 @@ def test_route_summarises_saved_debriefs_without_a_model(client, store):
 
 
 def test_route_counts_a_repeated_id_once(client, store):
-    store.save_report(report("s_1", question(Q1, "supports", insight("i1"))))
+    save(store, report("s_1", question(Q1, "supports", insight("i1"))))
     body = client.post(URL, json={"sessionIds": ["s_1", "s_1"]}).json()
     assert body["questions"][0]["supports"] == 1
     assert len(body["questions"][0]["insights"]) == 1
 
 
 def test_route_refuses_a_partial_count_when_a_debrief_is_missing(client, store):
-    store.save_report(report("s_1", question(Q1, "supports")))
+    save(store, report("s_1", question(Q1, "supports")))
     response = client.post(URL, json={"sessionIds": ["s_1", "s_gone"]})
     assert response.status_code == 404
     assert "s_gone" in response.json()["detail"]
     assert "s_1" not in response.json()["detail"]
+
+
+def test_route_refuses_a_debrief_that_outlived_its_session(client, store):
+    # /report/{id} needs the session too, so its quotes could not open their source interview.
+    store.save_report(report("s_1", question(Q1, "supports")))
+    assert client.post(URL, json={"sessionIds": ["s_1"]}).status_code == 404
+
+
+def test_route_refuses_to_count_a_sample_interview(client, store):
+    save(store, report("s_real", question(Q1, "supports")))
+    save(store, report("s_sample", question(Q1, "supports")), sample=True)
+    response = client.post(URL, json={"sessionIds": ["s_real", "s_sample"]})
+    assert response.status_code == 409
+    assert "s_sample" in response.json()["detail"]
+    assert "s_real" not in response.json()["detail"]
 
 
 @pytest.mark.parametrize("session_ids", [[], [f"s_{i}" for i in range(51)]])
@@ -178,7 +205,7 @@ def test_route_rejects_no_ids_or_too_many(client, session_ids):
 def test_route_accepts_as_many_ids_as_a_persona_can_list(client, store):
     session_ids = [f"s_{i}" for i in range(50)]
     for session_id in session_ids:
-        store.save_report(report(session_id, question(Q1, "supports")))
+        save(store, report(session_id, question(Q1, "supports")))
     body = client.post(URL, json={"sessionIds": session_ids})
     assert body.status_code == 200, body.text
     assert body.json()["questions"][0]["supports"] == 50
@@ -186,10 +213,10 @@ def test_route_accepts_as_many_ids_as_a_persona_can_list(client, store):
 
 def test_route_needs_no_passcode_like_reading_one_report(client, store, monkeypatch):
     monkeypatch.setenv("DEMO_PASSCODE", "team-pass")
-    store.save_report(report("s_1", question(Q1, "supports")))
+    save(store, report("s_1", question(Q1, "supports")))
     assert client.post(URL, json={"sessionIds": ["s_1"]}).status_code == 200
 
 
 def test_route_answers_503_when_the_store_is_down(client, store, monkeypatch):
-    monkeypatch.setattr(store, "get_reports", Mock(side_effect=StoreUnavailable("store down")))
+    monkeypatch.setattr(store, "get_debriefs", Mock(side_effect=StoreUnavailable("store down")))
     assert client.post(URL, json={"sessionIds": ["s_1"]}).status_code == 503

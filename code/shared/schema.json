@@ -394,6 +394,6 @@
     "POST /api/sessions/{id}/coach": { "body": "{ turnSeq }", "response": "SessionEvent (copilot.suggestion)", "status": "draft" },
     "POST /api/sessions/{id}/debrief": { "response": "InsightReport", "status": "draft" },
     "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" },
-    "POST /api/insights/summary": { "body": "InsightSummaryRequest", "response": "InsightSummary", "note": "No passcode, like GET /api/sessions/{id}/insights: it never calls a model and only returns what those ids can already read. 404 if any interview has no saved debrief (never a partial count), 422 for no ids or more than 50, 503 store unavailable." }
+    "POST /api/insights/summary": { "body": "InsightSummaryRequest", "response": "InsightSummary", "note": "No passcode, like GET /api/sessions/{id}/insights: it never calls a model and only returns what those ids can already read. 404 if any interview has no saved debrief (never a partial count), 409 if any is a sample interview (a scripted transcript counts as nobody's answer), 422 for no ids or more than 50, 503 store unavailable." }
   }
 }
