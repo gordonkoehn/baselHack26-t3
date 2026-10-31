@@ -320,35 +320,38 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     : null;
 
   return (
-    <section className="mt-8 rounded border border-current/20 p-4" data-testid="interview-room">
+    <section className="mt-8 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide opacity-60">Voice interview (pilot)</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Voice interview (pilot)</h3>
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <button
             type="button"
-            className="rounded bg-foreground px-3 py-1.5 text-sm text-background"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90"
             onClick={start}
           >
             {phase === "idle" ? "Start voice interview" : "Start again"}
           </button>
         )}
-        {phase === "connecting" && <span className="text-sm opacity-70">Connecting…</span>}
+        {phase === "connecting" && <span className="text-sm text-muted">Connecting…</span>}
         {phase === "live" && (
           <>
-            <span className="text-sm text-green-600">● Live, speak now</span>
-            <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={end}>
+            <span className="flex items-center gap-2 text-sm font-medium text-accent">
+              <span aria-hidden className="size-2 animate-pulse rounded-full bg-accent" />
+              Live, speak now
+            </span>
+            <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={end}>
               End interview
             </button>
             <ScreenShareButton pc={pc} channel={channel} />
           </>
         )}
-        {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
+        {phase === "ending" && <span className="text-sm text-muted">Saving transcript…</span>}
         {phase === "waiting" && (
           <>
-            <span className="text-sm opacity-70">Waiting for the last turn to finish…</span>
+            <span className="text-sm text-muted">Waiting for the last turn to finish…</span>
             <button
               type="button"
-              className="rounded border border-current/30 px-3 py-1.5 text-sm"
+              className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted"
               onClick={() => (giveUp.current = true)}
             >
               Close without it
@@ -356,33 +359,33 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           </>
         )}
         {phase === "ended" && (
-          <span className="text-sm opacity-70">
+          <span className="text-sm text-muted">
             {lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone is off, transcript saved."}
           </span>
         )}
         {phase === "unsaved" && (
-          <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={finish}>
+          <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={finish}>
             Save again
           </button>
         )}
       </div>
-      <p className="mt-1 text-xs opacity-60">
+      <p className="mt-2 text-xs text-muted">
         You are talking to an AI persona ({persona.name}), not a real person.
       </p>
       {(phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mt-3 block text-sm">
-          <span className="opacity-70">Interview questions, one per line (the debrief answers these)</span>
+          <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
           <textarea
-            className="mt-1 h-20 w-full rounded border border-current/30 bg-transparent p-2 text-sm"
+            className="mt-1 h-20 w-full rounded-md border border-line bg-surface p-2 text-sm"
             value={guide}
             onChange={(e) => setGuide(e.target.value)}
           />
         </label>
       )}
       {saveState.total > 0 && (
-        <p className="mt-1 text-xs tabular-nums opacity-60" data-testid="save-state">
+        <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
           Transcript saved {saveState.saved}/{saveState.total}
           {phase === "live" && saveState.failed && saveState.saved < saveState.total
             ? " · not saved yet, retrying with the next turn"
@@ -396,20 +399,20 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <div className="mt-3 flex gap-2">
           <input
             aria-label="Type a question"
-            className="min-w-0 flex-1 rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm"
             placeholder="…or type a question"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && ask()}
           />
-          <button type="button" className="rounded border border-current/30 px-3 py-1 text-sm" onClick={ask}>
+          <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={ask}>
             Ask
           </button>
         </div>
       )}
 
       {error && (
-        <p role="alert" className="mt-3 rounded bg-red-50 p-3 text-sm text-red-800">
+        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
         </p>
       )}
@@ -417,8 +420,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       {turns.length > 0 && (
         <ol className="mt-4 space-y-2 text-sm" data-testid="transcript">
           {turns.map((t, i) => (
-            <li key={i} className={t.cancelled ? "opacity-50" : ""}>
-              <span className="mr-2 text-xs font-medium uppercase opacity-60">
+            <li
+              key={i}
+              className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed ${
+                t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+              } ${t.cancelled ? "opacity-50" : ""}`}
+            >
+              <span className="mb-0.5 block text-xs font-medium text-muted">
                 {t.who === "persona" ? persona.name : "You"}
               </span>
               {t.text}
@@ -428,7 +436,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       )}
 
       {(metrics.latenciesMs.length > 0 || metrics.outputTokens > 0) && (
-        <p className="mt-3 text-xs tabular-nums opacity-60" data-testid="metrics">
+        <p className="mt-3 text-xs tabular-nums text-muted" data-testid="metrics">
           Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
           {metrics.inputTokens} / out {metrics.outputTokens}
         </p>
@@ -437,7 +445,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
-        <p className="mt-4 text-sm opacity-70">
+        <p className="mt-4 text-sm text-muted">
           No debrief: this interview had no interview questions. Add some above and start again.
         </p>
       )}
