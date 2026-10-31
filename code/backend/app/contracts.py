@@ -94,6 +94,17 @@ class PersonaSummary(Model):
     readiness: Readiness | None
 
 
+class SpeechNotes(Model):
+    notes: str | None = None
+
+
+class PersonaUpdate(Model):
+    jobs: list[Fact] | None = None
+    pains: list[Fact] | None = None
+    objections: list[Fact] | None = None
+    speech_style: SpeechNotes | None = None
+
+
 class PersonaSource(Model):
     kind: SourceKind
     title: str | None = None

@@ -8,7 +8,7 @@ import json
 import time
 from datetime import UTC, datetime
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -50,6 +50,25 @@ redis.call('ZADD', KEYS[1], 'NX', ARGV[1], ARGV[2])
 redis.call('ZREMRANGEBYRANK', KEYS[1], 0, ARGV[3])
 redis.call('EXPIRE', KEYS[1], ARGV[4])
 """
+
+
+# KEYS[1] = session JSON; ARGV = expected raw JSON, replacement JSON, TTL.
+# Compare exact bytes atomically. Never decode/re-encode unrelated fields in Lua:
+# cjson can lose numeric precision and change empty arrays into objects.
+TRANSITION_SESSION = """
+local raw = redis.call('GET', KEYS[1])
+if not raw then return {'missing', ''} end
+if raw ~= ARGV[1] then return {'retry', raw} end
+if raw ~= ARGV[2] then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+end
+return {'ok', ARGV[2]}
+"""
+SESSION_TRANSITION_ATTEMPTS = 16
+
+
+class SessionConflict(Exception):
+    """The requested status would move a session backwards."""
 
 
 class StoreUnavailable(Exception):
@@ -133,6 +152,39 @@ class Store:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._load(f"{PREFIX}:session:{session_id}", Session)
+
+    def transition_session(
+        self, session_id: str, status: Literal["live", "ended"], at: str
+    ) -> Session | None:
+        key = f"{PREFIX}:session:{session_id}"
+        raw = self._call("get", key)
+        for _ in range(SESSION_TRANSITION_ATTEMPTS):
+            if raw is None:
+                return None
+            session = Session.model_validate_json(raw)
+            if session.status == status:
+                updated = raw  # Idempotence must not refresh the TTL or timestamps.
+            elif session.status == "created" or (session.status == "live" and status == "ended"):
+                # Prepare JSON in Python, preserving nulls, lists, Unicode and numeric precision.
+                fields = json.loads(raw)
+                fields["status"] = status
+                fields["startedAt" if status == "live" else "endedAt"] = at
+                updated = json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+            else:
+                raise SessionConflict(f"cannot go from {session.status} to {status}")
+            result, value = self._call(
+                "eval",
+                TRANSITION_SESSION,
+                keys=[key],
+                args=[raw, updated, str(TTL_SECONDS)],
+            )
+            if result == "missing":
+                return None
+            if result == "ok":
+                return Session.model_validate_json(value)
+            # Another writer won. Revalidate its exact snapshot before attempting any write.
+            raw = value
+        raise StoreUnavailable("session transition contention limit exceeded")
 
     def save_report(self, report: InsightReport) -> None:
         self._put(f"{PREFIX}:session:{report.session_id}:report", report)

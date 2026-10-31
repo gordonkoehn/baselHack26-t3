@@ -8,6 +8,7 @@ import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
+import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 
 // Voice interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
@@ -25,9 +26,15 @@ const CAMERA_FRAME_MS = 15_000;
 type ServerEvent = {
   type: string;
   item_id?: string;
+  response_id?: string;
   content_index?: number;
   transcript?: string;
-  response?: { id?: string; status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+  response?: {
+    id?: string;
+    status?: string;
+    output?: { id?: string; content?: { type: string; transcript?: string; text?: string }[] }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
   error?: { message?: string; event_id?: string };
 };
 
@@ -50,7 +57,17 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const questions = useRef(0);
   // Provider work still in flight: committed speech awaiting its transcript, and open responses.
   // "End" waits for both, so the last turn isn't cut off by closing the call.
-  const pending = useRef(new Set<string>());
+  const work = useRef(new TranscriptWork());
+  const pending = useRef(work.current.pending);
+  const providerActivity = useRef(0);
+  const finalProviderAt = useRef<number | null>(null);
+  const endStarted = useRef<number | null>(null);
+  const drainStarted = useRef(0);
+  const commitAttempted = useRef(false);
+  const durationSeconds = useRef(0);
+  const [finalStage, setFinalStage] = useState("Checking the final provider events");
+  const [endSeconds, setEndSeconds] = useState(0);
+  const retryBatch = useRef<{ events: SessionEvent[]; attempts: number } | null>(null);
   // A provider turn that failed (not cancelled) leaves a hole: the transcript then counts as incomplete.
   const lost = useRef(false);
   // Finalized provider items already recorded; the same item must never become two seqs.
@@ -59,17 +76,19 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const gen = useRef(0);
   const asks = useRef(0);
   const [lastTurnMissing, setLastTurnMissing] = useState(false);
-  const giveUp = useRef(false);
   const [connectionLost, setConnectionLost] = useState(false);
   const callLost = useRef(false);
   const callClosed = useRef(true);
   const finalizing = useRef(false);
   const finishing = useRef(false);
+  const draining = useRef(false);
   const stopWatching = useRef<(() => void) | null>(null);
   const callAbort = useRef<AbortController | null>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
+  // Muted: the mic track sends silence, so room talk can't start a turn; typing still works.
+  const [muted, setMuted] = useState(false);
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
@@ -85,7 +104,6 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [avatarOn, setAvatarOn] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
-  const sessionLive = useRef<Promise<void> | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
 
@@ -192,6 +210,25 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     return () => clearInterval(id);
   }, [phase]);
 
+  useEffect(() => {
+    if (phase !== "ending" && phase !== "waiting") return;
+    const tick = () => {
+      setEndSeconds(Math.floor((Date.now() - (endStarted.current ?? Date.now())) / 1000));
+      if (!callClosed.current) setFinalStage(drainDescription(pending.current));
+    };
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // Only durations, counts and fixed error classes; never provider payloads or user content.
+  function measure(stage: string, since: number, outcome = "ok", until = performance.now()) {
+    console.info("Transcript finalization", {
+      stage, elapsedMs: Math.max(0, Math.round(until - since)),
+      pending: pending.current.size, saved: saved.current, total: events.current.length, outcome,
+    });
+  }
+
   // Keep the newest turn visible; only the transcript box scrolls, never the page.
   useEffect(() => {
     const el = transcript.current;
@@ -215,6 +252,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    setMuted(false);
   }
 
   function loseConnection(g: number) {
@@ -224,53 +262,68 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     // Freeze the transcript before another queued callback can claim a missing turn arrived.
     if (pending.current.size > 0) lost.current = true;
     hangUp();
-    void end();
+    if (finalizing.current) {
+      if (!draining.current) void closeDrained(false);
+    } else void end();
   }
 
   function onEvent(e: ServerEvent) {
+    providerActivity.current = Date.now();
     switch (e.type) {
       case "conversation.item.deleted":
         if (e.item_id === cameraDelete.current?.itemId) cameraDelete.current?.resolve(true);
         break;
       case "input_audio_buffer.speech_stopped":
+        work.current.stopped(e.item_id);
         askedAt.current = performance.now();
         break;
       case "output_audio_buffer.started":
+        work.current.playback(e.response_id, false);
         if (askedAt.current !== null) {
           const ms = performance.now() - askedAt.current;
           setMetrics((m) => ({ ...m, latenciesMs: [...m.latenciesMs, ms] }));
           askedAt.current = null;
         }
         break;
+      case "output_audio_buffer.stopped":
+      case "output_audio_buffer.cleared":
+        work.current.playback(e.response_id, true);
+        break;
       case "input_audio_buffer.speech_started":
         // The interviewer talks over the persona: stop the avatar's queued mouth movement too.
         avatar.current?.clear();
-        pending.current.add("speech");
+        work.current.speech(e.item_id);
         break;
       case "input_audio_buffer.committed":
-        pending.current.delete("speech");
-        if (e.item_id) pending.current.add(`t:${e.item_id}`);
+        work.current.commit(e.item_id);
         break;
       case "conversation.item.input_audio_transcription.failed":
-        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
+        work.current.transcribed(e.item_id, true);
         lost.current = true;
         break;
       case "response.created": {
-        // The oldest typed question waiting for its answer is now acknowledged by a real response.
-        const ask = [...pending.current].find((k) => k.startsWith("a:"));
-        if (ask) pending.current.delete(ask);
-        if (e.response?.id) pending.current.add(`r:${e.response.id}`);
+        if (!e.response?.id) lost.current = true;
+        work.current.created(e.response?.id);
         break;
       }
       case "conversation.item.input_audio_transcription.completed":
-        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
-        if (e.transcript?.trim() && once(`t:${e.item_id}`)) addTurn("interviewer", e.transcript.trim());
+        if (!e.item_id) lost.current = true;
+        if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
-        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index}`)) addTurn("persona", e.transcript.trim());
+        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
-        if (e.response?.id) pending.current.delete(`r:${e.response.id}`);
+        if (!e.response?.id || !["completed", "cancelled", "failed", "incomplete"].includes(e.response.status ?? "")) lost.current = true;
+        if (!work.current.done(e.response?.id)) break;
+        // Reconcile missing transcript.done events from the terminal response output,
+        // using the same item/content key, including empty or cancelled answers.
+        for (const item of e.response?.output ?? []) {
+          item.content?.forEach((content, index) => {
+            const text = content.transcript ?? content.text;
+            if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
+          });
+        }
         if (e.response?.status === "failed" || e.response?.status === "incomplete") lost.current = true;
         const usage = e.response?.usage;
         setMetrics((m) => ({
@@ -281,6 +334,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         // Interrupted answers end as "cancelled": keep them visible but marked, never silently dropped.
         if (e.response?.status === "cancelled") {
           setTurns((t) => [...t, { who: "persona", text: "(interrupted)", cancelled: true }]);
+          record("utterance", { speaker: "persona", text: "(interrupted)" });
         }
         break;
       }
@@ -300,11 +354,15 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         break;
       }
     }
+    if (finalizing.current) finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
   }
 
   // True the first time a provider item is seen. Events without an id are always new.
   function once(key: string) {
-    if (key.includes("undefined")) return true;
+    if (key.includes("undefined")) {
+      lost.current = true;
+      return true;
+    }
     if (seen.current.has(key)) return false;
     seen.current.add(key);
     return true;
@@ -327,7 +385,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       data,
     } as SessionEvent);
     setSaveState((st) => ({ ...st, total: events.current.length }));
-    void flush();
+    if (!finalizing.current) void flush();
   }
 
   // Send everything not yet confirmed, one request at a time so seqs arrive in order.
@@ -335,31 +393,45 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   async function flush(): Promise<boolean> {
     const sid = sessionId.current;
     const g = gen.current;
-    while (sid && g === gen.current && saved.current < events.current.length) {
-      if (sending.current) {
-        await sending.current;
-        continue;
-      }
-      const batch = events.current.slice(saved.current);
-      let ok = false;
-      const request: Promise<void> = api
-        .postEvents(sid, batch)
-        .then(() => {
-          if (g !== gen.current) return; // an answer for an earlier session
-          saved.current += batch.length;
-          ok = true;
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (sending.current === request) sending.current = null;
-          if (g === gen.current) setSaveState({ saved: saved.current, total: events.current.length, failed: !ok });
-        });
-      sending.current = request;
-      await request;
-      // Keep the unsent rest for the next turn or the final save instead of hammering the API.
-      if (!ok) return false;
+    if (!sid) return false;
+    if (sending.current) {
+      await sending.current;
+      if (g !== gen.current) return false;
+      return flush();
     }
-    return true;
+    if (g !== gen.current) return false;
+    if (saved.current >= events.current.length) return true;
+    // Keep the failed batch intact even when new turns arrive during its request.
+    // Concurrent callers share one finite retry budget for this exact batch.
+    const request = (async () => {
+      while (g === gen.current && saved.current < events.current.length) {
+        const batch = retryBatch.current ?? { events: events.current.slice(saved.current), attempts: 0 };
+        retryBatch.current = batch;
+        if (batch.attempts >= SAVE_ATTEMPTS) return;
+        batch.attempts += 1;
+        const requestStarted = performance.now();
+        try {
+          await api.postEvents(sid, batch.events);
+          if (g !== gen.current) return;
+          saved.current += batch.events.length;
+          retryBatch.current = null;
+          setSaveState({ saved: saved.current, total: events.current.length, failed: false });
+        } catch (error) {
+          if (g !== gen.current) return;
+          setSaveState({ saved: saved.current, total: events.current.length, failed: true });
+          if (endStarted.current !== null) measure("events", requestStarted, error instanceof Error ? error.name : "Error");
+          if (error instanceof ApiError && error.status < 500) batch.attempts = SAVE_ATTEMPTS;
+          if (batch.attempts < SAVE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
+    })();
+    sending.current = request;
+    try {
+      await request;
+      return g === gen.current && saved.current === events.current.length;
+    } finally {
+      if (sending.current === request) sending.current = null;
+    }
   }
 
   async function start() {
@@ -373,13 +445,12 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     const g = gen.current;
     callClosed.current = false;
     callLost.current = false;
-    finalizing.current = finishing.current = false;
+    finalizing.current = finishing.current = draining.current = false;
     setConnectionLost(false);
     const abort = new AbortController();
     callAbort.current = abort;
     const current = () => g === gen.current && !callClosed.current;
     sessionId.current = null;
-    sessionLive.current = null;
     liveSince.current = Date.now();
     cameraItem.current = null;
     cameraSeq.current = 0;
@@ -390,8 +461,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     sending.current = null;
     seen.current.clear();
     lost.current = false;
-    pending.current.clear();
-    giveUp.current = false;
+    work.current = new TranscriptWork();
+    pending.current = work.current.pending;
+    providerActivity.current = Date.now();
+    endStarted.current = null;
+    commitAttempted.current = false;
+    retryBatch.current = null;
+    setEndSeconds(0);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
     try {
@@ -414,7 +490,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         if (audio.current) audio.current.srcObject = ev.streams[0];
         setVoice(ev.track);
       };
-      const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Ask the browser to filter echo and room noise (ideal values: ignored where unsupported).
+      const microphone = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       if (!current()) {
         microphone.getTracks().forEach((t) => t.stop());
         return;
@@ -469,14 +548,24 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         if (abort.signal.aborted) cancelled();
       });
       if (!current()) return;
-      sessionLive.current = api.updateSession(session.id, { status: "live" }).then(() => {});
-      await sessionLive.current;
+      await api.updateSession(session.id, { status: "live" });
       if (!current()) return;
       liveSince.current = Date.now();
       setLiveSeconds(0);
       setPhase("live");
     } catch (e) {
       if (!current()) return;
+      if (sessionId.current) {
+        // A failed startup may already have captured turns or mutated remote state.
+        // Close as incomplete and preserve the same save/retry path as an ended call.
+        lost.current = true;
+        finalizing.current = true;
+        endStarted.current = Date.now();
+        drainStarted.current = performance.now();
+        durationSeconds.current = Math.round((Date.now() - liveSince.current) / 1000);
+        await closeDrained(true);
+        return;
+      }
       hangUp();
       setPhase("error");
       if (e instanceof DOMException && e.name === "NotAllowedError") setError("Microphone access was denied.");
@@ -489,7 +578,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // Every path goes through here so "End" always waits for the answer it triggered.
   function askWith(content: object[]): boolean {
     const dc = channel.current;
-    if (!dc || dc.readyState !== "open") return false;
+    if (finalizing.current || !dc || dc.readyState !== "open") return false;
     dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     const ask = `a:${++asks.current}`;
@@ -511,59 +600,109 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   async function end() {
     if (finalizing.current) return;
     finalizing.current = true;
-    const g = gen.current;
-    setPhase("ending");
-    // Mic off first, then wait until the provider has finished every transcript and answer it
-    // started; only then close the call, so the last turn can't be cut off.
+    endStarted.current = Date.now();
+    providerActivity.current = endStarted.current;
+    finalProviderAt.current = null;
+    durationSeconds.current = Math.round((Date.now() - liveSince.current) / 1000);
+    drainStarted.current = performance.now();
+    // Stop all capture immediately. ScreenShareButton unmounts when leaving live.
     mic.current?.getTracks().forEach((t) => t.stop());
-    for (let waited = 0; pending.current.size > 0 && !callLost.current && g === gen.current && waited < 10_000; waited += 200) {
-      await new Promise((r) => setTimeout(r, 200));
+    camStream.current?.getTracks().forEach((t) => t.stop());
+    camStream.current = null; // Invalidate an already-running camera capture before React cleanup.
+    setCam(null);
+    await drain();
+  }
+
+  async function drain() {
+    if (draining.current || finishing.current) return;
+    draining.current = true;
+    const g = gen.current;
+    const until = Date.now() + DRAIN_ATTEMPT_MS;
+    setPhase("ending");
+    setFinalStage(drainDescription(pending.current));
+    // Allow VAD to settle naturally first. Only server-confirmed active speech that has
+    // not stopped/committed/transcribed warrants one conditional commit at End.
+    // Manual commit starts transcription, not a response; never cancel an answer.
+    while (g === gen.current && !callLost.current) {
+      if (!commitAttempted.current && Date.now() - (endStarted.current ?? Date.now()) >= 500 && work.current.reserveCommit()) {
+        commitAttempted.current = true;
+        try {
+          if (channel.current?.readyState === "open") {
+            channel.current.send(JSON.stringify({ type: "input_audio_buffer.commit", event_id: `end_commit_${g}` }));
+          }
+        } catch {
+          lost.current = true;
+        }
+      }
+      // All expected responses must reach a terminal event; this small scheduling
+      // grace only lets already completed work finish dispatching queued events.
+      if (pending.current.size === 0 && Date.now() - providerActivity.current >= 300) break;
+      if (Date.now() >= until) {
+        draining.current = false;
+        setPhase("waiting");
+        measure("provider-drain", drainStarted.current, "waiting");
+        return; // Another bounded attempt requires an explicit click.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (g !== gen.current) return;
-    if (pending.current.size > 0 && !callLost.current) {
-      // Still not done: keep the call open and let the interviewer decide, never guess "complete".
-      setPhase("waiting");
-      while (pending.current.size > 0 && !giveUp.current && !callLost.current && g === gen.current) await new Promise((r) => setTimeout(r, 500));
-    }
-    if (g !== gen.current) return;
-    const incomplete = pending.current.size > 0 || lost.current;
-    setLastTurnMissing(incomplete);
+    draining.current = false;
+    await closeDrained(false);
+  }
+
+  async function closeDrained(incomplete: boolean) {
+    if (finishing.current) return;
+    if (incomplete || pending.current.size > 0) lost.current = true;
+    setLastTurnMissing(lost.current);
+    measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
-    // No end marker for an incomplete transcript: the backend then refuses a debrief (409) on its own.
-    if (!incomplete) {
-      record("session.ended", { durationSeconds: Math.round((Date.now() - liveSince.current) / 1000) });
-    }
     await finish();
   }
 
-  // The session is only marked ended once the whole transcript, marker included, is stored.
-  async function finish() {
+  // Create the terminal marker once, only after all captured turns are stored.
+  // Failed POST/PATCH attempts keep the exact events for an explicit Save again.
+  async function finish(retry = false) {
     if (finishing.current) return;
     finishing.current = true;
+    if (retry && retryBatch.current) retryBatch.current.attempts = 0;
     const g = gen.current;
     const sid = sessionId.current;
+    const persistStarted = performance.now();
     setPhase("ending");
+    setFinalStage("Saving captured text");
     setError(null);
-    let ok = false;
-    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
-      if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
-      if (g !== gen.current) return;
-      ok = await flush();
-    }
-    if (g !== gen.current) return;
     try {
-      if (!ok) throw new Error("transcript not saved");
+      if (!await flush()) throw new Error("TranscriptSaveError");
+      if (g !== gen.current) return;
+      if (!lost.current && pending.current.size === 0 && !events.current.some((event) => event.type === "session.ended")) {
+        record("session.ended", { durationSeconds: durationSeconds.current });
+        if (!await flush()) throw new Error("TranscriptSaveError");
+      }
+      if (g !== gen.current) return;
+      measure("events", persistStarted);
+      setFinalStage("Closing the saved session");
+      const patchStarted = performance.now();
       if (sid) {
-        // A loss while startup's PATCH is in flight must not let "live" overtake "ended".
-        await sessionLive.current?.catch(() => {});
-        if (g !== gen.current) return;
-        await api.updateSession(sid, { status: "ended" });
+        // Atomic server transitions keep ended terminal even if startup finishes late.
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await api.updateSession(sid, { status: "ended" });
+            break;
+          } catch (error) {
+            if (g !== gen.current) return;
+            if (attempt >= SAVE_ATTEMPTS || (error instanceof ApiError && error.status < 500)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
         if (g !== gen.current) return;
         if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
       }
+      measure("session-patch", patchStarted);
+      measure("total", drainStarted.current);
       setPhase("ended");
-    } catch {
+    } catch (error) {
       if (g !== gen.current) return;
+      measure("persistence", persistStarted, error instanceof Error ? error.name : "Error");
       setPhase("unsaved");
       setError(`Could not finish saving (${saved.current}/${events.current.length} events stored). The call is closed. Choose Save again to retry.`);
     } finally {
@@ -586,7 +725,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
       Transcript saved {saveState.saved}/{saveState.total}
       {phase === "live" && saveState.failed && saveState.saved < saveState.total
-        ? " · not saved yet, retrying with the next turn"
+        ? " · automatic retries stopped; finish the call, then choose Save again"
         : ""}
     </p>
   );
@@ -613,7 +752,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           </span>
         )}
         {phase === "unsaved" && (
-          <button type="button" className={btn} onClick={finish}>
+          <button type="button" className={btn} onClick={() => finish(true)}>
             Save again
           </button>
         )}
@@ -641,6 +780,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           />
         </label>
       )}
+      {!inCall && phase === "ending" && <p role="status">{finalStage} · {endSeconds}s elapsed</p>}
       {!inCall && saveLine}
       {!inCall && errorBox}
 
@@ -671,14 +811,31 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
               <button type="button" className={btn} onClick={end}>
                 End interview
               </button>
+              <button
+                type="button"
+                className={btn}
+                aria-pressed={muted}
+                onClick={() => {
+                  mic.current?.getAudioTracks().forEach((t) => (t.enabled = muted));
+                  setMuted(!muted);
+                }}
+              >
+                {muted ? "Unmute mic" : "Mute mic"}
+              </button>
+              {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
               <ScreenShareButton pc={pc} ask={askWith} />
             </>
           )}
-          {phase === "ending" && <span className="text-sm text-muted">Saving transcript…</span>}
+          {(phase === "ending" || phase === "waiting") && (
+            <span role="status" className="text-sm text-muted">{finalStage} · {endSeconds}s elapsed</span>
+          )}
           {phase === "waiting" && (
             <>
-              <span className="text-sm text-muted">Waiting for the last turn to finish…</span>
-              <button type="button" className={btn} onClick={() => (giveUp.current = true)}>
+              <span className="text-sm text-muted">The wait limit was reached. Capture is off.</span>
+              {channel.current?.readyState === "open" && (
+                <button type="button" className={btn} onClick={drain}>Continue waiting (10 seconds)</button>
+              )}
+              <button type="button" className={btn} onClick={() => closeDrained(true)}>
                 Close without it
               </button>
             </>
@@ -745,8 +902,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         {inCall && errorBox}
       </dialog>
 
-      {(phase === "ended" || (connectionLost && !inCall)) && turns.length > 0 && (
-        <details className="mt-4 text-sm" open={connectionLost}>
+      {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
+        <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">Transcript ({turns.length} turns)</summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (

@@ -1,6 +1,8 @@
 import re
 import threading
 
+from app.store import APPEND_EVENTS, INDEX_PERSONA, TRANSITION_SESSION
+
 
 class FakeRedis:
     """The few Upstash commands the store uses, atomic like Redis (one lock)."""
@@ -33,12 +35,21 @@ class FakeRedis:
         return dict(self.data.get(key, {}))
 
     def eval(self, script, keys, args):
-        """Runs the store's scripts' semantics in one locked step, like Redis would."""
-        if "ZADD" in script:
+        """Model the supported scripts atomically; only INDEX_PERSONA really runs its commands."""
+        if script == INDEX_PERSONA:
             return self._run_commands(script, keys, args)
-        assert "EXPIRE" in script
-        assert "HSETNX" in script
         with self.lock:
+            if script == TRANSITION_SESSION:
+                raw = self.data.get(keys[0])
+                if raw is None:
+                    return ["missing", ""]
+                if raw != args[0]:
+                    return ["retry", raw]
+                if raw != args[1]:
+                    self.data[keys[0]] = args[1]
+                    self.ttl[keys[0]] = int(args[2])
+                return ["ok", args[1]]
+            assert script == APPEND_EVENTS
             h = self.data.setdefault(keys[0], {})
             out = []
             for field, value in zip(args[1::2], args[2::2], strict=True):

@@ -19,7 +19,7 @@ frontend:         ## frontend only
 check:            ## what CI runs — run before pushing
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run pytest -q
 	cd backend && uv export --no-dev --no-hashes -q -o requirements.txt && git diff --exit-code requirements.txt
-	cd frontend && npm run lint && npm run typecheck && npm run build
+	cd frontend && npm run lint && npm run typecheck && npm run check:contracts && npm run test:contracts && npm run build
 
 fix:              ## auto-fix formatting + lint, then run make check
 	cd backend && uv run ruff format . && uv run ruff check --fix .

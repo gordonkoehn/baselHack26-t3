@@ -298,3 +298,38 @@ def test_sparse_draft_omits_null_optional_fields(client):
         assert body["attitudes"] == {}
         assert body["speechStyle"] == {"notes": None}
         assert all("evidenceId" in f for f in body["jobs"])
+
+
+def test_patch_removes_edits_and_downgrades_facts(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    grounded = [f for f in created["pains"] if f["label"] == "grounded"]
+    assert grounded, "example persona needs a grounded pain"
+    kept = created["pains"][0]  # the other pains are removed
+    edited = {**grounded[0], "text": grounded[0]["text"] + " (edited)"}
+    invented = {
+        "text": "Claims grounded without evidence",
+        "label": "grounded",
+        "evidenceId": "nope",
+    }
+    res = client.patch(
+        f"/api/personas/{created['id']}",
+        json={"pains": [kept, edited, invented], "speechStyle": {"notes": "Short answers."}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["version"] == created["version"] + 1
+    assert body["pains"][0] == kept
+    for fact in body["pains"][1:]:
+        assert fact["label"] == "guess" and fact["evidenceId"] is None
+    assert body["jobs"] == created["jobs"]
+    assert body["speechStyle"]["notes"] == "Short answers."
+    assert body["speechStyle"].get("register") == created["speechStyle"].get("register")
+    # The next interview reads the stored persona, so removed facts are gone for it.
+    assert client.get(f"/api/personas/{created['id']}").json() == body
+
+
+def test_patch_example_and_unknown_persona(client):
+    example = json.loads((EXAMPLES / "persona-update.json").read_text())
+    created = client.post("/api/personas", json=REQUEST).json()
+    assert client.patch(f"/api/personas/{created['id']}", json=example).status_code == 200
+    assert client.patch("/api/personas/p_missing", json=example).status_code == 404
