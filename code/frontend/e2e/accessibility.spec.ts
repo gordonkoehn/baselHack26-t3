@@ -28,7 +28,9 @@ let pendingDebriefs: Route[];
 let debriefCalls: number;
 
 // Every API and SDP response is synthetic. Only frontend assets may reach the local server.
-test.beforeEach(async ({ page, context }) => {
+test.beforeEach(async ({ page, context, baseURL }) => {
+  if (!baseURL) throw new Error("Missing Playwright baseURL for synthetic accessibility tests");
+  const localOrigin = new URL(baseURL).origin;
   unexpected = [];
   pendingDebriefs = [];
   debriefCalls = 0;
@@ -40,7 +42,7 @@ test.beforeEach(async ({ page, context }) => {
       expect(request.postData()).toBe("e2e-offer");
       return route.fulfill({ contentType: "application/sdp", body: "synthetic-answer" });
     }
-    if (url.origin === "http://127.0.0.1:3272") {
+    if (url.origin === localOrigin) {
       if (!url.pathname.startsWith("/api/")) return route.continue();
       if (url.pathname === "/api/personas" && request.method() === "POST") return fulfill(persona);
       if (url.pathname === "/api/sessions" && request.method() === "POST") {
