@@ -11,6 +11,7 @@ REQUEST_ID_HEADER = "X-Request-Id"
 
 app = FastAPI(title="baselhack26 api")
 app.include_router(personas.router)
+app.include_router(personas.faces_router)
 app.include_router(sources.router)
 app.include_router(sessions.router)
 app.include_router(events.router)

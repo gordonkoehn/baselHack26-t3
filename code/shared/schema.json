@@ -75,6 +75,8 @@
         },
         "voiceId": { "type": "string", "description": "Provider voice id (stock unless cloned)." },
         "faceId": { "type": "string", "description": "Provider avatar/replica id." },
+        "photoUrl": { "type": ["string", "null"], "description": "Uploaded profile picture (same-origin URL). The call shows it only once customFace is completed." },
+        "customFace": { "oneOf": [{ "$ref": "#/$defs/CustomFace" }, { "type": "null" }] },
         "cloned": { "type": "boolean", "description": "true only with written consent of the real person." },
         "readiness": {
           "type": ["object", "null"],
@@ -90,8 +92,22 @@
     },
     "PersonaUpdate": {
       "type": "object",
-      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. Bumps version.",
+      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. faceId must be one of GET /api/faces; voiceId then follows that face's gender. Bumps version.",
       "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "age": { "type": ["integer", "null"], "minimum": 0, "maximum": 120 },
+        "location": { "type": ["string", "null"], "maxLength": 120 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "context": {
+          "type": "object",
+          "properties": {
+            "job": { "type": ["string", "null"] },
+            "household": { "type": ["string", "null"] },
+            "toolsToday": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "faceId": { "type": "string" },
+        "voiceId": { "enum": ["marin", "cedar"], "description": "Needed for a face made from a photo; a preset faceId sets it itself." },
         "jobs": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
         "pains": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
         "objections": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
@@ -272,6 +288,85 @@
           }
         }
       }
+    },
+    "CoverageRequest": {
+      "type": "object",
+      "description": "What the team will test with this persona, plus their own extra criteria on top of the default checklist.",
+      "required": ["testGoal"],
+      "properties": {
+        "testGoal": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "criteria": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 120 } }
+      }
+    },
+    "CustomFace": {
+      "type": "object",
+      "description": "A Simli face generated from the persona's uploaded photo. Once completed, its faceId becomes the persona's faceId, so the call shows the person in the photo.",
+      "required": ["faceId", "status", "requestedAt"],
+      "properties": {
+        "faceId": { "type": "string" },
+        "status": { "enum": ["pending", "processing", "completed", "failed"] },
+        "dispatchAfter": { "type": ["integer", "null"], "description": "Unix seconds; Simli starts one account's generations at least 10 minutes apart." },
+        "requestedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Face": {
+      "type": "object",
+      "description": "A preset avatar face (Simli). photoUrl is a still preview for pickers.",
+      "required": ["id", "name", "gender", "look", "photoUrl"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "enum": ["f", "m"] },
+        "look": { "type": "string" },
+        "photoUrl": { "type": "string" }
+      }
+    },
+    "PersonaAnswers": {
+      "type": "object",
+      "description": "The team's answers to coverage gap questions. They are stored as one note source and turned into new facts on the SAME persona (version bump, no re-extraction); a fact is grounded only if it quotes an answer verbatim.",
+      "required": ["answers"],
+      "properties": {
+        "answers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["question", "answer"],
+            "properties": {
+              "question": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "answer": { "type": "string", "minLength": 1, "maxLength": 4000 }
+            }
+          }
+        }
+      }
+    },
+    "CoverageCriterion": {
+      "type": "object",
+      "description": "covered = backed by persona evidence (evidenceIds non-empty and real); guessed = only guesses; missing = nothing. weight 1-3 = how much this test depends on it.",
+      "required": ["name", "status", "weight", "note", "evidenceIds", "custom"],
+      "properties": {
+        "name": { "type": "string" },
+        "status": { "enum": ["covered", "guessed", "missing"] },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "note": { "type": "string" },
+        "evidenceIds": { "type": "array", "items": { "type": "string" } },
+        "custom": { "type": "boolean", "description": "Added by the user, not part of the default checklist." }
+      }
+    },
+    "CoverageReport": {
+      "type": "object",
+      "description": "Is this persona good enough for this test? score is computed by the server from the criteria (covered 1, covered by a single quote 0.75, guessed 0.5, missing 0, weighted), never by the model. covered needs the model's support words verbatim in a cited quote. questions is empty when no criterion of weight >= 2 is guessed or missing.",
+      "required": ["personaId", "personaVersion", "testGoal", "score", "recommendation", "criteria", "questions"],
+      "properties": {
+        "personaId": { "type": "string" },
+        "personaVersion": { "type": "integer", "minimum": 1 },
+        "testGoal": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recommendation": { "enum": ["ready", "needs_input"], "description": "ready = score >= 0.7 and no weight-3 criterion missing." },
+        "criteria": { "type": "array", "items": { "$ref": "#/$defs/CoverageCriterion" } },
+        "questions": { "type": "array", "maxItems": 5, "items": { "type": "string" }, "description": "Gap questions for the team; answers go back in as a note source and the persona is rebuilt." }
+      }
     }
   },
   "endpoints": {
@@ -279,6 +374,14 @@
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
+    "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers can't lose ground: same test goal keeps weights and still-backed covered rows. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
+    "GET /api/faces": { "response": "Face[]" },
+    "PUT /api/personas/{id}/photo": { "body": "raw PNG, JPEG or WebP bytes (max 2 MB, sniffed)", "response": "Persona", "note": "Sets photoUrl (a new URL each upload); version unchanged, since a picture is not persona content. 404 unknown persona; 413 too large; 422 not a supported image." },
+    "DELETE /api/personas/{id}/photo": { "response": "Persona", "note": "Clears photoUrl; version unchanged. 404 unknown persona." },
+    "POST /api/personas/{id}/face": { "response": "Persona", "note": "Starts a Simli face generation from the stored photo (uses one of the account's paid generations). 404 unknown persona; 409 no photo, or no Simli generations left; 422 Simli refused the photo; 503 Simli unavailable." },
+    "POST /api/personas/{id}/face/refresh": { "response": "Persona", "note": "Asks Simli for the generation status; on completed, faceId becomes the custom face. 404 unknown persona or no generation; 503 Simli unavailable." },
+    "GET /api/personas/{id}/photo": { "response": "the image bytes", "note": "404 when the persona has no photo. No passcode: an <img> can't send one." },
+    "POST /api/personas/{id}/answers": { "body": "PersonaAnswers", "response": "Persona", "note": "Adds facts to the same persona (version bump). 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "Text layer first; scanned PDFs (no text layer, max 20 pages) are transcribed by the vision model. 413 over 10 MB, 100 pages (20 if scanned) or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no readable text; 502/503 transcription failed or provider unavailable." },
     "POST /api/sources/image": { "body": "raw PNG, JPEG, WebP or GIF bytes (max 10 MB, format sniffed from the bytes)", "response": "ExtractedText", "status": "draft", "note": "Visible text transcribed verbatim by the vision model. 413 over 10 MB or 200,000 characters; 422 not a supported image or no readable text; 502 unusable transcription; 503 provider unavailable." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },

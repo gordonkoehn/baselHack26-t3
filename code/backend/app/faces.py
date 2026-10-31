@@ -56,5 +56,18 @@ def fitting_face(face: str, gender: Gender, age: int | None) -> str:
 VOICES = {"f": "marin", "m": "cedar"}
 
 
+# shortcut: Simli's docs CDN serves the preview stills; the path segment may change on a docs
+# redeploy (the UI falls back to initials). Copy them into the frontend if that happens.
+_PHOTO = "https://mintcdn.com/simli/{}/images/trinity2/{}.jpg"
+_PHOTO_BATCH = {
+    "C8pXSe7OQG-XmRnX": {"Anna", "Sara", "Mei", "Claire", "Lukas", "Mateo", "Jordan"},
+}
+
+
+def photo_url(name: str) -> str:
+    batch = next((b for b, names in _PHOTO_BATCH.items() if name in names), "8559oSRutzisF8Ox")
+    return _PHOTO.format(batch, FACES[name][0])
+
+
 def catalog() -> str:
     return "\n".join(f"- {name}: {look}" for name, (_, _, look) in FACES.items())

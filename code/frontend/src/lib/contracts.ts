@@ -43,6 +43,16 @@ export type Persona = {
   };
   voiceId: string;
   faceId: string;
+  /** Uploaded profile picture, shown in the app only; the call keeps faceId. */
+  photoUrl?: string | null;
+  /** A Simli face made from the photo; once completed it is the faceId, so the call shows that person. */
+  customFace?: {
+    faceId: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    /** Unix seconds; Simli starts one account's generations at least 10 minutes apart. */
+    dispatchAfter?: number | null;
+    requestedAt: string;
+  } | null;
   /** true only with written consent of the real person. */
   cloned: boolean;
   readiness?: { score: number; consistency: number; grounding: number } | null;
@@ -51,6 +61,16 @@ export type Persona = {
 
 /** PATCH /api/personas/{id}: given lists replace the stored ones; edited or new facts come back as guesses. */
 export type PersonaUpdate = {
+  /** Identity: absent keeps the stored value; age and location may be null ("unknown"). */
+  name?: string;
+  age?: number | null;
+  location?: string | null;
+  summary?: string;
+  context?: { job?: string | null; household?: string | null; toolsToday?: string[] };
+  /** One of GET /api/faces; the voice follows the face's gender. */
+  faceId?: string;
+  /** Needed for a face made from a photo; a preset faceId sets it itself. */
+  voiceId?: "marin" | "cedar";
   jobs?: Fact[];
   pains?: Fact[];
   objections?: Fact[];
@@ -141,4 +161,47 @@ export type InsightReport = {
     insights: Insight[];
     followUps?: string[];
   }[];
+};
+
+export type CoverageRequest = {
+  testGoal: string;
+  /** The user's own extra criteria, on top of the default checklist. */
+  criteria?: string[];
+};
+
+/** A preset avatar face the persona can wear (GET /api/faces). */
+export type Face = {
+  id: string;
+  name: string;
+  gender: "f" | "m";
+  look: string;
+  photoUrl: string;
+};
+
+/** Answers to coverage gap questions; they become new facts on the same persona. */
+export type PersonaAnswers = {
+  answers: { question: string; answer: string }[];
+};
+
+export type CoverageCriterion = {
+  name: string;
+  /** covered = backed by persona evidence; guessed = only guesses; missing = nothing. */
+  status: "covered" | "guessed" | "missing";
+  /** 1-3: how much this test depends on it. */
+  weight: 1 | 2 | 3;
+  note: string;
+  evidenceIds: string[];
+  custom: boolean;
+};
+
+export type CoverageReport = {
+  personaId: string;
+  personaVersion: number;
+  testGoal: string;
+  /** 0..1, computed by the server from the criteria. */
+  score: number;
+  recommendation: "ready" | "needs_input";
+  criteria: CoverageCriterion[];
+  /** Gap questions; answers go back in as a note source and the persona is rebuilt. */
+  questions: string[];
 };

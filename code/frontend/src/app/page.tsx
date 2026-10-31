@@ -2,8 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
+import type {
+  CoverageReport,
+  Evidence,
+  Face,
+  Fact,
+  Language,
+  Persona,
+  PersonaSource,
+  PersonaUpdate,
+  SourceKind,
+} from "@/lib/contracts";
+import { CoverageCheck } from "@/components/CoverageCheck";
+import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/IdentityEditor";
 import { InterviewRoom } from "@/components/InterviewRoom";
+import { Card, PersonaOverview } from "@/components/PersonaOverview";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
@@ -68,9 +81,9 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [dragging, setDragging] = useState(false);
   const [reading, setReading] = useState(false);
-  // Once a persona exists the sources fold away, so the persona and the interview get the screen.
-  const [editing, setEditing] = useState(false);
-  const card = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<Tab>("sources");
+  const [coverage, setCoverage] = useState<CoverageReport | null>(null);
+  const [verdict, setVerdict] = useState<{ personaId: string; ok: boolean } | null>(null);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
   // While building or reading files, nothing is editable: a late file result can't land in a
@@ -83,11 +96,6 @@ export default function Home() {
     const id = setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 100);
     return () => clearInterval(id);
   }, [loading]);
-
-  // A new persona appears below the fold: bring it into view.
-  useEffect(() => {
-    if (result) card.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [result]);
 
   const update = (id: number, patch: Partial<PersonaSource>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -131,7 +139,7 @@ export default function Home() {
     try {
       const persona = await api.createPersona({ language, sources });
       setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000 });
-      setEditing(false);
+      setTab("persona");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -139,9 +147,26 @@ export default function Home() {
     }
   }
 
+  // Only a check of exactly this persona version counts; edits, answers and rebuilds outdate it.
+  const current =
+    result && coverage?.personaId === result.persona.id && coverage.personaVersion === result.persona.version
+      ? coverage
+      : null;
+  // The human verdict from a test call holds for the persona it was given to, edits included:
+  // it's about how the persona sounds, which a fact edit rarely changes.
+  const currentVerdict = result && verdict?.personaId === result.persona.id ? verdict.ok : null;
+
   return (
+    <>
+    <WorkspaceBar
+      tab={tab}
+      onTab={setTab}
+      persona={result?.persona ?? null}
+      coverage={current}
+      verdict={currentVerdict}
+    />
     <main
-      className="mx-auto w-full max-w-3xl px-5 py-10 font-sans sm:px-8"
+      className="mx-auto w-full max-w-4xl px-5 py-8 font-sans sm:px-8"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -153,15 +178,12 @@ export default function Home() {
         if (!busy) addFiles(e.dataTransfer.files);
       }}
     >
-      <header className="mb-8">
-        <p className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-accent">
-          <span aria-hidden className="inline-block size-2 rounded-full bg-accent" />
-          Persona interviews
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight">OpenTwin</h1>
-        <p className="mt-2 max-w-xl text-muted">
-        Add sprint sources, get an interview-ready persona. Every fact is either grounded in a
-        quote from the sources or marked as the persona&apos;s guess.
+      <div hidden={tab !== "sources"}>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Drop in what you know about the customer</h1>
+        <p className="mt-1 max-w-2xl text-muted">
+        Notes, interview transcripts, Miro exports, PDFs or photos, unsorted. You get an interview-ready
+        persona where every fact is either grounded in a quote from these sources or marked as a guess.
         </p>
       </header>
 
@@ -172,22 +194,8 @@ export default function Home() {
           <h2 className="text-sm font-semibold">
             Sources <span className="font-normal text-muted">({filled.length})</span>
           </h2>
-          {result && !editing && (
-            <>
-              <span className="min-w-0 flex-1 truncate text-sm text-muted">
-                {result?.sources.map((src) => src.title || "Untitled").join(" · ")}
-              </span>
-              <button
-                type="button"
-                className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted"
-                onClick={() => setEditing(true)}
-              >
-                Edit sources
-              </button>
-            </>
-          )}
         </div>
-        <div hidden={result !== null && !editing} className="space-y-4">
+        <div className="space-y-4">
         {drafts.map((d, i) => (
           <div key={d.id} className="space-y-2 rounded-lg border border-line bg-background/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -296,9 +304,9 @@ export default function Home() {
             <button
               type="button"
               className="ml-auto rounded-md px-2 py-1 text-sm text-muted hover:text-foreground"
-              onClick={() => setEditing(false)}
+              onClick={() => setTab("persona")}
             >
-              Done
+              Back to {result.persona.name} →
             </button>
           )}
         </div>
@@ -309,58 +317,265 @@ export default function Home() {
           </p>
         )}
       </section>
-
-      <div ref={card} className="scroll-mt-6">
-        {result && <PersonaCard {...result} onPersona={(persona) => setResult({ ...result, persona })} />}
       </div>
+
+      {/* Hidden, not unmounted: a running call and an unfinished check survive switching tabs. */}
+      {result && (
+        <>
+          <div hidden={tab !== "persona"}>
+            <PersonaProfile
+              {...result}
+              coverage={current}
+              onReport={setCoverage}
+              verdict={currentVerdict}
+              onVerdict={(ok) => setVerdict({ personaId: result.persona.id, ok })}
+              // Mounted only while visible, so the page never holds two call rooms' controls at once.
+              showTestCall={tab === "persona"}
+              onPersona={(persona) => setResult({ ...result, persona })}
+              onAnswered={(persona, source) => {
+                // The answers are now source N on the backend; keep the card's citations and a later
+                // rebuild in step with that.
+                setResult({ ...result, persona, sources: [...result.sources, source] });
+                setDrafts((ds) => [...ds, draft(source.kind, source.title ?? "", source.text)]);
+              }}
+            />
+          </div>
+          <div hidden={tab !== "interview"}>
+            {/* Keyed by persona so a new persona never inherits the previous call. */}
+            <InterviewRoom key={result.persona.id} persona={result.persona} />
+          </div>
+        </>
+      )}
     </main>
+    </>
   );
 }
 
-type FactField = "jobs" | "pains" | "objections";
+type Tab = "sources" | "persona" | "interview";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "sources", label: "Sources" },
+  { id: "persona", label: "Persona" },
+  { id: "interview", label: "Interview" },
+];
 
-function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPersona: (p: Persona) => void }) {
-  const [saveError, setSaveError] = useState<string | null>(null);
+function WorkspaceBar({
+  tab,
+  onTab,
+  persona,
+  coverage,
+  verdict,
+}: {
+  tab: Tab;
+  onTab: (tab: Tab) => void;
+  persona: Persona | null;
+  coverage: CoverageReport | null;
+  verdict: boolean | null;
+}) {
+  return (
+    <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2.5 sm:px-8">
+        <p className="flex min-w-0 flex-1 items-center gap-2 font-semibold tracking-tight">
+          <span aria-hidden className="inline-block size-2 rounded-full bg-accent" />
+          OpenTwin
+          {persona && <span className="truncate font-normal text-muted">/ {persona.name}</span>}
+        </p>
+        <nav aria-label="Steps" className="order-last flex w-full rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
+          {TABS.map((t) => {
+            const locked = t.id !== "sources" && !persona;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                aria-current={tab === t.id ? "step" : undefined}
+                disabled={locked}
+                title={locked ? "Create a persona first" : undefined}
+                onClick={() => onTab(t.id)}
+                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs uppercase tracking-widest sm:flex-none sm:px-5 ${
+                  tab === t.id ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground disabled:opacity-40"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="flex flex-1 justify-end gap-1.5 text-sm">
+          {persona && (
+            <button
+              type="button"
+              onClick={() => {
+                onTab("persona");
+                requestAnimationFrame(() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" }));
+              }}
+              className="flex gap-1.5"
+              aria-label="Go to verification"
+            >
+              <span className={`rounded-full px-3 py-1 ${tone(coverage ? coverage.recommendation === "ready" : null)}`}>
+                {coverage ? `AI ${Math.round(coverage.score * 100)}%` : "AI –"}
+              </span>
+              <span className={`rounded-full px-3 py-1 ${tone(verdict)}`}>
+                {verdict === null ? "Test call –" : verdict ? "Test call ✓" : "Test call ✗"}
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function tone(ok: boolean | null): string {
+  if (ok === null) return "bg-line text-muted";
+  return ok ? "bg-accent-soft text-accent" : "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200";
+}
+
+function SaveError({ text }: { text: string }) {
+  return (
+    <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+      {text}
+    </p>
+  );
+}
+
+function PersonaProfile({
+  persona,
+  sources,
+  seconds,
+  coverage,
+  onReport,
+  verdict,
+  onVerdict,
+  showTestCall,
+  onPersona,
+  onAnswered,
+}: Result & {
+  coverage: CoverageReport | null;
+  onReport: (report: CoverageReport) => void;
+  verdict: boolean | null;
+  onVerdict: (ok: boolean) => void;
+  showTestCall: boolean;
+  onPersona: (p: Persona) => void;
+  onAnswered: (p: Persona, source: PersonaSource) => void;
+}) {
+  // Shown next to what failed: the identity editor or the fact lists.
+  const [saveError, setSaveError] = useState<{ at: "identity" | "facts"; text: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [faces, setFaces] = useState<Face[]>([]);
+  // Only for photos and the picker; without them the header falls back to initials.
+  useEffect(() => {
+    api.listFaces().then(setFaces, () => setFaces([]));
+  }, []);
   // The server decides the labels: an edited or new fact always comes back as a guess.
-  async function save(field: FactField, facts: Fact[]) {
+  async function save(update: PersonaUpdate, at: "identity" | "facts") {
     setSaveError(null);
     try {
-      onPersona(await api.updatePersona(persona.id, { [field]: facts }));
+      onPersona(await api.updatePersona(persona.id, update));
+      return true;
     } catch (e) {
-      setSaveError(e instanceof ApiError ? `Could not save (${e.status}): ${e.detail}` : "Could not save the change.");
+      const text = e instanceof ApiError ? `Could not save (${e.status}): ${e.detail}` : "Could not save the change.";
+      setSaveError({ at, text });
+      return false;
     }
   }
-  const facts = [...persona.jobs, ...persona.pains, ...persona.objections];
-  const grounded = facts.filter((f) => f.label === "grounded").length;
   const meta = [persona.age && `${persona.age}`, persona.location, persona.context?.job]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
-      <p className="mb-4 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
-        Ready in {seconds.toFixed(1)} s · {grounded} grounded · {facts.length - grounded} guesses
-      </p>
-      <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
-      {meta && <p className="text-sm text-muted">{meta}</p>}
-      <p className="mt-3 leading-relaxed">{persona.summary}</p>
+    <article className="space-y-4" data-testid="persona-card">
+      <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+        {editing ? (
+          <IdentityEditor
+            persona={persona}
+            faces={faces}
+            onCancel={() => setEditing(false)}
+            onPersona={onPersona}
+            onSave={async (update) => {
+              if (await save(update, "identity")) setEditing(false);
+            }}
+          />
+        ) : (
+          <div className="flex flex-wrap items-start gap-5">
+            <FacePhoto persona={persona} size="size-20" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-widest text-muted">
+                AI persona · v{persona.version} · built in {seconds.toFixed(1)} s
+              </p>
+              <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
+              {meta && <p className="text-sm text-muted">{meta}</p>}
+              <p className="mt-3 max-w-2xl leading-relaxed">{persona.summary}</p>
+              <div className="mt-3">
+                <CustomFaceStatus persona={persona} onPersona={onPersona} />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="rounded-md border border-line px-3 py-1.5 text-sm hover:border-muted"
+              onClick={() => setEditing(true)}
+            >
+              Edit profile
+            </button>
+          </div>
+        )}
+        {saveError?.at === "identity" && <SaveError text={saveError.text} />}
+      </header>
 
-      {saveError && (
-        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-          {saveError}
-        </p>
-      )}
-      <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} onSave={(f) => save("jobs", f)} />
-      <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} onSave={(f) => save("pains", f)} />
-      <FactList
-        title="Objections"
-        facts={persona.objections}
+      <PersonaOverview
         persona={persona}
         sources={sources}
-        onSave={(f) => save("objections", f)}
+        coverage={coverage}
+        onVerify={() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" })}
       />
-      {/* Keyed by persona so a new persona never inherits the previous call. */}
-      <InterviewRoom key={persona.id} persona={persona} />
+
+      <Card title="What drives them" hint="Jobs, pains and objections. Edit, downgrade or remove anything that is wrong.">
+        {saveError?.at === "facts" && <SaveError text={saveError.text} />}
+        <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} onSave={(f) => save({ jobs: f }, "facts")} />
+        <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} onSave={(f) => save({ pains: f }, "facts")} />
+        <FactList
+          title="Objections"
+          facts={persona.objections}
+          persona={persona}
+          sources={sources}
+          onSave={(f) => save({ objections: f }, "facts")}
+        />
+      </Card>
+
+      <section id="verify" className="scroll-mt-20 space-y-4">
+        <div className="pt-4">
+          <h2 className="text-xl font-semibold tracking-tight">Verify before you interview</h2>
+          <p className="text-sm text-muted">
+            Two checks: the AI compares what {persona.name} knows with what you test, and you talk to them yourself.
+          </p>
+        </div>
+        <CoverageCheck persona={persona} onReport={onReport} onAnswered={onAnswered} />
+        <Card
+          title="Test call"
+          hint={`Talk to ${persona.name} for a minute. Does this sound like your customer? No questions needed; this is not the interview.`}
+        >
+          {/* Its own room, keyed apart from the interview's, so a test never mixes into the real call. */}
+          {showTestCall && <InterviewRoom key={`test-${persona.id}`} persona={persona} />}
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 text-sm">
+            <span className="font-medium">Your verdict:</span>
+            <button
+              type="button"
+              aria-pressed={verdict === true}
+              className={`rounded-full border px-3 py-1 ${verdict === true ? "border-accent bg-accent-soft text-accent" : "border-line hover:border-muted"}`}
+              onClick={() => onVerdict(true)}
+            >
+              Sounds like our customer
+            </button>
+            <button
+              type="button"
+              aria-pressed={verdict === false}
+              className={`rounded-full border px-3 py-1 ${verdict === false ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" : "border-line hover:border-muted"}`}
+              onClick={() => onVerdict(false)}
+            >
+              Not yet
+            </button>
+            {verdict === false && <span className="text-muted">Edit the profile or answer the gap questions above.</span>}
+          </div>
+        </Card>
+      </section>
     </article>
   );
 }

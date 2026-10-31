@@ -64,6 +64,16 @@ class Readiness(Model):
     grounding: Unit
 
 
+class CustomFace(Model):
+    """A Simli face generated from the uploaded photo; becomes faceId once completed."""
+
+    face_id: str
+    status: Literal["pending", "processing", "completed", "failed"]
+    # Unix seconds: Simli holds generations at least 10 minutes apart per account.
+    dispatch_after: int | None = None
+    requested_at: str
+
+
 class Persona(Model):
     id: str
     sprint_id: str | None = None
@@ -81,6 +91,9 @@ class Persona(Model):
     speech_style: SpeechStyle = SpeechStyle()
     voice_id: str
     face_id: str
+    # Uploaded profile picture (GET /api/personas/{id}/photo); the call still uses face_id.
+    photo_url: str | None = None
+    custom_face: CustomFace | None = None
     cloned: bool
     readiness: Readiness | None = None
     evidence: list[Evidence]
@@ -91,6 +104,15 @@ class SpeechNotes(Model):
 
 
 class PersonaUpdate(Model):
+    # Identity: absent keeps the stored value; age and location may be set to null ("unknown").
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    age: int | None = Field(default=None, ge=0, le=120)
+    location: str | None = Field(default=None, max_length=120)
+    summary: str | None = Field(default=None, min_length=1, max_length=4000)
+    context: PersonaContext | None = None
+    face_id: str | None = None
+    # A preset face picks its voice; a face made from a photo needs one chosen.
+    voice_id: str | None = None
     jobs: list[Fact] | None = None
     pains: list[Fact] | None = None
     objections: list[Fact] | None = None
@@ -179,3 +201,49 @@ class InsightReport(Model):
     session_id: str
     generated_at: str
     questions: list[InsightQuestion]
+
+
+class CoverageRequest(Model):
+    test_goal: str = Field(min_length=1, max_length=2000)
+    criteria: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default=[], max_length=8
+    )
+
+
+class Face(Model):
+    id: str
+    name: str
+    gender: Literal["f", "m"]
+    look: str
+    photo_url: str
+
+
+class GapAnswer(Model):
+    question: str = Field(min_length=1, max_length=500)
+    answer: str = Field(min_length=1, max_length=4000)
+
+
+class PersonaAnswers(Model):
+    answers: list[GapAnswer] = Field(min_length=1, max_length=5)
+
+
+CoverageStatus = Literal["covered", "guessed", "missing"]
+
+
+class CoverageCriterion(Model):
+    name: str
+    status: CoverageStatus
+    weight: Annotated[int, Field(ge=1, le=3)]
+    note: str
+    evidence_ids: list[str]
+    custom: bool
+
+
+class CoverageReport(Model):
+    persona_id: str
+    persona_version: int = Field(ge=1)
+    test_goal: str
+    score: Unit
+    recommendation: Literal["ready", "needs_input"]
+    criteria: list[CoverageCriterion]
+    questions: list[str] = Field(max_length=5)
