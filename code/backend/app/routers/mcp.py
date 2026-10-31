@@ -8,6 +8,7 @@ https://modelcontextprotocol.io/specification/2025-06-18/basic/transports.
 
 import base64
 import binascii
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -25,7 +26,17 @@ router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 SERVER_INFO = {"name": "opentwin", "version": "0.1.0"}
 
-PERSONA_ID = {"type": "string", "description": "Persona id from create_persona, e.g. p_1a2b3c."}
+PERSONA_ID_FORM = r"^p_[A-Za-z0-9_-]{1,64}$"
+PERSONA_ID = {
+    "type": "string",
+    "pattern": PERSONA_ID_FORM,
+    "description": "Persona id from create_persona, e.g. p_1a2b3c.",
+}
+
+# The $defs go to the root of the tool schema, where the $refs ("#/$defs/Fact") point.
+CHANGES = PersonaUpdate.model_json_schema(by_alias=True)
+CHANGES_DEFS = CHANGES.pop("$defs", {})
+CHANGES |= {"additionalProperties": False, "minProperties": 1}
 
 TOOLS = [
     {
@@ -33,8 +44,10 @@ TOOLS = [
         "description": (
             "Turn one piece of sprint material into source text for create_persona. Pass `text` "
             "for notes or transcripts (returned as is), or `data` with a base64 PDF, PNG, JPEG, "
-            "WebP or GIF (max 10 MB); scans and images are transcribed. Quotes in the persona are "
-            "later checked against exactly this text."
+            "WebP or GIF (about 3 MB at most: the request limit counts the base64); scans and "
+            "images are transcribed. Put transparent images on a white background first, or "
+            "dark text can read as black on black. Quotes in the persona are later checked "
+            "against exactly this text."
         ),
         "inputSchema": {
             "type": "object",
@@ -60,6 +73,7 @@ TOOLS = [
             "type": "object",
             "properties": {"personaId": PERSONA_ID},
             "required": ["personaId"],
+            "additionalProperties": False,
         },
     },
     {
@@ -73,9 +87,11 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "personaId": PERSONA_ID,
-                "changes": PersonaUpdate.model_json_schema(by_alias=True),
+                "changes": CHANGES,
             },
             "required": ["personaId", "changes"],
+            "additionalProperties": False,
+            "$defs": CHANGES_DEFS,
         },
     },
 ]
@@ -114,15 +130,40 @@ def _call(
     if name == "add_source":
         return _add_source(args, request, store)
     if name == "create_persona":
-        body = PersonaCreate.model_validate(args)
+        body = _parse(PersonaCreate, args)
         rate_limit("personas")(request, store)
         return personas.create_persona(body, store, extractor, prober)
     if name == "get_persona":
-        return personas.read_persona(str(args.get("personaId", "")), store)
+        return personas.read_persona(_persona_id(args, {"personaId"}), store)
     if name == "update_persona":
-        body = PersonaUpdate.model_validate(args.get("changes") or {})
-        return personas.update_persona(str(args.get("personaId", "")), body, store)
-    raise KeyError(name)
+        persona_id = _persona_id(args, {"personaId", "changes"})
+        changes = args.get("changes")
+        if not isinstance(changes, dict) or not changes:
+            raise ToolError("changes must be an object with at least one field to change")
+        body = _parse(PersonaUpdate, changes)
+        if len(body.model_fields_set) != len(changes):
+            raise ToolError("changes has unknown or repeated fields, see the tool's inputSchema")
+        return personas.update_persona(persona_id, body, store)
+    raise ToolError(f"unknown tool: {name}")
+
+
+def _parse[M: BaseModel](model: type[M], data: object) -> M:
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        # Without the inputs: the reason is enough, and inputs could carry stored data back out.
+        reasons = exc.errors(include_url=False, include_input=False)
+        raise ToolError(f"invalid arguments: {reasons}") from None
+
+
+def _persona_id(args: dict, allowed: set[str]) -> str:
+    if unknown := set(args) - allowed:
+        raise ToolError(f"unknown arguments: {sorted(unknown)}")
+    persona_id = args.get("personaId")
+    # The id ends up in a store key, so ":sources" and the like must never get through.
+    if not isinstance(persona_id, str) or not re.fullmatch(PERSONA_ID_FORM, persona_id):
+        raise ToolError("personaId must be an id from create_persona, e.g. p_1a2b3c")
+    return persona_id
 
 
 def _result(id_: Any, result: dict) -> dict:
@@ -154,6 +195,8 @@ def handle(
     if "id" not in message:
         # Notifications (initialized, cancelled) and stray responses need no answer.
         return Response(status_code=202)
+    if not isinstance(params, dict):
+        return _error(id_, -32602, "params must be an object")
 
     if method == "initialize":
         asked = params.get("protocolVersion")
@@ -175,12 +218,10 @@ def handle(
     name, args = params.get("name"), params.get("arguments") or {}
     if not isinstance(args, dict):
         return _error(id_, -32602, "arguments must be an object")
+    if name not in [tool["name"] for tool in TOOLS]:
+        return _error(id_, -32602, f"unknown tool: {name}")
     try:
         output = _call(name, args, request, store, extractor, prober)
-    except KeyError:
-        return _error(id_, -32602, f"unknown tool: {name}")
-    except ValidationError as exc:
-        return _tool_error(id_, f"invalid arguments: {exc.errors(include_url=False)}")
     except ToolError as exc:
         return _tool_error(id_, str(exc))
     except HTTPException as exc:

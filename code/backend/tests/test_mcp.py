@@ -2,11 +2,12 @@ import base64
 
 import pytest
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 
 from app import rate_limit
 from app.main import app
 from app.routers.personas import get_extractor, get_prober
-from tests.test_personas import REQUEST, draft, no_probes
+from tests.test_personas import REQUEST, SOURCE, draft, no_probes
 from tests.test_sources import fake_transcribe, make_pdf
 
 MCP = "/api/mcp"
@@ -51,6 +52,8 @@ def test_no_event_stream_and_unknown_methods(client):
     res = rpc(client, "tools/call", {"name": "delete_everything", "arguments": {}})
     assert res.json()["error"]["code"] == -32602
     assert client.post(MCP, json=[1, 2]).json()["error"]["code"] == -32600
+    res = client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": "x"})
+    assert res.json()["error"]["code"] == -32602
 
 
 def test_create_persona_appears_like_an_uploaded_one(client):
@@ -124,3 +127,42 @@ def test_passcode_is_the_same_header(client, monkeypatch):
         headers={"X-Demo-Passcode": "right"},
     )
     assert res.status_code == 200
+
+
+def test_crafted_ids_never_reach_the_stored_sources(client):
+    persona = call(client, "create_persona", REQUEST)["structuredContent"]
+    secret = SOURCE[:40]
+    for name, args in (
+        ("get_persona", {"personaId": f"{persona['id']}:sources"}),
+        ("update_persona", {"personaId": f"{persona['id']}:sources", "changes": {"name": "X"}}),
+    ):
+        result = call(client, name, args)
+        assert result["isError"] is True and "personaId" in result["content"][0]["text"]
+        assert secret not in str(result)
+    # Validation errors name the reason, never echo the input back.
+    result = call(client, "create_persona", {"language": "xx", "sources": [{"text": secret}]})
+    assert result["isError"] is True and secret not in str(result)
+
+
+def test_update_needs_changes_and_leaves_the_persona_alone_otherwise(client):
+    persona = call(client, "create_persona", REQUEST)["structuredContent"]
+    pid = persona["id"]
+    for bad in (
+        {"personaId": pid, "name": "Misplaced"},
+        {"personaId": pid, "changes": {}},
+        {"personaId": pid, "changes": {"nmae": "Typo"}},
+    ):
+        assert call(client, "update_persona", bad)["isError"] is True
+    assert call(client, "get_persona", {"personaId": pid})["structuredContent"] == persona
+
+
+def test_tool_schemas_compile_and_check_nested_facts(client):
+    tools = {t["name"]: t for t in rpc(client, "tools/list").json()["result"]["tools"]}
+    for tool in tools.values():
+        Draft202012Validator.check_schema(tool["inputSchema"])
+    update = Draft202012Validator(tools["update_persona"]["inputSchema"])
+    fact = {"text": "Wants to see the money arrive", "label": "guess", "evidenceId": None}
+    assert update.is_valid({"personaId": "p_1a2b3c", "changes": {"pains": [fact]}})
+    assert not update.is_valid({"personaId": "p_1a2b3c", "changes": {"pains": [{"label": 1}]}})
+    assert not update.is_valid({"personaId": "p_1:sources", "changes": {"name": "X"}})
+    assert not update.is_valid({"personaId": "p_1a2b3c", "changes": {}})
