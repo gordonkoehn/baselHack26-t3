@@ -14,6 +14,7 @@ from app.contracts import (
     InsightReport,
     Persona,
     PersonaSummary,
+    PersonaUpdate,
     Session,
     SessionEvent,
     SessionToken,
@@ -31,6 +32,7 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
     "persona-summaries.json": ("PersonaSummary", PersonaSummary, True),
+    "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
