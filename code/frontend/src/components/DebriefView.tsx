@@ -206,10 +206,9 @@ export function DebriefView({
                   {q.insights.map((i) => (
                     <li key={i.id} className="text-sm leading-relaxed">
                       <span
-                        className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-                          i.label === "grounded" ? "bg-accent-soft text-accent" : "bg-line text-foreground"
-                        }`}
+                        className="mr-2 inline-flex items-center gap-1.5 font-mono text-xs font-medium"
                       >
+                        <span className="evidence-bar !w-6" data-grounded={i.label === "grounded"} aria-hidden />
                         {i.label === "grounded" ? "grounded" : "guess"}
                       </span>
                       {i.theme}
