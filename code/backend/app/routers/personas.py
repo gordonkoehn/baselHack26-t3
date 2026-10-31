@@ -10,6 +10,7 @@ from app.auth import require_passcode
 from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaUpdate
 from app.extract import ExtractionFailed, PersonaDraft, ProbeAnswer, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
+from app.rate_limit import rate_limit
 from app.readiness import score_readiness
 from app.store import Store, get_store
 
@@ -86,7 +87,10 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
 
 
 @router.post(
-    "", status_code=201, response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+    "",
+    status_code=201,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("personas"))],
 )
 def create_persona(
     body: PersonaCreate, store: StoreDep, extractor: ExtractorDep, prober: ProberDep
