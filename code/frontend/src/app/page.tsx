@@ -342,7 +342,7 @@ function FactItem({
     <li className="text-sm leading-relaxed">
       <span
         className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-          isGrounded ? "bg-accent-soft text-accent" : "bg-line text-muted"
+          isGrounded ? "bg-accent-soft text-accent" : "bg-line text-foreground"
         }`}
       >
         {isGrounded ? "grounded" : "guess"}
