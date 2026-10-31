@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { GuideIssue, GuideReviewItem, Language } from "@/lib/contracts";
 
 const ISSUE_LABEL: Record<GuideIssue, string> = {
@@ -12,7 +13,7 @@ const ISSUE_LABEL: Record<GuideIssue, string> = {
 };
 
 function errorMessage(e: unknown): string {
-  if (!(e instanceof ApiError)) return "Backend not reachable. Try again.";
+  if (!(e instanceof ApiError)) return NETWORK_ERROR;
   if (e.status === 401) return "This needs the team link with the passcode. Ask in Discord.";
   if (e.status === 422) return "Keep it to 50 questions of at most 500 characters each.";
   // The backend's detail says how long to wait.

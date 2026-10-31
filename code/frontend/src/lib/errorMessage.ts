@@ -1,11 +1,14 @@
 import { ApiError } from "@/lib/api";
 
+/** A request never reached the server, for example because the browser is offline. */
+export const NETWORK_ERROR = "Couldn't connect. Check your connection and try again.";
+
 /** What the persona form tells the user when a request fails. */
 export function errorMessage(e: unknown): string {
   // `make dev` only helps someone running the app locally, so only `next dev` builds suggest it.
   const local = process.env.NODE_ENV === "development";
   if (!(e instanceof ApiError)) {
-    return local ? "Backend not reachable. Is `make dev` running?" : "Couldn't connect. Check your connection and try again.";
+    return local ? "Backend not reachable. Is `make dev` running?" : NETWORK_ERROR;
   }
   if (e.status === 401) return "This needs the team link with the passcode. Ask in Discord.";
   if (e.status === 422) return `The input was rejected: ${e.detail}`;

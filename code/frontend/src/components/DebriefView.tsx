@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { InsightReport } from "@/lib/contracts";
 import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
@@ -99,7 +100,7 @@ export function DebriefView({
       // Repeated POSTs return the saved report, so a retry after a network error is safe.
       setReport(await api.debrief(sessionId));
     } catch (e) {
-      if (!(e instanceof ApiError)) setError("Backend not reachable.");
+      if (!(e instanceof ApiError)) setError(NETWORK_ERROR);
       else if (e.status === 409) setError(`The transcript is not complete yet: ${e.detail}`);
       else if (e.status === 503) setError("The debrief model is unavailable right now. Try again in a moment.");
       else setError(`Debrief failed (${e.status}): ${e.detail}`);

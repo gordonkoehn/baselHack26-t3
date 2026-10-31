@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "@/lib/api";
-import { errorMessage } from "@/lib/errorMessage";
+import { errorMessage, NETWORK_ERROR } from "@/lib/errorMessage";
 import type {
   CoverageReport,
   Evidence,
@@ -171,7 +171,9 @@ export default function Home() {
           problems.push(`${file.name}: not supported (use ${ACCEPTED})`);
         }
       } catch (e) {
-        problems.push(`${file.name}: ${e instanceof ApiError ? e.detail : "could not be read"}`);
+        // fetch reports a lost connection as a TypeError; the file itself is fine then.
+        const reason = e instanceof ApiError ? e.detail : e instanceof TypeError ? NETWORK_ERROR : "could not be read";
+        problems.push(`${file.name}: ${reason}`);
       }
     }
     setReading(false);
