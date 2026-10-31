@@ -4,15 +4,15 @@ For the pitch of the Lumen demo, see [#158](https://github.com/gordonkoehn/basel
 
 ## The stage demo on main today
 
-Current-flow guidance checked against source at `main` commit `762ea99` on 31 Oct, with #170 and #183 merged. This is a source review; real-model, production and manual acceptance remain open. Update this table when the open work merges.
+Current-flow guidance checked against source at `main` commit `50d34cb` on 31 Oct, with #170, #183, #189, #202 and #205 merged. This is a source review; real-model, production and manual acceptance remain open. Update this table when the open work merges.
 
 | Step in #158 | On main | Not on main yet |
 |---|---|---|
 | Persona score screen | Create a persona or pick the prepared one under **Recent personas** on **Sources**: both open **Score**. Coverage starts automatically unless this workspace already holds a check for that persona version. The three categories are **Persona**, **Challenge understanding** and **Solution**, each with a percentage, a **Red / Yellow / Green** word, a reason and any recommendation. The overall advice is **Add more first.** or **Good enough to test.**, with no overall number on this screen. **Add more** opens the coverage details; **Go to the interview** opens **Interview**. Both work while checking or after a failed check. Open **Persona** for the profile and evidence. | The persona's files after a pick: the **Sources** tile on **Persona** shows 0, **Sources and evidence** is empty, and grounded facts show their quote but not the file name. Only a persona built in the current page load lists its files. |
 | Note in a small chat | Nothing. | The chat |
 | Start the call | **Interview** tab, then **Start video interview** opens the fullscreen dialog (#170 merged). **Script** shows the current guide with checkboxes and an `n of N` counter; switch to **Transcript** for spoken turns. Ticks survive panel switches, reset for a new session, and do not affect the debrief. | — |
-| Show the email and presentation | **Share screen** sends a first frame immediately, then refreshes about every 10 seconds as silent context; camera image updates pause while sharing. After changing the page, use **Show screen to persona** to send a fresh frame and ask for a reaction. | In-app viewer (#143) |
-| Report | End the call. The debrief starts by itself, opens with a short summary (what held up, what didn't, still open) and labels each insight. | #155 and #156 are open. |
+| Show the email and presentation | **Share screen** sends a first frame immediately, then refreshes about every 10 seconds as silent context; camera image updates pause while sharing. While sharing, the video call and the shared screen are one stage (#205): the avatar and your camera shrink to a column on the left, the shared screen takes the rest with its send status under it, and the stage's **Full screen** enlarges both together. After changing the page, use **Show screen to persona** to send a fresh frame and ask for a reaction. | In-app viewer (#143) |
+| Report | **End interview**. The debrief starts by itself, opens with a short summary (what held up, what didn't, still open) and labels each insight. Since #189 a call that went live asks for a debrief even after a lost turn or a dropped connection. If part of the call may not have been captured, the room, the debrief (above the summary), the shared report and the Markdown export say the transcript "may have gaps". That warning can be false. If the wait after End runs out with a turn still missing, **Close without it** closes the call and sets the same warning. There is no debrief when the call never went live, or when no persona answer was saved ("No debrief for this call"). | #155 is open. |
 
 **Score and details:** **Add more** shares the same coverage check with **Score**. It shows the test-goal field, own criteria, overall coverage percentage, criterion rows and gap questions, plus a separate **Test call**. The goal and own criteria are remembered in this browser. Without a saved custom goal, the built-in Quartier sources use their sample goal; other sources and library picks start with "The product, prototype or change that the sources describe." Set the intended Lumen goal here and press **Check again** (or **Check coverage** if no report exists). Goal or criterion edits do not start a check by themselves. Saving gap answers or a row edit updates the persona and automatically checks again. **Back to the score** returns to the three categories.
 
@@ -46,18 +46,26 @@ Guide lifecycle: edits stay in the current Interview room across workspace-tab s
 | You know Simli is down before the call | **Turn avatar off** on the **Interview** tab before **Start video interview**. It stays off until the page reloads or another persona opens. | Everything except the face. |
 | Room too loud | **Mute mic** and type the questions. | Everything. |
 | "Screen sharing was cancelled or blocked." | Describe the email out loud. The persona only knows the prototype from what you show or describe. | The call and the debrief. |
+| "Connection lost" during a live call | Wait. The room saves what it captured and starts the debrief, marked "may have gaps". Press **Save again** if it appears. If no debrief comes, show the saved report link and say out loud that it comes from a rehearsal. | The debrief of what was saved, while the store and OpenAI are reachable. Otherwise the saved report link. |
 | Popup stuck on "Connecting…" | **Cancel** in the popup, then show the saved report link from the check above. Say out loud that it comes from a rehearsal. | That one report, while the store is reachable. |
-| Call fails to start, or drops ("Connection lost") | Show the saved report link. Say out loud that it comes from a rehearsal. | Same as above. |
+| Call fails to start, or the connection is lost before it goes live | Show the saved report link. Say out loud that it comes from a rehearsal. This session has no debrief. | Same as above. |
 | Persona or debrief fails, or OpenAI is down | Show the saved report link. It reads the stored report, so it needs no model and no passcode. | Same as above. |
 | Wi-Fi or the deployed app is gone | Play the backup video. Phone hotspot first if there's time. | The video. |
 
-## The sample interview is not a Lumen fallback
+## The sample interview
 
-**Use sample interview** always saves the same script, the Quartier-Börse recycling interview, whatever persona is on the screen. There is no Lumen version on main, so with a Lumen persona the debrief would be about recycling. Don't use it in the Lumen pitch. It only suits the built-in example, see `testcase-quartier-boerse.md`.
+**Use sample interview** on the **Interview** tab picks its script by persona name (#202):
 
-It needs a persona on the screen, so with no persona, create one first (this uses the OpenAI API, not Realtime). It saves `SAMPLE_TRANSCRIPT` (`code/frontend/src/lib/sample.ts`) as a new ended session marked `sample`, and asks for the debrief. No microphone, no token, no call.
+- **Miriam Kessler** (any persona whose name contains "Kessler") gets a synthetic Lumen sample, `LUMEN_SAMPLE_TRANSCRIPT`. It is handwritten fiction in English: nobody was interviewed. The interviewer's lines are the four `LUMEN_GUIDE` lines.
+- **Every other persona**, including the other Lumen personas, keeps the Quartier-Börse recycling script, `SAMPLE_TRANSCRIPT`. With another Lumen persona the debrief would be about recycling, so don't use it in the Lumen pitch. It only suits the built-in example, see `testcase-quartier-boerse.md`.
 
-The debrief, the shared `/report/…` link and the Markdown export all say it is a sample. Don't present it as an interview that just happened. The prefilled example sources contain the same script, so for a persona built from them "grounded" labels prove nothing.
+Check the name on the screen before you press it. The script doesn't follow the question field, but the debrief answers what is in that field, so keep the four lines when you run the Kessler sample.
+
+It needs a persona on the screen, so with no persona, create one first (this uses the OpenAI API, not Realtime). It saves the script (`code/frontend/src/lib/sample.ts`) as a new ended session marked `sample`, and asks for the debrief. No microphone, no token, no call. The debrief still needs the passcode, OpenAI and the store, so the sample does not replace the saved report link when OpenAI is down. The same button under **Test call** has no questions, so it gives no debrief.
+
+The room, the transcript, the debrief, the shared `/report/…` link and the Markdown export all say it is a sample. Say so out loud, and don't present it as an interview that just happened. The Kessler answers are imagined, not facts from her sources, so never add them as sources. The prefilled example sources contain the Quartier-Börse script, so for a persona built from them "grounded" labels prove nothing.
+
+The browser test for the Kessler sample (`code/frontend/e2e/lumen-sample.spec.ts`) uses a fake debrief, so it does not cover a debrief from the real model on this script.
 
 ## Still open before the pitch
 
