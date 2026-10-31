@@ -226,6 +226,22 @@ export default function Home() {
     }
   }
 
+  // No undo: the confirm is the safety net. Deleting the open persona goes back to the sources.
+  async function remove(p: PersonaSummary) {
+    if (busy || !window.confirm(`Delete ${p.name}? Its sources, photo and score go too.`)) return;
+    setError(null);
+    try {
+      await api.deletePersona(p.id);
+      setRecent((list) => list.filter((r) => r.id !== p.id));
+      if (result?.persona.id === p.id) {
+        setResult(null);
+        setTab("sources");
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   return (
     <>
     <WorkspaceBar
@@ -282,10 +298,10 @@ export default function Home() {
           </h2>
           <ul className="mt-2 divide-y divide-line">
             {library(recent).personas.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="flex items-baseline gap-3">
                 <button
                   type="button"
-                  className="flex w-full flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
+                  className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
                   onClick={() => pick(p.id)}
                   disabled={busy}
                 >
@@ -295,6 +311,15 @@ export default function Home() {
                     {p.readiness && `${Math.round(p.readiness.score * 100)} % ready · `}
                     {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-muted hover:bg-accent-soft hover:text-foreground disabled:opacity-40"
+                  onClick={() => remove(p)}
+                  disabled={busy}
+                  aria-label={`Delete ${p.name}`}
+                >
+                  Delete
                 </button>
               </li>
             ))}

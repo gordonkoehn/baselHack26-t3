@@ -528,6 +528,14 @@ async def upload_photo(persona_id: str, request: Request, store: StoreDep) -> Pe
     return persona
 
 
+@router.delete("/{persona_id}", status_code=204, dependencies=[Depends(require_passcode)])
+def delete_persona(persona_id: str, store: StoreDep) -> None:
+    """Removes the persona from the library with its sources, photo and coverage check."""
+    if store.get_persona(persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    store.delete_persona(persona_id)
+
+
 @router.delete(
     "/{persona_id}/photo", response_model_by_alias=True, dependencies=[Depends(require_passcode)]
 )

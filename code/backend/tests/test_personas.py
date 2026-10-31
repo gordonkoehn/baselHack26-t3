@@ -419,6 +419,34 @@ def test_photo_upload_read_replace_and_remove(client):
     assert client.get(url).status_code == 404
 
 
+def test_delete_removes_the_persona_from_the_library_with_its_data(client):
+    kept = client.post("/api/personas", json=REQUEST).json()
+    gone = client.post("/api/personas", json=REQUEST).json()
+    client.put(f"/api/personas/{gone['id']}/photo", content=PNG)
+
+    assert client.delete(f"/api/personas/{gone['id']}").status_code == 204
+
+    assert [p["id"] for p in client.get("/api/personas").json()] == [kept["id"]]
+    assert client.get(f"/api/personas/{gone['id']}").status_code == 404
+    assert client.get(f"/api/personas/{gone['id']}/photo").status_code == 404
+    assert client.get(f"/api/personas/{kept['id']}").status_code == 200
+    # Twice, or an id that never existed: a plain 404, nothing else changes.
+    assert client.delete(f"/api/personas/{gone['id']}").status_code == 404
+    assert client.delete("/api/personas/p_unknown").status_code == 404
+
+
+def test_delete_needs_the_passcode(client, monkeypatch):
+    created = client.post("/api/personas", json=REQUEST).json()
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    assert client.delete(f"/api/personas/{created['id']}").status_code == 401
+    assert (
+        client.delete(
+            f"/api/personas/{created['id']}", headers={"X-Demo-Passcode": "right"}
+        ).status_code
+        == 204
+    )
+
+
 def test_photo_rejects_other_files(client, monkeypatch):
     created = client.post("/api/personas", json=REQUEST).json()
     url = f"/api/personas/{created['id']}/photo"

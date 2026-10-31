@@ -67,7 +67,7 @@ async function twoPersonas(page: Page): Promise<{ first: Persona; second: Person
 async function pickFromLibrary(page: Page, request: APIRequestContext, id: string) {
   const list: { id: string }[] = await (await request.get("/api/personas")).json();
   await page.getByRole("button", { name: "Sources", exact: true }).click();
-  const rows = page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ });
+  const rows = page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /^Sandra/ });
   await expect(rows).toHaveCount(list.length);
   const opened = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${id}`) && response.request().method() === "GET");
   await rows.nth(list.findIndex((persona) => persona.id === id)).click();
@@ -293,7 +293,7 @@ test("a persona created earlier can be picked after a reload and interviewed", a
     if (request.method() === "POST" && request.url().endsWith("/api/personas")) rebuilt = true;
   });
   // Newest first, and other tests share this store.
-  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /^Sandra/ }).first().click();
   await page.getByRole("button", { name: "Persona", exact: true }).click();
   await expect(card.getByRole("heading", { name: "Sandra" })).toBeVisible();
   await expect(card).not.toContainText("Ready in");
@@ -321,7 +321,7 @@ test("a persona edited from the library keeps its place and comes back edited af
   await page.reload();
   const library = page.getByRole("region", { name: "Recent personas" });
   const card = page.getByTestId("persona-card");
-  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await library.getByRole("button", { name: /^Sandra/ }).first().click();
   await page.getByRole("button", { name: "Persona", exact: true }).click();
   const original = persona.jobs[0].text;
   await card.getByRole("button", { name: `Edit: ${original}`, exact: true }).click();
@@ -336,7 +336,7 @@ test("a persona edited from the library keeps its place and comes back edited af
 
   await page.reload();
   await expect(card).toHaveCount(0);
-  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await library.getByRole("button", { name: /^Sandra/ }).first().click();
   await page.getByRole("button", { name: "Persona", exact: true }).click();
   await expect(card.getByText("Edited by hand")).toBeVisible();
   await expect(card.getByText(original, { exact: true })).toHaveCount(0);
@@ -441,7 +441,7 @@ test("the sample sprint questions stay with the example, and a saved persona com
   await expect(room).toContainText("an image is sent to OpenAI every 15 seconds");
 
   await page.reload();
-  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /^Sandra/ }).first().click();
   await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await expect(guide).toHaveValue("");
@@ -523,4 +523,30 @@ test("the team link passcode is sent, leaves the address bar and survives blocke
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   expect((await created).headers()["x-demo-passcode"]).toBe("team-pass");
   await expect.poll(() => page.url()).not.toContain("code=");
+});
+
+test("a persona deleted from the library is gone after a reload; Cancel keeps it", async ({ page, request }) => {
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  await createPersona(page);
+  const persona = await (await created).json();
+
+  await page.reload();
+  const library = page.getByRole("region", { name: "Recent personas" });
+  const remove = library.getByRole("button", { name: /^Delete Sandra/ }).first();
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await remove.click();
+  expect((await (await request.get("/api/personas")).json()).map((p: { id: string }) => p.id)).toContain(persona.id);
+
+  const deleted = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}`) && response.request().method() === "DELETE");
+  page.once("dialog", (dialog) => dialog.accept());
+  await remove.click();
+  expect((await deleted).status()).toBe(204);
+
+  expect((await (await request.get("/api/personas")).json()).map((p: { id: string }) => p.id)).not.toContain(persona.id);
+  expect((await request.get(`/api/personas/${persona.id}`)).status()).toBe(404);
+  await page.reload();
+  await expect(library.getByRole("button", { name: /^Delete Sandra/ })).toHaveCount(
+    (await (await request.get("/api/personas")).json()).length,
+  );
 });
