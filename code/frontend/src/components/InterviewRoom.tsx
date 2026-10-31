@@ -43,11 +43,14 @@ export function InterviewRoom({
   persona,
   startBlocked,
   initialGuide = "",
+  questionsRequired = true,
 }: {
   persona: Persona;
   startBlocked: boolean;
   /** Questions the debrief will answer. Empty for a saved persona, so the sample sprint questions never come back. */
   initialGuide?: string;
+  /** False for the short test call on the persona tab: no debrief questions needed. */
+  questionsRequired?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -456,7 +459,7 @@ export function InterviewRoom({
   }
 
   async function start() {
-    if (startBlocked || guide.split("\n").every((q) => !q.trim())) return;
+    if (startBlocked || (questionsRequired && guide.split("\n").every((q) => !q.trim()))) return;
     hangUp();
     setPhase("connecting");
     startupFailure.current = null;
@@ -618,7 +621,7 @@ export function InterviewRoom({
   // Demo fallback when the live call can't run: save the scripted transcript as an ended session
   // marked sample, then show its debrief. No token, microphone or provider call is involved.
   async function runSample() {
-    if (startBlocked || guide.split("\n").every((q) => !q.trim())) return;
+    if (startBlocked || (questionsRequired && guide.split("\n").every((q) => !q.trim()))) return;
     hangUp();
     gen.current += 1;
     const g = gen.current;
@@ -799,7 +802,7 @@ export function InterviewRoom({
     : null;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
   const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
-  const canStart = questionCount > 0;
+  const canStart = !questionsRequired || questionCount > 0;
 
   const btn = "rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted";
   const avatarSwitch = (
@@ -825,7 +828,7 @@ export function InterviewRoom({
 
   return (
     <section className="mt-4 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
-      {(phase === "idle" || phase === "ended" || phase === "error") && (
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mb-1 block text-sm">
           <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
           <textarea
@@ -835,14 +838,14 @@ export function InterviewRoom({
           />
         </label>
       )}
-      {(phase === "idle" || phase === "ended" || phase === "error") && (
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
         <p className="-mt-2 mb-1 text-xs text-muted">
           {questionCount === 0
             ? "Add at least one question. The interview can start once the debrief has something to answer."
             : `${questionCount} ${questionCount === 1 ? "question" : "questions"}. End the call and the debrief answers each line.`}
         </p>
       )}
-      {(phase === "idle" || phase === "ended" || phase === "error") && (
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
         <GuideCheck guide={guide} language={persona.language} onGuideChange={setGuide} />
       )}
       <div className="mt-4 flex flex-wrap items-center gap-3">

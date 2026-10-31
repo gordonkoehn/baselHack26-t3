@@ -16,6 +16,7 @@ const definitions = {
   "session.json": "Session",
   "session-events.json": "SessionEvent[]",
   "insight-report.json": "InsightReport",
+  "coverage-report.json": "CoverageReport",
   "guide-review.json": "GuideReview",
 };
 
@@ -32,7 +33,7 @@ function checkExamples(examplesDirectory = examples, contractsPath = contracts) 
     // `satisfies` preserves enum literals and mutable arrays without unchecked casts.
     cpSync(contractsPath, join(temporary, "contracts.ts"));
     const source = [
-      'import type { Persona, PersonaSummary, PersonaUpdate, Session, SessionEvent, InsightReport, GuideReview } from "./contracts.js";',
+      'import type { Persona, PersonaSummary, PersonaUpdate, Session, SessionEvent, InsightReport, GuideReview, CoverageReport } from "./contracts.js";',
       ...files.map((file, index) =>
         `const example${index} = ${JSON.stringify(JSON.parse(readFileSync(join(examplesDirectory, file), "utf8")))} satisfies ${definitions[file]};`,
       ),
