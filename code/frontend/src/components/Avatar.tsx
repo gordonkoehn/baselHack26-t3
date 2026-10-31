@@ -28,11 +28,19 @@ export function Avatar({
     // Unmounted or failed: either way this attempt is over and nothing may revive it.
     let cancelled = false;
     let failed = false;
+    const stop = () => {
+      if (!client) return;
+      // shortcut: SimliClient.stop() closes its socket but keeps its private AudioWorklet
+      // sending into it (a flood of "Invalid State, WS Connection 3"); closing the context
+      // stops it. Drop when simli-client cleans up its own audio graph.
+      void (client as unknown as { audioContext: AudioContext }).audioContext.close().catch(() => {});
+      void client.stop();
+    };
     const fail = () => {
       if (cancelled || failed) return;
       failed = true;
       // A failed or ended session still holds a connection: release it.
-      void client?.stop();
+      stop();
       onActive(null);
       setState("off");
     };
@@ -57,7 +65,7 @@ export function Avatar({
     return () => {
       cancelled = true;
       onActive(null);
-      void client?.stop();
+      stop();
     };
     // One avatar session per interview session and voice track.
     // eslint-disable-next-line react-hooks/exhaustive-deps
