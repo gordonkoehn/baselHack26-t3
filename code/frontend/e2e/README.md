@@ -42,6 +42,13 @@ Microphone cleanup negative control (must exit nonzero): use `E2E_KEEP_MIC_LIVE=
 `E2E_FAIL_EVENT_SAVE=1` with the same command. It makes the original track's stop ineffective;
 the happy path must detect that the microphone remains live even after the peer closes.
 
+## Transcript order (#110)
+
+`transcript-order.spec.ts` delivers speech transcripts after, or in reverse of, the responses
+and commits they belong to, with independent response/output item IDs and `previous_item_id`.
+It checks the UI and stored order, retry payloads, failed/missing/lost input and the debrief
+turn numbers. The events are synthetic: real provider timing still needs a manual walkthrough.
+
 ## Transcript finalization (#99)
 
 `finalization.spec.ts` adds behavioral checks for End during active speech, a conditional

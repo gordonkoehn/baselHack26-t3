@@ -9,14 +9,13 @@ import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
+import { TranscriptOrder, type Turn } from "@/lib/transcriptOrder";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 
 // Voice interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
 
-type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
 type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
-type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
@@ -26,6 +25,7 @@ const CAMERA_FRAME_MS = 15_000;
 type ServerEvent = {
   type: string;
   item_id?: string;
+  previous_item_id?: string | null;
   response_id?: string;
   content_index?: number;
   transcript?: string;
@@ -45,7 +45,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(QUARTIER_BOERSE_GUIDE.join("\n"));
-  // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
+  const order = useRef(new TranscriptOrder());
+  // Transcript persistence: every released turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
   const saved = useRef(0);
@@ -296,22 +297,34 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         break;
       case "input_audio_buffer.committed":
         work.current.commit(e.item_id);
+        if (e.item_id) order.current.speechCommitted(e.item_id, e.previous_item_id);
+        syncTranscript();
         break;
       case "conversation.item.input_audio_transcription.failed":
         work.current.transcribed(e.item_id, true);
+        if (e.item_id) order.current.speechFailed(e.item_id);
+        syncTranscript();
         lost.current = true;
         break;
       case "response.created": {
         if (!e.response?.id) lost.current = true;
         work.current.created(e.response?.id);
+        if (e.response?.id) order.current.responseCreated(e.response.id);
+        syncTranscript();
         break;
       }
       case "conversation.item.input_audio_transcription.completed":
         if (!e.item_id) lost.current = true;
-        if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
+        if (e.item_id && work.current.transcribed(e.item_id)) {
+          order.current.speechDone(e.item_id, e.transcript?.trim());
+          syncTranscript();
+        }
         break;
       case "response.output_audio_transcript.done":
-        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
+        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) {
+          order.current.answer(e.response_id, e.item_id, e.transcript.trim());
+          syncTranscript();
+        }
         break;
       case "response.done": {
         if (!e.response?.id || !["completed", "cancelled", "failed", "incomplete"].includes(e.response.status ?? "")) lost.current = true;
@@ -321,7 +334,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         for (const item of e.response?.output ?? []) {
           item.content?.forEach((content, index) => {
             const text = content.transcript ?? content.text;
-            if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
+            if (text?.trim() && once(`o:${item.id}:${index}`)) order.current.answer(e.response?.id, item.id, text.trim());
           });
         }
         if (e.response?.status === "failed" || e.response?.status === "incomplete") lost.current = true;
@@ -332,10 +345,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           outputTokens: m.outputTokens + (usage?.output_tokens ?? 0),
         }));
         // Interrupted answers end as "cancelled": keep them visible but marked, never silently dropped.
-        if (e.response?.status === "cancelled") {
-          setTurns((t) => [...t, { who: "persona", text: "(interrupted)", cancelled: true }]);
-          record("utterance", { speaker: "persona", text: "(interrupted)" });
-        }
+        if (e.response?.id) order.current.responseDone(e.response.id, e.response.status === "cancelled");
+        syncTranscript();
         break;
       }
       case "error": {
@@ -368,9 +379,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     return true;
   }
 
-  function addTurn(who: Speaker, text: string) {
-    setTurns((t) => [...t, { who, text }]);
-    record("utterance", { speaker: who, text });
+  // Stores what has become the next contiguous part of the conversation and shows all of it.
+  function syncTranscript() {
+    for (const { who, text } of order.current.release()) record("utterance", { speaker: who, text });
+    setTurns(order.current.turns());
   }
 
   function record(type: "utterance" | "session.ended", data: object) {
@@ -463,6 +475,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     lost.current = false;
     work.current = new TranscriptWork();
     pending.current = work.current.pending;
+    order.current = new TranscriptOrder();
     providerActivity.current = Date.now();
     endStarted.current = null;
     commitAttempted.current = false;
@@ -593,7 +606,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   function ask() {
     const text = typed.trim();
     if (!text || !askWith([{ type: "input_text", text }])) return;
-    addTurn("interviewer", text);
+    order.current.typed(text);
+    syncTranscript();
     setTyped("");
   }
 
@@ -652,7 +666,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
 
   async function closeDrained(incomplete: boolean) {
     if (finishing.current) return;
-    if (incomplete || pending.current.size > 0) lost.current = true;
+    // Held text never reached the event stream, so the stored transcript cannot claim to be complete.
+    if (incomplete || pending.current.size > 0 || order.current.turns().some((t) => t.held)) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
@@ -713,6 +728,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const avgMs = metrics.latenciesMs.length
     ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
     : null;
+  const turnText = (t: Turn) => t.text ?? (t.pending && inCall ? "Transcribing…" : "(no transcript)");
+  const faded = (t: Turn) => t.cancelled || t.held || t.text === null;
+  const unsaved = turns.filter((t) => t.held).length;
   const showAvatar = voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
 
   const btn = "rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted";
@@ -721,9 +739,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       {error}
     </p>
   );
-  const saveLine = saveState.total > 0 && (
+  const saveLine = saveState.total + unsaved > 0 && (
     <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
-      Transcript saved {saveState.saved}/{saveState.total}
+      Transcript saved {saveState.saved}/{saveState.total + unsaved}
       {phase === "live" && saveState.failed && saveState.saved < saveState.total
         ? " · automatic retries stopped; finish the call, then choose Save again"
         : ""}
@@ -746,9 +764,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         {inCall && <span className="text-sm text-muted">Interview running in the popup…</span>}
         {phase === "ended" && (
           <span className="text-sm text-muted">
-            {lastTurnMissing
-              ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
-              : "Ended. Microphone and camera are off, transcript saved."}
+            {!lastTurnMissing
+              ? "Ended. Microphone and camera are off, transcript saved."
+              : unsaved > 1
+                ? `Ended with ${unsaved} turns not saved: nothing after the first missing turn is stored. This transcript is incomplete, so there is no debrief for it.`
+                : "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."}
           </span>
         )}
         {phase === "unsaved" && (
@@ -872,12 +892,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
                 key={i}
                 className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
                   t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                } ${t.cancelled ? "opacity-50" : ""}`}
+                } ${faded(t) ? "opacity-50" : ""}`}
               >
                 <span className="mb-0.5 block text-xs font-medium text-muted">
                   {t.who === "persona" ? persona.name : "You"}
+                  {t.held ? (t.blocked ? " · will not be saved" : " · not saved yet") : ""}
                 </span>
-                {t.text}
+                {turnText(t)}
               </li>
             ))}
           </ol>
@@ -903,12 +924,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       </dialog>
 
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
-        <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
+        <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved" || unsaved > 0}>
           <summary className="cursor-pointer text-muted">Transcript ({turns.length} turns)</summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
-              <li key={i} className={t.cancelled ? "opacity-50" : ""}>
-                <span className="font-medium">{t.who === "persona" ? persona.name : "You"}:</span> {t.text}
+              <li key={i} className={faded(t) ? "opacity-50" : ""}>
+                <span className="font-medium">{t.who === "persona" ? persona.name : "You"}:</span> {turnText(t)}
+                {t.held ? " (not saved)" : ""}
               </li>
             ))}
           </ol>

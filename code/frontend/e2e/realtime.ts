@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 type WireEvent = {
   type: string;
   item_id?: string;
+  previous_item_id?: string | null;
   response_id?: string;
   content_index?: number;
   transcript?: string;
