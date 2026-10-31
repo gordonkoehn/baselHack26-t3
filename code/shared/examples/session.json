@@ -1,0 +1,11 @@
+{
+  "id": "s_1",
+  "personaId": "p_1",
+  "status": "live",
+  "provider": "tavus",
+  "joinUrl": "https://tavus.daily.co/example",
+  "interviewGuide": ["Would Reto switch from car to e-bike?", "Is the subscription price acceptable?"],
+  "readySeconds": 412,
+  "startedAt": "2026-10-31T14:00:00Z",
+  "endedAt": null
+}

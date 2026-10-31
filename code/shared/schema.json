@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "baselhack26 API contracts",
-  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: code/backend/app/contracts.py, code/frontend/src/lib/contracts.ts. Examples in code/shared/examples/.",
+  "description": "Source of truth for data shapes between frontend and backend. Agree on this FIRST, then build both sides in parallel. Mirrors: code/backend/app/contracts.py, code/frontend/src/lib/contracts.ts. Examples in code/shared/examples/. DRAFT: Persona, Session, SessionEvent and InsightReport are proposed (documentation/opentwin-review.md) and not yet mirrored in backend/frontend.",
   "$defs": {
     "Item": {
       "type": "object",
@@ -16,11 +16,265 @@
       "type": "object",
       "required": ["title"],
       "properties": { "title": { "type": "string" } }
+    },
+
+    "Label": {
+      "description": "grounded = backed by an Evidence entry; guess = invented by the model, must be shown as a guess.",
+      "enum": ["grounded", "guess"]
+    },
+    "SourceKind": { "enum": ["transcript", "miro", "note", "real_interview"] },
+    "Evidence": {
+      "type": "object",
+      "required": ["id", "kind", "claim"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/SourceKind" },
+        "claim": { "type": "string" },
+        "quote": { "type": ["string", "null"], "description": "Verbatim text from the source." },
+        "sourceRef": { "type": ["string", "null"], "description": "e.g. transcript id, Miro sticky id." }
+      }
+    },
+    "Fact": {
+      "type": "object",
+      "required": ["text", "label", "evidenceId"],
+      "properties": {
+        "text": { "type": "string" },
+        "label": { "$ref": "#/$defs/Label" },
+        "evidenceId": { "type": ["string", "null"], "description": "Set when label is grounded, null for a guess." }
+      }
+    },
+    "Scale5": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "Persona": {
+      "type": "object",
+      "required": ["id", "name", "language", "summary", "jobs", "pains", "objections", "voiceId", "faceId", "cloned", "evidence"],
+      "properties": {
+        "id": { "type": "string" },
+        "sprintId": { "type": ["string", "null"] },
+        "version": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string" },
+        "age": { "type": ["integer", "null"] },
+        "location": { "type": ["string", "null"] },
+        "language": { "enum": ["de", "en"], "description": "Spoken language. No provider speaks Swiss German; Swiss flavour goes in speechStyle.notes." },
+        "summary": { "type": "string" },
+        "context": {
+          "type": "object",
+          "properties": {
+            "job": { "type": ["string", "null"] },
+            "household": { "type": ["string", "null"] },
+            "toolsToday": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "jobs": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
+        "pains": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
+        "objections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Fact" },
+          "description": "Reasons this persona would say no. Fed to the prompt against sycophancy."
+        },
+        "attitudes": {
+          "type": "object",
+          "properties": {
+            "techAffinity": { "$ref": "#/$defs/Scale5" },
+            "priceSensitivity": { "$ref": "#/$defs/Scale5" },
+            "trustInNewBrands": { "$ref": "#/$defs/Scale5" }
+          }
+        },
+        "speechStyle": {
+          "type": "object",
+          "properties": {
+            "register": { "enum": ["formal", "informal"] },
+            "verbosity": { "enum": ["short", "medium", "long"] },
+            "fillers": { "type": "boolean" },
+            "notes": { "type": ["string", "null"], "description": "e.g. Helvetisms to use." }
+          }
+        },
+        "voiceId": { "type": "string", "description": "Provider voice id (stock unless cloned)." },
+        "faceId": { "type": "string", "description": "Provider avatar/replica id." },
+        "cloned": { "type": "boolean", "description": "true only with written consent of the real person." },
+        "readiness": {
+          "type": ["object", "null"],
+          "required": ["score", "consistency", "grounding"],
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "consistency": { "type": "number", "minimum": 0, "maximum": 1 },
+            "grounding": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } }
+      }
+    },
+    "PersonaSource": {
+      "type": "object",
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/SourceKind" },
+        "title": { "type": ["string", "null"] },
+        "text": { "type": "string", "description": "Pasted content. Vercel caps request bodies at 4.5 MB; larger files go to blob storage first." }
+      }
+    },
+    "PersonaCreate": {
+      "type": "object",
+      "required": ["language", "sources"],
+      "properties": {
+        "sprintId": { "type": ["string", "null"] },
+        "language": { "enum": ["de", "en"] },
+        "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/PersonaSource" } }
+      }
+    },
+
+    "Provider": { "enum": ["tavus", "anam", "livekit", "openai-realtime"], "description": "Which realtime vendor the browser joins." },
+    "Session": {
+      "type": "object",
+      "required": ["id", "personaId", "status", "provider"],
+      "properties": {
+        "id": { "type": "string" },
+        "personaId": { "type": "string" },
+        "status": { "enum": ["created", "live", "ended"] },
+        "provider": { "$ref": "#/$defs/Provider" },
+        "joinUrl": { "type": ["string", "null"], "description": "Room URL the browser joins (Tavus/Daily, LiveKit)." },
+        "interviewGuide": { "type": "array", "items": { "type": "string" } },
+        "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
+        "startedAt": { "type": ["string", "null"], "format": "date-time" },
+        "endedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "SessionCreate": {
+      "type": "object",
+      "required": ["personaId"],
+      "properties": {
+        "personaId": { "type": "string" },
+        "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." }
+      }
+    },
+    "SessionToken": {
+      "type": "object",
+      "required": ["provider", "expiresAt"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/Provider" },
+        "token": { "type": ["string", "null"], "description": "Short-lived client token. Never a long-lived API key." },
+        "url": { "type": ["string", "null"] },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "SessionEvent": {
+      "description": "The browser posts these in small batches (no WebSocket in our backend). seq is per session, assigned by the client, monotonic.",
+      "type": "object",
+      "required": ["sessionId", "seq", "at", "type", "data"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "at": { "type": "string", "format": "date-time" },
+        "type": { "enum": ["utterance", "screen.caption", "twin.reaction", "copilot.suggestion", "session.ended"] },
+        "data": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "utterance" } } },
+          "then": { "properties": { "data": {
+            "type": "object",
+            "required": ["speaker", "text"],
+            "properties": {
+              "speaker": { "enum": ["interviewer", "persona"] },
+              "text": { "type": "string" },
+              "tStart": { "type": ["number", "null"], "description": "Seconds since session start." },
+              "tEnd": { "type": ["number", "null"] }
+            }
+          } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "screen.caption" } } },
+          "then": { "properties": { "data": {
+            "type": "object",
+            "required": ["caption", "source"],
+            "properties": {
+              "caption": { "type": "string", "description": "Neutral description of what is on screen. Frames themselves are never stored." },
+              "source": { "enum": ["vision", "dom"] }
+            }
+          } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "twin.reaction" } } },
+          "then": { "properties": { "data": {
+            "type": "object",
+            "required": ["kind", "intensity"],
+            "properties": {
+              "kind": { "enum": ["confused", "pleased", "sceptical"] },
+              "intensity": { "$ref": "#/$defs/Scale5" }
+            }
+          } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "copilot.suggestion" } } },
+          "then": { "properties": { "data": {
+            "type": "object",
+            "required": ["kind", "text"],
+            "properties": {
+              "kind": { "enum": ["leading_question", "pitching", "follow_up", "coverage"] },
+              "text": { "type": "string" },
+              "turnSeq": { "type": ["integer", "null"], "description": "seq of the interviewer utterance this refers to." }
+            }
+          } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "session.ended" } } },
+          "then": { "properties": { "data": {
+            "type": "object",
+            "properties": { "durationSeconds": { "type": "number" } }
+          } } }
+        }
+      ]
+    },
+
+    "Insight": {
+      "type": "object",
+      "required": ["id", "theme", "quote", "turnSeq", "label", "evidenceId"],
+      "properties": {
+        "id": { "type": "string" },
+        "theme": { "type": "string" },
+        "quote": { "type": "string", "description": "Must match the transcript word for word." },
+        "turnSeq": { "type": "integer" },
+        "label": { "$ref": "#/$defs/Label" },
+        "evidenceId": { "type": ["string", "null"] }
+      }
+    },
+    "InsightReport": {
+      "type": "object",
+      "required": ["sessionId", "generatedAt", "questions"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["question", "signal", "insights"],
+            "properties": {
+              "question": { "type": "string" },
+              "signal": { "enum": ["supports", "contradicts", "unclear"] },
+              "insights": { "type": "array", "items": { "$ref": "#/$defs/Insight" } },
+              "followUps": { "type": "array", "items": { "type": "string" }, "description": "Questions to ask real customers." }
+            }
+          }
+        }
+      }
     }
   },
   "endpoints": {
     "GET /api/health": { "response": { "status": "ok" } },
     "GET /api/items": { "response": "Item[]" },
-    "POST /api/items": { "body": "ItemCreate", "response": "Item" }
+    "POST /api/items": { "body": "ItemCreate", "response": "Item" },
+
+    "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
+    "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
+    "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
+    "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
+    "PATCH /api/sessions/{id}": { "body": "{ status }", "response": "Session", "status": "draft" },
+    "POST /api/sessions/{id}/token": { "response": "SessionToken", "status": "draft" },
+    "POST /api/sessions/{id}/events": { "body": "SessionEvent[]", "response": { "accepted": "integer" }, "status": "draft" },
+    "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },
+    "POST /api/sessions/{id}/coach": { "body": "{ turnSeq }", "response": "SessionEvent (copilot.suggestion)", "status": "draft" },
+    "POST /api/sessions/{id}/debrief": { "response": "InsightReport", "status": "draft" },
+    "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" }
   }
 }

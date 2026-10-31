@@ -1,0 +1,23 @@
+{
+  "sessionId": "s_1",
+  "generatedAt": "2026-10-31T14:31:30Z",
+  "questions": [
+    {
+      "question": "Would Reto switch from car to e-bike?",
+      "signal": "unclear",
+      "insights": [
+        {
+          "id": "i1",
+          "theme": "Car is the default commute",
+          "quote": "Meistens mit dem Auto, ehrlich gesagt.",
+          "turnSeq": 2,
+          "label": "guess",
+          "evidenceId": null
+        }
+      ],
+      "followUps": [
+        "Ask real commuters what would make them leave the car at home."
+      ]
+    }
+  ]
+}

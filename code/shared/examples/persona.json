@@ -1,0 +1,24 @@
+{
+  "id": "p_1",
+  "sprintId": "sprint_2026_11_ebike",
+  "version": 1,
+  "name": "Reto",
+  "age": 46,
+  "location": "Baar ZG",
+  "language": "de",
+  "summary": "Commutes 12 km to work, considers an e-bike but distrusts new brands.",
+  "context": { "job": "Logistics planner", "household": "Married, two kids", "toolsToday": ["SBB app", "Car"] },
+  "jobs": [{ "text": "Get to work without being sweaty", "label": "grounded", "evidenceId": "e1" }],
+  "pains": [{ "text": "Bike theft at the station", "label": "guess", "evidenceId": null }],
+  "objections": [{ "text": "Won't pay more than CHF 3,000", "label": "grounded", "evidenceId": "e2" }],
+  "attitudes": { "techAffinity": 2, "priceSensitivity": 4, "trustInNewBrands": 2 },
+  "speechStyle": { "register": "informal", "verbosity": "short", "fillers": true, "notes": "Uses Velo, Billett, parkieren." },
+  "voiceId": "stock_m_02",
+  "faceId": "stock_m_02",
+  "cloned": false,
+  "readiness": { "score": 0.78, "consistency": 0.86, "grounding": 0.91 },
+  "evidence": [
+    { "id": "e1", "kind": "transcript", "claim": "Wants to arrive fresh", "quote": "Ich will nicht verschwitzt im Büro ankommen.", "sourceRef": "t1" },
+    { "id": "e2", "kind": "miro", "claim": "Budget ceiling", "quote": "max 3000.-", "sourceRef": "miro:sticky_123" }
+  ]
+}
