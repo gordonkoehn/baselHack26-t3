@@ -9,7 +9,7 @@ import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 // client secret from our backend. Our backend never holds the audio connection.
 
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
-type Phase = "idle" | "connecting" | "live" | "ending" | "ended" | "unsaved" | "error";
+type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
 
@@ -40,6 +40,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // "End" waits for both, so the last turn isn't cut off by closing the call.
   const pending = useRef(new Set<string>());
   const [lastTurnMissing, setLastTurnMissing] = useState(false);
+  const giveUp = useRef(false);
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
@@ -163,6 +164,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     events.current = [];
     saved.current = 0;
     pending.current.clear();
+    giveUp.current = false;
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
     try {
@@ -195,6 +197,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       });
       if (!answer.ok) throw new Error(`OpenAI refused the call (${answer.status})`);
       await conn.setRemoteDescription({ type: "answer", sdp: await answer.text() });
+      // Only "live" once events can flow both ways, so an early typed question isn't dropped.
+      if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
       await api.updateSession(session.id, { status: "live" });
       liveSince.current = Date.now();
       setPhase("live");
@@ -226,15 +230,23 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   async function end() {
     setPhase("ending");
     // Mic off first, then wait until the provider has finished every transcript and answer it
-    // started; only then close the call. After 10 s we close anyway and say so instead of
-    // pretending the transcript is complete.
+    // started; only then close the call, so the last turn can't be cut off.
     mic.current?.getTracks().forEach((t) => t.stop());
     for (let waited = 0; pending.current.size > 0 && waited < 10_000; waited += 200) {
       await new Promise((r) => setTimeout(r, 200));
     }
-    setLastTurnMissing(pending.current.size > 0);
+    if (pending.current.size > 0) {
+      // Still not done: keep the call open and let the interviewer decide, never guess "complete".
+      setPhase("waiting");
+      while (pending.current.size > 0 && !giveUp.current) await new Promise((r) => setTimeout(r, 500));
+    }
+    const incomplete = pending.current.size > 0;
+    setLastTurnMissing(incomplete);
     hangUp();
-    record("session.ended", { durationSeconds: Math.round((Date.now() - liveSince.current) / 1000) });
+    // No end marker for an incomplete transcript: the backend then refuses a debrief (409) on its own.
+    if (!incomplete) {
+      record("session.ended", { durationSeconds: Math.round((Date.now() - liveSince.current) / 1000) });
+    }
     await finish();
   }
 
@@ -284,10 +296,22 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           </>
         )}
         {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
+        {phase === "waiting" && (
+          <>
+            <span className="text-sm opacity-70">Waiting for the last turn to finish…</span>
+            <button
+              type="button"
+              className="rounded border border-current/30 px-3 py-1.5 text-sm"
+              onClick={() => (giveUp.current = true)}
+            >
+              Close without it
+            </button>
+          </>
+        )}
         {phase === "ended" && (
           <span className="text-sm opacity-70">
             {lastTurnMissing
-              ? "Ended. The last turn was still being processed when the call closed and may be missing."
+              ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone is off, transcript saved."}
           </span>
         )}
