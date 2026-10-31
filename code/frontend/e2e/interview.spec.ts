@@ -318,7 +318,8 @@ test("a persona edited from the library keeps its place and comes back edited af
   expect((await saved).status()).toBe(200);
   await expect(card.getByText("Edited by hand")).toBeVisible();
   await expect(card).not.toContainText("Ready in");
-  expect(await (await request.get("/api/personas")).json()).toEqual(before);
+  // An edit drops the readiness score (it is not re-checked) but keeps the persona's place.
+  expect(await (await request.get("/api/personas")).json()).toEqual([{ ...before[0], readiness: null }, ...before.slice(1)]);
 
   await page.reload();
   await expect(card).toHaveCount(0);
