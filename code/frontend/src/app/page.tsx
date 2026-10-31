@@ -386,7 +386,17 @@ export default function Home() {
       </section>
 
       <div ref={card} className="scroll-mt-6">
-        {result && <PersonaCard {...result} onPersona={(persona) => setResult({ ...result, persona })} />}
+        {/* Keyed by persona, so an open fact edit can't be saved to the next persona. A save can
+            also finish after a pick, and must not bring the previous persona back. */}
+        {result && (
+          <PersonaCard
+            key={result.persona.id}
+            {...result}
+            onPersona={(persona) =>
+              setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
+            }
+          />
+        )}
       </div>
     </main>
   );
