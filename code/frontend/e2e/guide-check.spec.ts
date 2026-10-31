@@ -63,3 +63,13 @@ test("a provider failure shows a message and leaves the guide alone", async ({ p
   await expect(page.getByTestId("guide-check").getByRole("alert")).toHaveText("Could not check the questions right now. Try again.");
   await expect(guide).toHaveValue(flagged.question);
 });
+
+test("a rate limit shows the backend's wait time and leaves the guide alone", async ({ page }) => {
+  const guide = await openGuide(page);
+  await guide.fill(flagged.question);
+  const detail = "Too many requests from this network. Try again in 12 min.";
+  await page.route("**/api/guides/review", (route) => route.fulfill({ status: 429, headers: { "Retry-After": "720" }, json: { detail } }));
+  await page.getByRole("button", { name: "Check questions" }).click();
+  await expect(page.getByTestId("guide-check").getByRole("alert")).toHaveText(detail);
+  await expect(guide).toHaveValue(flagged.question);
+});
