@@ -925,7 +925,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
           <h3 className="font-semibold">{persona.name}</h3>
           {phase === "connecting" && (
             <>
-              <span className="text-sm text-muted">Connecting… allow the microphone if your browser asks.</span>
+              <span className="text-sm text-muted">Connecting…</span>
               <button type="button" className={btn} onClick={cancelStart}>
                 Cancel
               </button>
