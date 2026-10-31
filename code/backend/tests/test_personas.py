@@ -151,3 +151,13 @@ def test_blank_quote_is_never_grounding(client, quote):
     use_extractor(lambda _req: draft(evidence=bad))
     body = client.post("/api/personas", json=REQUEST).json()
     assert body["evidence"] == [] and grounded_texts(body) == []
+
+
+def test_downgrade_reaches_every_fact_list(client):
+    """No grounded fact may keep an evidenceId whose evidence was dropped, in any list."""
+    fact = {"text": "x", "label": "grounded", "evidenceId": "e1"}
+    bad = [{**EXAMPLE["evidence"][0], "quote": "Paraphrased, not in the source."}]
+    use_extractor(lambda _req: draft(evidence=bad, jobs=[fact], pains=[fact], objections=[fact]))
+    body = client.post("/api/personas", json=REQUEST).json()
+    for name in ("jobs", "pains", "objections"):
+        assert body[name] == [{"text": "x", "label": "guess", "evidenceId": None}]
