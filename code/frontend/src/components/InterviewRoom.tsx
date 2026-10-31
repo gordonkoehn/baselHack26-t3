@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
-import { ScreenShareButton } from "@/components/ScreenShareButton";
+import { ScreenShareButton, frameBudget } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
@@ -22,6 +22,12 @@ type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: numbe
 
 // How often the persona gets a fresh look at the interviewer's camera.
 const CAMERA_FRAME_MS = 15_000;
+// While the prototype is shared it replaces the camera, refreshed faster so navigation shows up.
+const SCREEN_FRAME_MS = 10_000;
+// Permission prompts, token, SDP and channel setup can all hang; give up after this long.
+const START_TIMEOUT_MS = 45_000;
+// The persona prompt (realtime.py) keys on this exact label; keep them in sync.
+const SCREEN_LABEL = "(Interviewer's shared screen, the prototype, right now.)";
 
 // Realtime server events we act on (subset of the GA event list).
 type ServerEvent = {
@@ -112,6 +118,11 @@ export function InterviewRoom({
   const cameraPaused = useRef(false);
   const cameraDelete = useRef<{ itemId: string; eventId: string; resolve: (removed: boolean) => void } | null>(null);
   const camView = useRef<HTMLVideoElement>(null);
+  const [screenShare, setScreenShare] = useState<MediaStream | null>(null);
+  // When the last screen image went out (in liveSeconds), or why it failed; shown while sharing.
+  const [screenSentAt, setScreenSentAt] = useState<number | null>(null);
+  const [screenNote, setScreenNote] = useState<string | null>(null);
+  const startTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [camNote, setCamNote] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   // The persona's voice track; the avatar lip-syncs it and then plays it instead of <audio>.
@@ -146,19 +157,22 @@ export function InterviewRoom({
     if (camView.current) camView.current.srcObject = cam;
   }, [cam]);
 
-  // The persona sees the interviewer: a frame now and every CAMERA_FRAME_MS, added as context only
-  // (no response.create), so it shapes the next answer without making the persona talk.
+  // The persona sees one image at a time: the shared prototype while sharing, else the camera.
+  // A frame now and then on a timer, added as context only (no response.create), so it shapes the
+  // next answer without making the persona talk. Each new frame replaces the previous one.
+  const view = screenShare ?? cam;
   useEffect(() => {
-    if (phase !== "live" || !cam) return;
+    if (phase !== "live" || !view) return;
+    const isScreen = view === screenShare;
     const g = gen.current;
     let cancelled = false;
     let busy = false;
-    const current = () => !cancelled && g === gen.current && !callClosed.current && camStream.current === cam;
+    const current = () => !cancelled && g === gen.current && !callClosed.current && (isScreen || camStream.current === view);
     const send = async () => {
       if (busy || cameraPaused.current || !current()) return;
       busy = true;
       try {
-        const image = await captureFrame(cam);
+        const image = await captureFrame(view, { maxBytes: frameBudget(pc.current) });
         if (!current()) return;
         const dc = channel.current;
         if (dc?.readyState !== "open") return;
@@ -184,12 +198,12 @@ export function InterviewRoom({
           if (!current()) return;
           if (!removed) {
             cameraPaused.current = true;
-            setCamNote("Camera updates paused: the previous image could not be removed. Voice still works.");
+            setCamNote("Image updates paused: the previous image could not be removed. Voice still works.");
             return;
           }
           cameraItem.current = null;
         }
-        const itemId = `cam_${g}_${++cameraSeq.current}`;
+        const itemId = `${isScreen ? "screen" : "cam"}_${g}_${++cameraSeq.current}`;
         cameraItem.current = itemId;
         dc.send(
           JSON.stringify({
@@ -199,26 +213,36 @@ export function InterviewRoom({
               type: "message",
               role: "user",
               content: [
-                { type: "input_text", text: "(Camera view of the interviewer right now. Do not comment on it unless it matters.)" },
+                {
+                  type: "input_text",
+                  text: isScreen ? SCREEN_LABEL : "(Camera view of the interviewer right now. Do not comment on it unless it matters.)",
+                },
                 { type: "input_image", image_url: image },
               ],
             },
           }),
         );
-      } catch {
-        // A missed frame is fine; the next one follows.
+        if (isScreen) {
+          setScreenSentAt(Math.floor((Date.now() - liveSince.current) / 1000));
+          setScreenNote(null);
+        }
+      } catch (e) {
+        // A missed camera frame is fine; the next one follows. A missed screen frame is shown.
+        if (isScreen && current()) {
+          setScreenNote(`The last screen image failed (${e instanceof Error ? e.message : "unknown error"}). Retrying.`);
+        }
       } finally {
         busy = false;
       }
     };
     void send();
-    const id = setInterval(send, CAMERA_FRAME_MS);
+    const id = setInterval(send, isScreen ? SCREEN_FRAME_MS : CAMERA_FRAME_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
       cameraDelete.current?.resolve(false);
     };
-  }, [phase, cam]);
+  }, [phase, view, screenShare]);
 
   // A visible clock while live (interviews run 20–30 min).
   useEffect(() => {
@@ -254,6 +278,7 @@ export function InterviewRoom({
 
   function hangUp() {
     callClosed.current = true;
+    clearTimeout(startTimer.current);
     cameraDelete.current?.resolve(false);
     stopWatching.current?.();
     stopWatching.current = null;
@@ -269,7 +294,37 @@ export function InterviewRoom({
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    setScreenShare(null);
     setMuted(false);
+  }
+
+  // Sharing started or stopped. On stop, the last screen image leaves the context and the persona is
+  // told, so it never describes an old screen as live. Text only: no response.create.
+  function sharing(stream: MediaStream | null) {
+    setScreenShare(stream);
+    setScreenSentAt(null);
+    setScreenNote(null);
+    const dc = channel.current;
+    if (stream || finalizing.current || dc?.readyState !== "open") return;
+    try {
+      const previous = cameraItem.current;
+      if (previous?.startsWith("screen_")) {
+        cameraItem.current = null;
+        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous }));
+      }
+      dc.send(
+        JSON.stringify({
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "(Screen sharing stopped. You no longer see the prototype; do not describe it as if you still see it.)" }],
+          },
+        }),
+      );
+    } catch {
+      // The channel closed meanwhile; the call is ending anyway.
+    }
   }
 
   function loseConnection(g: number) {
@@ -497,6 +552,12 @@ export function InterviewRoom({
     setEndSeconds(0);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
+    startTimer.current = setTimeout(() => {
+      if (!current()) return;
+      cancelStart();
+      setError("Connecting took too long. Check microphone permission and your network, then start again.");
+      setPhase("error");
+    }, START_TIMEOUT_MS);
     try {
       const interviewGuide = guide
         .split("\n")
@@ -527,20 +588,18 @@ export function InterviewRoom({
       }
       mic.current = microphone;
       mic.current.getTracks().forEach((t) => conn.addTrack(t, mic.current!));
-      // The camera is a bonus: without it the interview still runs, voice only.
+      // The camera is a bonus: never awaited, so an unanswered permission prompt can't block voice.
+      // Prompts can't be aborted; a grant that lands after cancel, end or a newer call stops at once.
       setCamNote(null);
-      try {
-        const camera = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (!current()) {
-          camera.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        camStream.current = camera;
-        setCam(camera);
-      } catch {
-        if (!current()) return;
-        setCamNote("Camera is off (blocked or not available). The persona only hears you.");
-      }
+      navigator.mediaDevices.getUserMedia({ video: true }).then(
+        (camera) => {
+          // finalizing: End was pressed while the prompt was open; the call is no longer capturing.
+          if (!current() || finalizing.current) return camera.getTracks().forEach((t) => t.stop());
+          camStream.current = camera;
+          setCam(camera);
+        },
+        () => current() && !finalizing.current && setCamNote("Camera is off (blocked or not available). The persona only hears you."),
+      );
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
       dc.onmessage = (m) => current() && onEvent(JSON.parse(m.data));
@@ -577,6 +636,7 @@ export function InterviewRoom({
       if (!current()) return;
       await api.updateSession(session.id, { status: "live" });
       if (!current()) return;
+      clearTimeout(startTimer.current);
       liveSince.current = Date.now();
       setLiveSeconds(0);
       liveEstablished.current = true;
@@ -958,7 +1018,7 @@ export function InterviewRoom({
                 {muted ? "Unmute mic" : "Mute mic"}
               </button>
               {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
-              <ScreenShareButton pc={pc} ask={askWith} />
+              <ScreenShareButton pc={pc} ask={askWith} onSharing={sharing} />
               {avatarSwitch}
             </>
           )}
@@ -1001,6 +1061,14 @@ export function InterviewRoom({
               className={`aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
             />
             {camNote && <p className="text-xs text-muted">{camNote}</p>}
+            {screenShare && phase === "live" && (
+              <p className="text-xs text-muted" data-testid="screen-status">
+                {screenNote ??
+                  (screenSentAt === null
+                    ? "Sending the first screen image to the persona…"
+                    : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+              </p>
+            )}
           </div>
           <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
             {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
