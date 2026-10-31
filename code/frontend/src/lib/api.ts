@@ -35,26 +35,48 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Shared demo passcode. Opening the team link (?code=...) keeps it for this page and removes it
+// from the address bar. Storage is only a convenience for reloads, and may be blocked.
+let linkCode: string | null = null;
+
+function passcode(): Record<string, string> {
+  try {
+    const url = new URL(window.location.href);
+    const fromLink = url.searchParams.get("code");
+    if (fromLink) {
+      linkCode = fromLink;
+      url.searchParams.delete("code");
+      window.history.replaceState(null, "", url);
+    }
+  } catch {}
+  let code = linkCode;
+  try {
+    if (linkCode) localStorage.setItem("demoPasscode", linkCode);
+    else code = localStorage.getItem("demoPasscode");
+  } catch {}
+  return code ? { "X-Demo-Passcode": code } : {};
+}
+
 export const api = {
   health: () => fetch("/api/health", { cache: "no-store" }).then(json<{ status: string }>),
   createPersona: (body: PersonaCreate) =>
     fetch("/api/personas", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Persona>),
   // The raw file is the body; the backend pulls out the text layer so quotes stay verifiable.
   extractPdf: (file: File) =>
     fetch("/api/sources/pdf", {
       method: "POST",
-      headers: { "Content-Type": "application/pdf" },
+      headers: { "Content-Type": "application/pdf", ...passcode() },
       body: file,
     }).then(json<ExtractedText>),
   // The backend sniffs the format from the bytes; the header is only a hint.
   extractImage: (image: Blob) =>
     fetch("/api/sources/image", {
       method: "POST",
-      headers: { "Content-Type": image.type || "application/octet-stream" },
+      headers: { "Content-Type": image.type || "application/octet-stream", ...passcode() },
       body: image,
     }).then(json<ExtractedText>),
   createSession: (body: SessionCreate) =>
@@ -70,12 +92,12 @@ export const api = {
       body: JSON.stringify(body),
     }).then(json<Session>),
   sessionToken: (id: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store" }).then(
+    fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store", headers: passcode() }).then(
       json<SessionToken>,
     ),
   // Short-lived Simli token for the persona's face; the browser opens the avatar stream itself.
   avatarToken: (id: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(id)}/avatar-token`, { method: "POST", cache: "no-store" }).then(
+    fetch(`/api/sessions/${encodeURIComponent(id)}/avatar-token`, { method: "POST", cache: "no-store", headers: passcode() }).then(
       json<SessionToken>,
     ),
   // Idempotent per seq: resending the same events is safe, a changed event under an old seq is 409.
@@ -87,7 +109,7 @@ export const api = {
     }).then(json<{ accepted: number }>),
   // Needs an ended session with a complete transcript; 409 if it isn't, 422 without interview questions.
   debrief: (id: string) =>
-    fetch(`/api/sessions/${encodeURIComponent(id)}/debrief`, { method: "POST" }).then(json<InsightReport>),
+    fetch(`/api/sessions/${encodeURIComponent(id)}/debrief`, { method: "POST", headers: passcode() }).then(json<InsightReport>),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
 };
