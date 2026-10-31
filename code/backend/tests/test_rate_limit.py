@@ -12,6 +12,7 @@ from app import avatar, extract, rate_limit, realtime
 from app.contracts import Persona, Session, SessionEvent, SessionToken
 from app.extract import ProviderUnavailable
 from app.main import app
+from app.routers.guides import get_reviewer
 from app.routers.insights import get_debriefer
 from app.routers.personas import get_answerer, get_coverage_checker, get_extractor
 from app.store import PREFIX, Store, get_store
@@ -43,6 +44,7 @@ PAID = [
     ),
     ("/api/sources/pdf", "sources", {"content": blank_pdf()}),
     ("/api/sources/image", "sources", {"content": b"\x89PNG\r\n\x1a\n" + b"\0" * 32}),
+    ("/api/guides/review", "guides", {"json": {"questions": ["Why?"], "language": "en"}}),
     (TOKEN, "tokens", {}),
     (AVATAR_TOKEN, "tokens", {}),
     ("/api/sessions/s_1/debrief", "debrief", {}),
@@ -83,8 +85,15 @@ def ctx(monkeypatch):
     app.dependency_overrides[get_debriefer] = lambda: provider
     app.dependency_overrides[get_coverage_checker] = lambda: provider
     app.dependency_overrides[get_answerer] = lambda: provider
+    app.dependency_overrides[get_reviewer] = lambda: provider
     yield Context(TestClient(app), redis, provider)
-    for dependency in (get_extractor, get_debriefer, get_coverage_checker, get_answerer):
+    for dependency in (
+        get_extractor,
+        get_debriefer,
+        get_coverage_checker,
+        get_answerer,
+        get_reviewer,
+    ):
         app.dependency_overrides.pop(dependency)
 
 

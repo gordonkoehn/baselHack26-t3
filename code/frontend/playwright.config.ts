@@ -12,6 +12,8 @@ const env: Record<string, string> = {
   NEXT_TELEMETRY_DISABLED: "1",
   BACKEND_URL: "http://127.0.0.1:8165",
   NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.resolve("e2e/font-mock.cjs"),
+  // Every test shares one server and IP, so the suite alone would use up the per-IP persona limit.
+  RATE_LIMIT_MULTIPLIER: "10",
 };
 for (const key of Object.keys(process.env)) {
   if (/^(OPENAI_|SIMLI_|UPSTASH_|REDIS_)/.test(key)) env[key] = "";

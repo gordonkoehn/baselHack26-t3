@@ -6,16 +6,19 @@ contract JSON, so what we read back validates against the same models.
 
 import base64
 import json
+import time
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.contracts import (
     CoverageReport,
     InsightReport,
     Persona,
     PersonaCreate,
+    PersonaSummary,
     Session,
     SessionEvent,
 )
@@ -23,6 +26,7 @@ from app.contracts import (
 # shortcut: one TTL for every key so events/reports never outlive their session; revisit after the demo.
 TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
+PERSONA_LIST_SIZE = 20
 
 
 # KEYS[1] = events hash, ARGV = ttl, then seq/value pairs.
@@ -48,6 +52,15 @@ if count == 1 then
   redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 end
 return {count, redis.call('TTL', KEYS[1])}
+"""
+
+
+# KEYS[1] = persona index, ARGV = created-at score, persona id, rank to trim up to, ttl.
+# NX: saving a persona again must not change when it was created.
+INDEX_PERSONA = """
+redis.call('ZADD', KEYS[1], 'NX', ARGV[1], ARGV[2])
+redis.call('ZREMRANGEBYRANK', KEYS[1], 0, ARGV[3])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
 """
 
 
@@ -102,7 +115,46 @@ class Store:
         return None if raw is None else cls.model_validate_json(raw)
 
     def save_persona(self, persona: Persona) -> None:
+        """A new persona: store it and list it in the library."""
         self._put(f"{PREFIX}:persona:{persona.id}", persona)
+        args = [str(time.time()), persona.id, str(-PERSONA_LIST_SIZE - 1), str(TTL_SECONDS)]
+        self._call("eval", INDEX_PERSONA, keys=[f"{PREFIX}:personas"], args=args)
+
+    def update_persona(self, persona: Persona) -> None:
+        """An edit, leaving the library and the expiry alone: a persona that fell off the list must
+        not come back as newly created, or outlive the sources its interview needs. XX: a persona
+        that expired since it was read must not return without a TTL."""
+        self._call("set", f"{PREFIX}:persona:{persona.id}", _dump(persona), xx=True, keepttl=True)
+
+    def list_personas(self) -> list[PersonaSummary]:
+        """Newest first. Skips personas that expired before their index entry or that an older
+        contract wrote, so one such entry can't hide the whole list."""
+        rows = self._call(
+            "zrange", f"{PREFIX}:personas", 0, PERSONA_LIST_SIZE - 1, rev=True, withscores=True
+        )
+        if not rows:
+            return []
+        raws = self._call("mget", *[f"{PREFIX}:persona:{persona_id}" for persona_id, _ in rows])
+        summaries = []
+        for (_, created), raw in zip(rows, raws, strict=True):
+            if raw is None:
+                continue
+            try:
+                persona = Persona.model_validate_json(raw)
+            except ValidationError:
+                continue
+            summaries.append(
+                PersonaSummary(
+                    id=persona.id,
+                    name=persona.name,
+                    role=persona.context.job,
+                    created_at=datetime.fromtimestamp(created, UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    readiness=persona.readiness,
+                )
+            )
+        return summaries
 
     def get_persona(self, persona_id: str) -> Persona | None:
         return self._load(f"{PREFIX}:persona:{persona_id}", Persona)

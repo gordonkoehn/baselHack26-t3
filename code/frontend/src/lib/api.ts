@@ -3,10 +3,13 @@ import type {
   CoverageRequest,
   ExtractedText,
   Face,
+  GuideReview,
+  GuideReviewRequest,
   InsightReport,
   Persona,
   PersonaAnswers,
   PersonaCreate,
+  PersonaSummary,
   PersonaUpdate,
   Session,
   SessionCreate,
@@ -111,6 +114,8 @@ export const api = {
       headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Persona>),
+  listPersonas: () =>
+    fetch("/api/personas", { cache: "no-store", headers: passcode() }).then(json<PersonaSummary[]>),
   // The raw file is the body; the backend pulls out the text layer so quotes stay verifiable.
   extractPdf: (file: File) =>
     fetch("/api/sources/pdf", {
@@ -125,6 +130,12 @@ export const api = {
       headers: { "Content-Type": image.type || "application/octet-stream", ...passcode() },
       body: image,
     }).then(json<ExtractedText>),
+  reviewGuide: (body: GuideReviewRequest) =>
+    fetch("/api/guides/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...passcode() },
+      body: JSON.stringify(body),
+    }).then(json<GuideReview>),
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",

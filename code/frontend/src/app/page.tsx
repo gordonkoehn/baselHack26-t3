@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { errorMessage } from "@/lib/errorMessage";
 import type {
   CoverageReport,
   Evidence,
@@ -10,6 +12,7 @@ import type {
   Language,
   Persona,
   PersonaSource,
+  PersonaSummary,
   PersonaUpdate,
   SourceKind,
 } from "@/lib/contracts";
@@ -27,7 +30,8 @@ const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
 type Draft = PersonaSource & { id: number };
-type Result = { persona: Persona; sources: PersonaSource[]; seconds: number };
+// seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
+type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -59,19 +63,6 @@ async function onWhite(file: File): Promise<Blob> {
   );
 }
 
-function errorMessage(e: unknown): string {
-  if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
-  if (e.status === 401) return "This needs the team link with the passcode. Ask in Discord.";
-  if (e.status === 422) return `The input was rejected: ${e.detail}`;
-  // The backend's detail says how long to wait.
-  if (e.status === 429) return e.detail;
-  if (e.status === 502) return "The model's answer couldn't be used. Try again.";
-  if (e.status === 503) return "The persona service is temporarily unavailable. Try again in a moment.";
-  // The Next proxy answers 500 when the backend process isn't running at all.
-  if (e.status >= 500) return `Backend not reachable (${e.status}). Is \`make dev\` running?`;
-  return `Unexpected error ${e.status}: ${e.detail}`;
-}
-
 export default function Home() {
   const [drafts, setDrafts] = useState<Draft[]>(SAMPLES);
   const [language, setLanguage] = useState<Language>("de");
@@ -84,11 +75,15 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("sources");
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [verdict, setVerdict] = useState<{ personaId: string; ok: boolean } | null>(null);
+  const [recent, setRecent] = useState<PersonaSummary[]>([]);
+  const [opening, setOpening] = useState(false);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
   // While building or reading files, nothing is editable: a late file result can't land in a
   // reset list, and the submitted sources can't change under a running request.
-  const busy = loading || reading;
+  const busy = loading || reading || opening;
+  const personaId = result?.persona.id;
+  const picked = result?.seconds === null;
 
   // Tick a visible timer while the persona is being built: the demo claims "ready in minutes".
   useEffect(() => {
@@ -96,6 +91,21 @@ export default function Home() {
     const id = setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 100);
     return () => clearInterval(id);
   }, [loading]);
+
+  // On load and after each new persona. The list is optional: without the passcode or a store it
+  // just stays away, and creating a persona still reports its own errors.
+  useEffect(() => {
+    let current = true;
+    api
+      .listPersonas()
+      .then((personas) => {
+        if (current) setRecent(personas);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [personaId]);
 
   const update = (id: number, patch: Partial<PersonaSource>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -156,6 +166,20 @@ export default function Home() {
   // it's about how the persona sounds, which a fact edit rarely changes.
   const currentVerdict = result && verdict?.personaId === result.persona.id ? verdict.ok : null;
 
+  async function pick(id: string) {
+    if (busy) return;
+    setOpening(true);
+    setError(null);
+    try {
+      setResult({ persona: await api.getPersona(id), sources: [], seconds: null });
+      setTab("persona");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setOpening(false);
+    }
+  }
+
   return (
     <>
     <WorkspaceBar
@@ -180,7 +204,7 @@ export default function Home() {
     >
       <div hidden={tab !== "sources"}>
       <header className="mb-10 pt-6">
-        <p className="mb-6 font-mono text-sm tracking-wide text-muted">OpenTwin</p>
+        <Image src="/opentwin-logo.svg" alt="OpenTwin" width={140} height={32} className="mb-8 h-8 w-auto" priority />
         <h1 className="max-w-3xl text-5xl leading-[1.05] sm:text-6xl">
           It tells you what it knows. And what it&apos;s{" "}
           <span className="relative inline-block">
@@ -202,12 +226,43 @@ export default function Home() {
         </p>
       </header>
 
+      {recent.length > 0 && (
+        <section
+          aria-labelledby="recent-personas"
+          className="mb-8 rounded-xl border border-line bg-surface p-5 shadow-sm"
+        >
+          <h2 id="recent-personas" className="text-sm font-semibold">
+            Recent personas
+          </h2>
+          <ul className="mt-2 divide-y divide-line">
+            {recent.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className="flex w-full flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
+                  onClick={() => pick(p.id)}
+                  disabled={busy}
+                >
+                  <span className="font-medium">{p.name}</span>
+                  {p.role && <span className="min-w-0 truncate text-muted">{p.role}</span>}
+                  <span className="ml-auto text-xs tabular-nums text-muted">
+                    {p.readiness && `${Math.round(p.readiness.score * 100)} % ready · `}
+                    {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section
         className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-sm font-semibold">
-            Sources <span className="font-normal text-muted">({filled.length})</span>
+            Sources
+            <span className="font-normal text-muted"> ({filled.length})</span>
           </h2>
         </div>
         <div className="space-y-4">
@@ -311,7 +366,7 @@ export default function Home() {
             onClick={create}
             disabled={busy || filled.length === 0}
           >
-            {loading ? "Building persona…" : result ? "Rebuild persona" : "Create persona"}
+            {loading ? "Building persona…" : result && !picked ? "Rebuild persona" : "Create persona"}
           </button>
           {loading && <span className="text-sm tabular-nums text-muted">{elapsed.toFixed(1)} s</span>}
           {filled.length === 0 && <span className="text-sm text-muted">Add at least one source.</span>}
@@ -346,7 +401,11 @@ export default function Home() {
               onVerdict={(ok) => setVerdict({ personaId: result.persona.id, ok })}
               // Mounted only while visible, so the page never holds two call rooms' controls at once.
               showTestCall={tab === "persona"}
-              onPersona={(persona) => setResult({ ...result, persona })}
+              opening={opening}
+              // A save can finish after a pick, and must not bring the previous persona back.
+              onPersona={(persona) =>
+                setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
+              }
               onAnswered={(persona, source) => {
                 // The answers are now source N on the backend; keep the card's citations and a later
                 // rebuild in step with that.
@@ -357,7 +416,7 @@ export default function Home() {
           </div>
           <div hidden={tab !== "interview"}>
             {/* Keyed by persona so a new persona never inherits the previous call. */}
-            <InterviewRoom key={result.persona.id} persona={result.persona} />
+            <InterviewRoom key={result.persona.id} persona={result.persona} startBlocked={opening} />
           </div>
         </>
       )}
@@ -372,6 +431,16 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "persona", label: "Persona" },
   { id: "interview", label: "Interview" },
 ];
+
+function readinessLine({ readiness, version }: Persona): string {
+  if (readiness) {
+    const { score, consistency, grounding } = readiness;
+    return `Readiness ${score.toFixed(2)}: consistency ${consistency.toFixed(2)} · grounding ${grounding.toFixed(2)} (do two trial runs agree, and do answers rest on sourced facts?)`;
+  }
+  return (version ?? 1) > 1
+    ? "No readiness score: this persona was edited after creation and is not re-checked."
+    : "No readiness score: the check did not finish.";
+}
 
 function WorkspaceBar({
   tab,
@@ -461,6 +530,7 @@ function PersonaProfile({
   verdict,
   onVerdict,
   showTestCall,
+  opening,
   onPersona,
   onAnswered,
 }: Result & {
@@ -469,6 +539,7 @@ function PersonaProfile({
   verdict: boolean | null;
   onVerdict: (ok: boolean) => void;
   showTestCall: boolean;
+  opening: boolean;
   onPersona: (p: Persona) => void;
   onAnswered: (p: Persona, source: PersonaSource) => void;
 }) {
@@ -514,11 +585,15 @@ function PersonaProfile({
             <FacePhoto persona={persona} size="size-20" />
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-widest text-muted">
-                AI persona · v{persona.version} · built in {seconds.toFixed(1)} s
+                AI persona · v{persona.version}
+                {seconds !== null && ` · built in ${seconds.toFixed(1)} s`}
               </p>
               <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
               {meta && <p className="text-sm text-muted">{meta}</p>}
               <p className="mt-3 max-w-2xl leading-relaxed">{persona.summary}</p>
+              <p className="mt-2 text-xs text-muted" data-testid="readiness">
+                {readinessLine(persona)}
+              </p>
               <div className="mt-3">
                 <CustomFaceStatus persona={persona} onPersona={onPersona} />
               </div>
@@ -573,7 +648,7 @@ function PersonaProfile({
           hint={`Talk to ${persona.name} for a minute. Does this sound like your customer? No questions needed; this is not the interview.`}
         >
           {/* Its own room, keyed apart from the interview's, so a test never mixes into the real call. */}
-          {showTestCall && <InterviewRoom key={`test-${persona.id}`} persona={persona} />}
+          {showTestCall && <InterviewRoom key={`test-${persona.id}`} persona={persona} startBlocked={opening} />}
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 text-sm">
             <span className="font-medium">Your verdict:</span>
             <button

@@ -1,6 +1,7 @@
+import re
 import threading
 
-from app.store import APPEND_EVENTS, COUNT_HIT, TRANSITION_SESSION
+from app.store import APPEND_EVENTS, COUNT_HIT, INDEX_PERSONA, TRANSITION_SESSION
 
 
 class FakeRedis:
@@ -11,19 +12,35 @@ class FakeRedis:
         self.ttl: dict = {}
         self.lock = threading.Lock()
 
-    def set(self, key, value, ex=None):
+    def set(self, key, value, ex=None, xx=False, keepttl=False):
         with self.lock:
+            if xx and key not in self.data:
+                return
             self.data[key] = value
-            self.ttl[key] = ex
+            if not keepttl:
+                self.ttl[key] = ex
 
     def get(self, key):
         return self.data.get(key)
+
+    def mget(self, *keys):
+        if not keys:
+            raise ValueError("wrong number of arguments for 'mget'")  # as real Redis
+        return [self.data.get(key) for key in keys]
+
+    def zrange(self, key, start, stop, rev=False, withscores=False):
+        assert stop >= 0
+        ranked = sorted(self.data.get(key, {}).items(), key=lambda kv: (kv[1], kv[0]), reverse=rev)
+        ranked = ranked[start : stop + 1]
+        return ranked if withscores else [member for member, _ in ranked]
 
     def hgetall(self, key):
         return dict(self.data.get(key, {}))
 
     def eval(self, script, keys, args):
-        """Model the supported scripts atomically; this does not execute Lua."""
+        """Model the supported scripts atomically; only INDEX_PERSONA really runs its commands."""
+        if script == INDEX_PERSONA:
+            return self._run_commands(script, keys, args)
         if script == COUNT_HIT:
             return self._count_hit(keys, args)
         with self.lock:
@@ -48,6 +65,45 @@ class FakeRedis:
                     out.append("")
             self.ttl[keys[0]] = int(args[0])
             return out
+
+    def _run_commands(self, script, keys, args):
+        """Runs a script of plain redis.call lines, so its real commands and arguments get tested."""
+
+        def value(token):
+            if ref := re.fullmatch(r"(KEYS|ARGV)\[(\d+)\]", token):
+                return (keys if ref[1] == "KEYS" else args)[int(ref[2]) - 1]
+            quoted = re.fullmatch(r"'(.*)'", token)
+            assert quoted or token.isdecimal(), f"fake can't read {token}"
+            return quoted[1] if quoted else token
+
+        with self.lock:
+            for line in filter(None, map(str.strip, script.splitlines())):
+                call = re.fullmatch(r"redis\.call\((.+)\)", line)
+                assert call, f"fake can't run: {line}"
+                name, key, *rest = [value(token) for token in call[1].split(", ")]
+                if name == "ZADD":
+                    self._zadd(key, *rest)
+                elif name == "ZREMRANGEBYRANK":
+                    self._zremrangebyrank(key, *rest)
+                else:
+                    assert name == "EXPIRE", f"fake doesn't know {name}"
+                    self.ttl[key] = int(*rest)
+
+    def _zadd(self, key, *flags_score_member):
+        *flags, score, member = flags_score_member
+        z = self.data.setdefault(key, {})
+        if flags == ["NX"]:
+            z.setdefault(member, float(score))
+        else:
+            assert not flags
+            z[member] = float(score)
+
+    def _zremrangebyrank(self, key, start, stop):
+        z = self.data.get(key, {})
+        start, stop = (int(rank) + len(z) if int(rank) < 0 else int(rank) for rank in (start, stop))
+        # A negative stop past the start of the set removes nothing.
+        for old in sorted(z, key=lambda m: (z[m], m))[max(start, 0) : max(stop + 1, 0)]:
+            del z[old]
 
     def _count_hit(self, keys, args):
         with self.lock:

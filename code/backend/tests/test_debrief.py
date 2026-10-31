@@ -342,6 +342,17 @@ def test_debrief_sends_concrete_theme_and_per_question_quote_rules(inputs, monke
     assert "does not prohibit reuse across different questions" in instructions
 
 
+def test_debrief_defines_the_signal_for_open_prompts(inputs, monkeypatch):
+    # The guide check's rewrites are open prompts, which have no yes or no answer.
+    session, persona, events, draft = inputs
+    calls = mock_provider(monkeypatch, response_body(draft))
+    extract.extract_debrief(session, persona, events)
+    instructions = calls[0]["instructions"]
+    assert "supports means the findings say yes" in instructions
+    assert "For an open prompt with no yes or no answer" in instructions
+    assert "contradicts means the persona says it never happened" in instructions
+
+
 @pytest.mark.parametrize(
     "change",
     [

@@ -9,8 +9,8 @@ from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
 from app.routers import personas
-from app.routers.personas import get_extractor
-from app.store import Store, get_store
+from app.routers.personas import get_extractor, get_prober
+from app.store import PERSONA_LIST_SIZE, Store, get_store
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -26,6 +26,10 @@ REQUEST = {
 }
 
 
+def no_probes(_instructions, _question):
+    raise ProviderUnavailable("readiness probes are covered in test_readiness.py")
+
+
 def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
@@ -38,6 +42,7 @@ def client():
     store = Store(FakeRedis())
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_extractor] = lambda: lambda _req: draft()
+    app.dependency_overrides[get_prober] = lambda: no_probes
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -58,6 +63,76 @@ def test_create_then_read(client):
     # Kept so the live interview knows the product, not only the persona facts.
     saved = app.dependency_overrides[get_store]().get_persona_sources(body["id"])
     assert saved.sources[0].text == REQUEST["sources"][0]["text"]
+
+
+def test_list_shows_created_personas_without_their_facts(client):
+    assert client.get("/api/personas").json() == []
+    first = client.post("/api/personas", json=REQUEST).json()
+    second = client.post("/api/personas", json=REQUEST).json()
+    res = client.get("/api/personas")
+    assert res.status_code == 200
+    assert [p["id"] for p in res.json()] == [second["id"], first["id"]]
+    assert set(res.json()[0]) == {"id", "name", "role", "createdAt", "readiness"}
+    assert res.json()[0]["role"] == EXAMPLE["context"]["job"]
+    # What the library picks: the full persona comes from the id alone, no re-extraction.
+    use_extractor(lambda _req: pytest.fail("reuse must not extract"))
+    assert client.get(f"/api/personas/{first['id']}").json() == first
+
+
+def test_persona_is_not_listed_if_its_sources_could_not_be_saved(client):
+    class SourcesFail(FakeRedis):
+        def set(self, key, value, ex=None):
+            if key.endswith(":sources"):
+                raise TimeoutError("interrupted")
+            super().set(key, value, ex=ex)
+
+    store = Store(SourcesFail())
+    app.dependency_overrides[get_store] = lambda: store
+    assert client.post("/api/personas", json=REQUEST).status_code == 503
+    assert client.get("/api/personas").json() == []
+
+
+def test_list_needs_the_passcode(client, monkeypatch):
+    client.post("/api/personas", json=REQUEST)
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    assert client.get("/api/personas").status_code == 401
+    assert client.get("/api/personas", headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+    res = client.get("/api/personas", headers={"X-Demo-Passcode": "right"})
+    assert res.status_code == 200 and len(res.json()) == 1
+
+
+def test_list_fails_closed_on_vercel_without_passcode(client, monkeypatch):
+    monkeypatch.delenv("DEMO_PASSCODE", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert client.get("/api/personas").status_code == 503
+
+
+def test_edited_persona_keeps_its_place_and_date_and_comes_back_edited(client):
+    first = client.post("/api/personas", json=REQUEST).json()
+    client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert listed[1]["id"] == first["id"]
+
+    fact = {"text": "Edited by hand", "label": "guess", "evidenceId": None}
+    assert client.patch(f"/api/personas/{first['id']}", json={"jobs": [fact]}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    picked = client.get(f"/api/personas/{first['id']}").json()
+    assert picked["jobs"] == [fact]
+    assert picked["version"] == first["version"] + 1
+
+
+def test_editing_a_persona_off_the_list_does_not_bring_it_back(client):
+    oldest = client.post("/api/personas", json=REQUEST).json()
+    for _ in range(PERSONA_LIST_SIZE):
+        client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert oldest["id"] not in [p["id"] for p in listed]
+
+    assert client.patch(f"/api/personas/{oldest['id']}", json={"jobs": []}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    assert client.get(f"/api/personas/{oldest['id']}").json()["jobs"] == []
 
 
 def test_face_and_voice_follow_the_chosen_face(client):

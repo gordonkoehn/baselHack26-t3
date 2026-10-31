@@ -12,17 +12,19 @@ from pydantic import Field, create_model
 from app import avatar, realtime
 from app.contracts import (
     CoverageReport,
+    GuideReview,
     InsightReport,
     Persona,
+    PersonaSummary,
     PersonaUpdate,
     Session,
     SessionEvent,
     SessionToken,
 )
-from app.extract import DebriefDraft, PersonaDraft
+from app.extract import DebriefDraft, PersonaDraft, ProbeAnswer
 from app.main import app
 from app.routers.insights import get_debriefer
-from app.routers.personas import get_extractor
+from app.routers.personas import get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
 
@@ -31,11 +33,13 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 # Explicit coverage: adding or renaming a file requires choosing its contract here.
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
+    "persona-summaries.json": ("PersonaSummary", PersonaSummary, True),
     "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
     "coverage-report.json": ("CoverageReport", CoverageReport, False),
+    "guide-review.json": ("GuideReview", GuideReview, False),
 }
 
 
@@ -110,6 +114,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
             }
         )
     monkeypatch.setitem(app.dependency_overrides, get_extractor, lambda: lambda _request: draft)
+    answer = ProbeAnswer(answer="Ja.", position="yes", fact_ids=["F1"])
+    monkeypatch.setitem(app.dependency_overrides, get_prober, lambda: lambda *_args: answer)
     created = response(
         client.post(
             "/api/personas",
@@ -122,6 +128,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
         status=201,
     )
     response(client.get(f"/api/personas/{created['id']}"), "Persona")
+    summaries = response(client.get("/api/personas"), "PersonaSummary", array=True)
+    assert [summary["id"] for summary in summaries] == [created["id"]]
     guide = load("session.json")["interviewGuide"]
     session = response(
         client.post(

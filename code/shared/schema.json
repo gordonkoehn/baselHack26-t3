@@ -80,6 +80,7 @@
         "cloned": { "type": "boolean", "description": "true only with written consent of the real person." },
         "readiness": {
           "type": ["object", "null"],
+          "description": "Measured once at creation: consistency is the share of probe questions both runs answered alike, grounding the share of answers relying mainly on grounded facts, score their product. null if the check failed or the persona was edited since.",
           "required": ["score", "consistency", "grounding"],
           "properties": {
             "score": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -90,9 +91,21 @@
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } }
       }
     },
+    "PersonaSummary": {
+      "type": "object",
+      "description": "One row of the persona library: enough to recognise a persona, none of its facts or evidence.",
+      "required": ["id", "name", "role", "createdAt", "readiness"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": ["string", "null"], "description": "The persona's context.job." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "readiness": { "$ref": "#/$defs/Persona/properties/readiness" }
+      }
+    },
     "PersonaUpdate": {
       "type": "object",
-      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. faceId must be one of GET /api/faces; voiceId then follows that face's gender. Bumps version.",
+      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. faceId must be one of GET /api/faces; voiceId then follows that face's gender. Bumps version and clears readiness.",
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 80 },
         "age": { "type": ["integer", "null"], "minimum": 0, "maximum": 120 },
@@ -160,6 +173,43 @@
       }
     },
 
+    "GuideIssue": {
+      "description": "Mom Test problems: leading = suggests the wanted answer; hypothetical = asks about imagined behaviour; closed = answerable with yes or no; pitch = sells the idea.",
+      "enum": ["leading", "hypothetical", "closed", "pitch"]
+    },
+    "GuideReviewRequest": {
+      "type": "object",
+      "required": ["questions", "language"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "type": "string", "pattern": "\\S", "maxLength": 500, "description": "Surrounding whitespace is ignored." }
+        },
+        "language": { "enum": ["de", "en"], "description": "Language of the rewrites." }
+      }
+    },
+    "GuideReview": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "One entry per question, in request order.",
+          "items": {
+            "type": "object",
+            "required": ["question", "issues", "rewrite"],
+            "properties": {
+              "question": { "type": "string" },
+              "issues": { "type": "array", "items": { "$ref": "#/$defs/GuideIssue" } },
+              "rewrite": { "type": ["string", "null"], "description": "Neutral, open version on one line. Null when there are no issues." }
+            }
+          }
+        }
+      }
+    },
+
     "Provider": { "enum": ["openai-realtime", "simli"], "description": "Which realtime vendor the browser joins." },
     "Session": {
       "type": "object",
@@ -173,7 +223,8 @@
         "interviewGuide": { "type": "array", "items": { "type": "string" } },
         "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
-        "endedAt": { "type": ["string", "null"], "format": "date-time" }
+        "endedAt": { "type": ["string", "null"], "format": "date-time" },
+        "sample": { "type": "boolean", "description": "Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so." }
       }
     },
     "SessionCreate": {
@@ -181,7 +232,8 @@
       "required": ["personaId"],
       "properties": {
         "personaId": { "type": "string" },
-        "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." }
+        "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." },
+        "sample": { "type": "boolean", "description": "See Session.sample." }
       }
     },
     "SessionUpdate": {
@@ -387,6 +439,7 @@
   "endpoints": {
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
+    "GET /api/personas": { "response": "PersonaSummary[]", "note": "Newest first, max 20. An edit (PATCH) keeps a persona's place and createdAt. Needs the demo passcode (X-Demo-Passcode, 401 without it): the list exposes the ids that GET /api/personas/{id} reads. 503 store unavailable." },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
     "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers can't lose ground: same test goal keeps weights and still-backed covered rows. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
@@ -399,6 +452,7 @@
     "POST /api/personas/{id}/answers": { "body": "PersonaAnswers", "response": "Persona", "note": "Adds facts to the same persona (version bump). 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "Text layer first; scanned PDFs (no text layer, max 20 pages) are transcribed by the vision model. 413 over 10 MB, 100 pages (20 if scanned) or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no readable text; 502/503 transcription failed or provider unavailable." },
     "POST /api/sources/image": { "body": "raw PNG, JPEG, WebP or GIF bytes (max 10 MB, format sniffed from the bytes)", "response": "ExtractedText", "status": "draft", "note": "Visible text transcribed verbatim by the vision model. 413 over 10 MB or 200,000 characters; 422 not a supported image or no readable text; 502 unusable transcription; 503 provider unavailable." },
+    "POST /api/guides/review": { "body": "GuideReviewRequest", "response": "GuideReview", "note": "Stateless Mom Test check of an interview guide. Passcode required. 422 invalid body; 502 unusable model output; 503 provider unavailable." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
     "PATCH /api/sessions/{id}": { "body": "SessionUpdate", "response": "Session", "status": "draft" },

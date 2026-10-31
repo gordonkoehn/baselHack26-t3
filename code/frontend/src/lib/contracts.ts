@@ -59,6 +59,16 @@ export type Persona = {
   evidence: Evidence[];
 };
 
+/** One row of the persona library (GET /api/personas). */
+export type PersonaSummary = {
+  id: string;
+  name: string;
+  /** The persona's context.job. */
+  role: string | null;
+  createdAt: string;
+  readiness: { score: number; consistency: number; grounding: number } | null;
+};
+
 /** PATCH /api/personas/{id}: given lists replace the stored ones; edited or new facts come back as guesses. */
 export type PersonaUpdate = {
   /** Identity: absent keeps the stored value; age and location may be null ("unknown"). */
@@ -108,9 +118,11 @@ export type Session = {
   readySeconds?: number | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
+  sample?: boolean;
 };
 
-export type SessionCreate = { personaId: string; interviewGuide?: string[] };
+export type SessionCreate = { personaId: string; interviewGuide?: string[]; sample?: boolean };
 
 export type SessionUpdate = { status: "live" | "ended" };
 
@@ -212,4 +224,25 @@ export type CoverageReport = {
   criteria: CoverageCriterion[];
   /** Gap questions; answers go back in as a note source and the persona is rebuilt. */
   questions: string[];
+};
+
+export type GuideIssue = "leading" | "hypothetical" | "closed" | "pitch";
+
+export type GuideReviewRequest = {
+  /** 1 to 50 nonblank questions of at most 500 characters. */
+  questions: string[];
+  /** Language of the rewrites. */
+  language: Language;
+};
+
+export type GuideReviewItem = {
+  question: string;
+  issues: GuideIssue[];
+  /** Neutral, open version on one line. Null when there are no issues. */
+  rewrite: string | null;
+};
+
+export type GuideReview = {
+  /** One entry per question, in request order. */
+  items: GuideReviewItem[];
 };

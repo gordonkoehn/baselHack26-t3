@@ -1,3 +1,4 @@
+import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from app.contracts import (
     PersonaAnswers,
     PersonaCreate,
     PersonaSource,
+    PersonaSummary,
     PersonaUpdate,
 )
 from app.extract import (
@@ -27,10 +29,12 @@ from app.extract import (
     CoverageDraft,
     ExtractionFailed,
     PersonaDraft,
+    ProbeAnswer,
     ProviderUnavailable,
 )
 from app.faces import FACES, VOICES, fitting_face, photo_url
 from app.rate_limit import rate_limit
+from app.readiness import score_readiness
 from app.routers.sources import _image_type
 from app.store import Store, get_store
 
@@ -72,6 +76,13 @@ def get_answerer() -> Answerer:
 
 
 AnswererDep = Annotated[Answerer, Depends(get_answerer)]
+
+
+def get_prober() -> Callable[[str, str], ProbeAnswer]:
+    return extract.answer_probe
+
+
+ProberDep = Annotated[Callable[[str, str], ProbeAnswer], Depends(get_prober)]
 
 
 def _norm(text: str) -> str:
@@ -133,7 +144,10 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
     response_model_by_alias=True,
     dependencies=[Depends(require_passcode), Depends(rate_limit("personas"))],
 )
-def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep) -> Persona:
+def create_persona(
+    body: PersonaCreate, store: StoreDep, extractor: ExtractorDep, prober: ProberDep
+) -> Persona:
+    started = time.monotonic()
     if any(not s.text.strip() for s in body.sources):
         raise HTTPException(422, "every source needs text")
     try:
@@ -157,8 +171,11 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         cloned=False,
         readiness=None,
     )
-    store.save_persona(persona)
+    readiness = score_readiness(persona, body.sources, prober, time.monotonic() - started)
+    persona = persona.model_copy(update={"readiness": readiness})
+    # Sources first: saving the persona lists it, and a listed persona can be picked for an interview.
     store.save_persona_sources(persona.id, body)
+    store.save_persona(persona)
     return persona
 
 
@@ -337,7 +354,13 @@ def apply_answers(persona: Persona, n: int, body: PersonaAnswers, draft: Answers
     if context:
         basics["context"] = persona.context.model_copy(update=context)
     return persona.model_copy(
-        update={"version": persona.version + 1, "evidence": evidence, **facts, **basics}
+        update={
+            "version": persona.version + 1,
+            "readiness": None,
+            "evidence": evidence,
+            **facts,
+            **basics,
+        }
     )
 
 
@@ -489,6 +512,13 @@ def read_photo(persona_id: str, store: StoreDep) -> Response:
     return Response(data, media_type=mime, headers={"Cache-Control": "private, max-age=3600"})
 
 
+# Costs no credit, but needs the passcode anyway: a persona's random id is what keeps its facts and
+# quotes from the sources private, and this list would hand every id to anyone on the public URL.
+@router.get("", response_model_by_alias=True, dependencies=[Depends(require_passcode)])
+def list_personas(store: StoreDep) -> list[PersonaSummary]:
+    return store.list_personas()
+
+
 @router.get("/{persona_id}", response_model_by_alias=True)
 def read_persona(persona_id: str, store: StoreDep) -> Persona:
     persona = store.get_persona(persona_id)
@@ -515,7 +545,9 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             for f in new
         ]
 
-    changes: dict = {"version": persona.version + 1}
+    # The score described the persona before this edit. Re-probing every edit would cost ten more
+    # provider calls, so the persona simply has no score from here on.
+    changes: dict = {"version": persona.version + 1, "readiness": None}
     # Identity is the team's call; only fields sent are changed, and age/location may be cleared.
     for name in ("name", "age", "location", "summary", "context"):
         if name in body.model_fields_set and (
@@ -550,5 +582,5 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             update={k: getattr(body.attitudes, k) for k in body.attitudes.model_fields_set}
         )
     persona = persona.model_copy(update=changes)
-    store.save_persona(persona)
+    store.update_persona(persona)
     return persona
