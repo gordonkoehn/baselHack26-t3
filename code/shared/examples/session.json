@@ -2,8 +2,8 @@
   "id": "s_1",
   "personaId": "p_1",
   "status": "live",
-  "provider": "livekit",
-  "joinUrl": "wss://opentwin-eu.livekit.cloud",
+  "provider": "openai-realtime",
+  "joinUrl": null,
   "interviewGuide": [
     "Mehrwert statt Verlust: do users see sharing for the neighbourhood as added value rather than giving something up?",
     "Matching wirkt: does the Bäckerei Muff matching raise the share put into the project?",

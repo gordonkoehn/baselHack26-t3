@@ -60,7 +60,7 @@ export type PersonaCreate = {
   sources: PersonaSource[];
 };
 
-export type Provider = "tavus" | "anam" | "livekit" | "openai-realtime" | "simli";
+export type Provider = "openai-realtime" | "simli";
 
 export type Session = {
   id: string;

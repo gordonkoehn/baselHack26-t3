@@ -38,7 +38,7 @@ This plan merges the original draft with the OpenTwin technical spec. The spec i
 **Core (must work by Sat 13:00):**
 - One persona from the Sprintbox sandbox, every fact tagged with a source or marked as an assumption
 - Behaviour rules: admits confusion, hesitates, disagrees, gives no design advice
-- Live voice and a Simli preset avatar in our own LiveKit room
+- Live voice and a Simli preset avatar in the browser
 - Screen awareness from shared-screen frames
 - Labelled debrief, in High German or English
 
@@ -101,41 +101,12 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 - What's our spending cap?
 - Who leads overnight?
 
-## Proposed stack (nothing here has been run)
-LiveKit Agents worker on LiveKit Cloud, with Deepgram speech-to-text, an LLM, ElevenLabs voice and Simli preset faces. Vercel only issues tokens and serves the API. Upstash Redis holds personas, sessions and transcripts.
+## Current stack
+Browser (Next.js) talks directly to OpenAI Realtime over WebRTC for voice and to Simli for the avatar. The FastAPI backend keeps the keys, issues short-lived tokens, and runs extraction and the debrief. Upstash Redis stores personas, sessions, events and reports. See `ONBOARDING.md` for details and `code/.env.example` for keys.
 
-**Why this one:** lowest estimated cost, screen share arrives as a normal room track, and it's the design with the most room to swap parts.
+The data contract lives in `code/shared/schema.json`.
 
-**LLM:** the analysis assumed Claude, but we now have OpenAI credits. Use OpenAI through the same pipeline if it passes the latency test. Avoid the OpenAI Realtime API as the default: worst-case cost was estimated at about $25 per call, which would burn the credits in a few interviews.
-
-**Acting:** not costed yet. It needs a remote browser (Kernel or Browserbase) and a driver such as Stagehand.
-
-| Service | Cost | Env var | Where |
-|---|---|---|---|
-| LiveKit Build | $0 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | API, local |
-| Simli Hobby | $10 | `SIMLI_API_KEY` | Worker, local |
-| Deepgram | Free credit | `DEEPGRAM_API_KEY` | Worker, local |
-| ElevenLabs Starter | $6 | `ELEVEN_API_KEY` | Worker, local |
-| OpenAI | Credits | `OPENAI_API_KEY` | API, worker, local |
-| Upstash Redis | Free | Check injected names | API, local |
-
-Also needed: `AGENT_SHARED_SECRET`, `DEMO_PASSCODE`, and `BACKEND_URL` on the worker.
-
-## Data contract (draft)
-```json
-Persona {"id":"p_1","name":"","language":"","summary":"","traits":[],"faceId":"","voiceId":"",
- "evidence":[{"id":"e1","claim":"","quote":"","source":"transcript|assumption","transcriptId":"t1"}]}
-Session {"id":"s_1","personaId":"p_1","roomName":"","status":"created|live|ended",
- "readySeconds":null,"startedAt":null,"endedAt":null}
-TranscriptTurn {"sessionId":"s_1","seq":1,"speaker":"interviewer|persona",
- "text":"","at":"ISO-8601","screenNote":null}
-Insight {"id":"i1","sessionId":"s_1","theme":"","quote":"","turnSeq":1,
- "label":"grounded|guess","evidenceId":null}
-```
-
-Endpoints: `POST /api/personas`, `GET /api/personas/{id}`, `POST /api/sessions`, `GET` and `PATCH /api/sessions/{id}`, `POST /api/sessions/{id}/token`, `POST /api/sessions/{id}/turns`, `POST /api/sessions/{id}/debrief`, `GET /api/sessions/{id}/insights`.
-
-## Tests tonight and Saturday morning
+## Tests
 | Test | Pass | Fallback |
 |---|---|---|
 | Preset face talks | Lips and voice in sync | LemonSlice |
