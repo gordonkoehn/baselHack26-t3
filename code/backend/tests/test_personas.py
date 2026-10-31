@@ -73,6 +73,19 @@ def test_list_shows_created_personas_without_their_facts(client):
     assert client.get(f"/api/personas/{first['id']}").json() == first
 
 
+def test_persona_is_not_listed_if_its_sources_could_not_be_saved(client):
+    class SourcesFail(FakeRedis):
+        def set(self, key, value, ex=None):
+            if key.endswith(":sources"):
+                raise TimeoutError("interrupted")
+            super().set(key, value, ex=ex)
+
+    store = Store(SourcesFail())
+    app.dependency_overrides[get_store] = lambda: store
+    assert client.post("/api/personas", json=REQUEST).status_code == 503
+    assert client.get("/api/personas").json() == []
+
+
 def test_list_needs_the_passcode(client, monkeypatch):
     client.post("/api/personas", json=REQUEST)
     monkeypatch.setenv("DEMO_PASSCODE", "right")

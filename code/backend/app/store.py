@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.contracts import (
     InsightReport,
@@ -89,7 +89,8 @@ class Store:
         self._call("eval", INDEX_PERSONA, keys=[f"{PREFIX}:personas"], args=args)
 
     def list_personas(self) -> list[PersonaSummary]:
-        """Newest first. A persona can expire before its index entry, those are skipped."""
+        """Newest first. Skips personas that expired before their index entry or that an older
+        contract wrote, so one such entry can't hide the whole list."""
         rows = self._call(
             "zrange", f"{PREFIX}:personas", 0, PERSONA_LIST_SIZE - 1, rev=True, withscores=True
         )
@@ -100,7 +101,10 @@ class Store:
         for (_, created), raw in zip(rows, raws, strict=True):
             if raw is None:
                 continue
-            persona = Persona.model_validate_json(raw)
+            try:
+                persona = Persona.model_validate_json(raw)
+            except ValidationError:
+                continue
             summaries.append(
                 PersonaSummary(
                     id=persona.id,

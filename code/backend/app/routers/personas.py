@@ -103,8 +103,9 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         cloned=False,
         readiness=None,
     )
-    store.save_persona(persona)
+    # Sources first: saving the persona lists it, and a listed persona can be picked for an interview.
     store.save_persona_sources(persona.id, body)
+    store.save_persona(persona)
     return persona
 
 

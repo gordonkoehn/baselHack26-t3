@@ -1,3 +1,4 @@
+import re
 import threading
 
 
@@ -18,6 +19,8 @@ class FakeRedis:
         return self.data.get(key)
 
     def mget(self, *keys):
+        if not keys:
+            raise ValueError("wrong number of arguments for 'mget'")  # as real Redis
         return [self.data.get(key) for key in keys]
 
     def zrange(self, key, start, stop, rev=False, withscores=False):
@@ -31,9 +34,9 @@ class FakeRedis:
 
     def eval(self, script, keys, args):
         """Runs the store's scripts' semantics in one locked step, like Redis would."""
-        assert "EXPIRE" in script
         if "ZADD" in script:
-            return self._index_persona(keys[0], *args)
+            return self._run_commands(script, keys, args)
+        assert "EXPIRE" in script
         assert "HSETNX" in script
         with self.lock:
             h = self.data.setdefault(keys[0], {})
@@ -47,12 +50,41 @@ class FakeRedis:
             self.ttl[keys[0]] = int(args[0])
             return out
 
-    def _index_persona(self, key, score, member, stop, ttl):
+    def _run_commands(self, script, keys, args):
+        """Runs a script of plain redis.call lines, so its real commands and arguments get tested."""
+
+        def value(token):
+            if ref := re.fullmatch(r"(KEYS|ARGV)\[(\d+)\]", token):
+                return (keys if ref[1] == "KEYS" else args)[int(ref[2]) - 1]
+            quoted = re.fullmatch(r"'(.*)'", token)
+            assert quoted or token.isdecimal(), f"fake can't read {token}"
+            return quoted[1] if quoted else token
+
         with self.lock:
-            z = self.data.setdefault(key, {})
+            for line in filter(None, map(str.strip, script.splitlines())):
+                call = re.fullmatch(r"redis\.call\((.+)\)", line)
+                assert call, f"fake can't run: {line}"
+                name, key, *rest = [value(token) for token in call[1].split(", ")]
+                if name == "ZADD":
+                    self._zadd(key, *rest)
+                elif name == "ZREMRANGEBYRANK":
+                    self._zremrangebyrank(key, *rest)
+                else:
+                    assert name == "EXPIRE", f"fake doesn't know {name}"
+                    self.ttl[key] = int(*rest)
+
+    def _zadd(self, key, *flags_score_member):
+        *flags, score, member = flags_score_member
+        z = self.data.setdefault(key, {})
+        if flags == ["NX"]:
             z.setdefault(member, float(score))
-            oldest_first = sorted(z, key=lambda m: (z[m], m))
-            # stop is a negative, inclusive Redis rank; past the start of the set it removes nothing.
-            for old in oldest_first[: max(0, len(z) + int(stop) + 1)]:
-                del z[old]
-            self.ttl[key] = int(ttl)
+        else:
+            assert not flags
+            z[member] = float(score)
+
+    def _zremrangebyrank(self, key, start, stop):
+        z = self.data.get(key, {})
+        start, stop = (int(rank) + len(z) if int(rank) < 0 else int(rank) for rank in (start, stop))
+        # A negative stop past the start of the set removes nothing.
+        for old in sorted(z, key=lambda m: (z[m], m))[max(start, 0) : max(stop + 1, 0)]:
+            del z[old]

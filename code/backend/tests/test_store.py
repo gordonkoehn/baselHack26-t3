@@ -168,6 +168,16 @@ def test_list_skips_expired_personas(redis, clock):
     assert [p.id for p in store.list_personas()] == ["p_a"]
 
 
+def test_list_skips_a_persona_the_contract_cannot_read(redis, clock):
+    store = Store(redis)
+    store.save_persona(persona("p_old_contract"))
+    store.save_persona(persona("p_ok"))
+    stored = json.loads(redis.data["ot:persona:p_old_contract"])
+    del stored["voiceId"]
+    redis.data["ot:persona:p_old_contract"] = json.dumps(stored)
+    assert [p.id for p in store.list_personas()] == ["p_ok"]
+
+
 def test_empty_list_needs_no_persona_reads(redis):
     assert Store(redis).list_personas() == []
 
