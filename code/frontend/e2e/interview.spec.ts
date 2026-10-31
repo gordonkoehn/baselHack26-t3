@@ -235,7 +235,9 @@ test("the card shows the readiness score and explains when there is none", async
   await expect(readiness).toHaveText("No readiness score: this persona was edited after creation and is not re-checked.");
 
   // A failed check still gives a usable persona.
+  // Only the rebuild: the persona list refreshes right after and may outlive the test.
   await page.route("**/api/personas", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
     const response = await route.fetch();
     await route.fulfill({ response, json: { ...(await response.json()), readiness: null } });
   });
