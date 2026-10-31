@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import extract
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
+from app.faces import FACES, VOICES, fitting_face
 from app.main import app
 from app.routers.personas import get_extractor
 from app.store import Store, get_store
@@ -28,7 +29,7 @@ def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
     }
-    return PersonaDraft.model_validate({**data, "face": "Sophie", **changes})
+    return PersonaDraft.model_validate({**data, "gender": "f", "face": "Sophie", **changes})
 
 
 @pytest.fixture
@@ -56,11 +57,25 @@ def test_create_then_read(client):
 
 
 def test_face_and_voice_follow_the_chosen_face(client):
-    use_extractor(lambda _req: draft(name="Marco Keller", face="Victor"))
+    use_extractor(lambda _req: draft(name="Marco Keller", gender="m", face="Victor"))
     body = client.post("/api/personas", json=REQUEST).json()
     assert body["faceId"] == "3bad681f-1b4a-4507-bc54-fbc675c191b7"
     assert body["voiceId"] == "cedar"
     assert "face" not in body
+
+
+def test_face_of_the_wrong_gender_is_replaced(client):
+    # Seen live: "Claudia Meier" got Lukas, a man's face and voice.
+    use_extractor(lambda _req: draft(name="Claudia Meier", gender="f", age=41, face="Lukas"))
+    body = client.post("/api/personas", json=REQUEST).json()
+    face = next(n for n, f in FACES.items() if f[0] == body["faceId"])
+    assert FACES[face][1] == "f" and face == "Claire"  # the woman closest to 41 (~45)
+    assert body["voiceId"] == VOICES["f"]
+
+
+def test_fitting_face_keeps_a_matching_choice_and_uses_face_age_without_age():
+    assert fitting_face("Victor", "m", 30) == "Victor"
+    assert fitting_face("Margaret", "m", None) == "Victor"  # ~70 -> oldest man, ~55
 
 
 def test_unknown_persona_404(client):

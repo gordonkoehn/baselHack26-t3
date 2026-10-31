@@ -27,7 +27,7 @@ from app.contracts import (
     SessionEvent,
     SpeechStyle,
 )
-from app.faces import FaceName, catalog
+from app.faces import FaceName, Gender, catalog
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 TIMEOUT_SECONDS = 90
@@ -47,7 +47,9 @@ class PersonaDraft(Model):
     attitudes: Attitudes = Attitudes()
     speech_style: SpeechStyle = SpeechStyle()
     evidence: list[Evidence]
-    # Not part of Persona: the router turns it into faceId and voiceId.
+    # Not part of Persona: the router turns them into faceId and voiceId. Gender comes first so
+    # the model has settled it before it picks a face; the router still enforces the match.
+    gender: Gender
     face: FaceName
 
 
@@ -105,7 +107,8 @@ Evidence rules (they are checked by code, violations reject the whole persona):
 - Everything else (plausible but not stated) is "guess" with evidenceId null. Prefer honest
   guesses over stretching a quote. Synthetic details are always guesses.
 
-Pick `face`: the avatar photo that best fits this person. It must match the gender, be close to
+Set `gender` to "f" for a woman or "m" for a man, matching the name and the summary.
+Pick `face`: the avatar photo that best fits this person. It must match that gender, be close to
 the age, and fit where they come from and what they do (clothing, setting). Faces:
 {faces}
 
