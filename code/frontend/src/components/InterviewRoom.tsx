@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
+import { GuideCheck } from "@/components/GuideCheck";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
@@ -879,6 +880,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             onChange={(e) => setGuide(e.target.value)}
           />
         </label>
+      )}
+      {(phase === "idle" || phase === "ended" || phase === "error") && (
+        <GuideCheck guide={guide} language={persona.language} onGuideChange={setGuide} />
       )}
       {!inCall && phase === "ending" && <p role="status">{finalStage} · {endSeconds}s elapsed</p>}
       {!inCall && saveLine}

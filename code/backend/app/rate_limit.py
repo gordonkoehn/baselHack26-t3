@@ -22,6 +22,7 @@ WINDOW_SECONDS = 3600
 LIMITS = {
     "personas": (60, 150),  # each success is 11 provider calls: extraction + 10 readiness probes
     "sources": (120, 300),
+    "guides": (60, 150),
     "tokens": (120, 300),  # token + avatar-token: an interview start uses one of each
     "debrief": (60, 150),
 }

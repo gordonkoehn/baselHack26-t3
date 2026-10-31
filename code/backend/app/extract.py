@@ -272,6 +272,8 @@ For each question, use supports, contradicts or unclear and suggest followUps to
 customers. Without usable transcript support, use unclear with an empty insights list.
 The signal answers the question itself: supports means the findings say yes, contradicts means
 they say no or not really, and unclear means mixed or too little evidence.
+For an open prompt with no yes or no answer, supports means the findings give concrete evidence of
+what it asks about, and contradicts means the persona says it never happened or does not apply.
 Decide the signal after writing the findings.
 Write each theme as a short, concrete finding in the persona's words, supported by its quote,
 not a restatement of the question or a generic topic label. Do not invent a finding to fill a slot.
