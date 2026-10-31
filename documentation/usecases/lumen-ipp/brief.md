@@ -27,3 +27,6 @@ To be confirmed by Alex. Likely a librarian or data steward at a partner institu
 
 ## Test object
 To be confirmed by Alex.
+
+## Links
+- Miro board: to be added by Alex

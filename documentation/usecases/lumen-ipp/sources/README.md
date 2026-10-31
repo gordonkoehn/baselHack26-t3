@@ -1,3 +1,0 @@
-# sources
-
-See `../../README.md`.

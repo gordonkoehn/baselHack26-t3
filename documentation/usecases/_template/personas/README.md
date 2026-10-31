@@ -1,3 +1,0 @@
-# personas
-
-See `../../README.md`.
