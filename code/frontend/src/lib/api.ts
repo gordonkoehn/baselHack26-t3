@@ -3,6 +3,7 @@ import type {
   InsightReport,
   Persona,
   PersonaCreate,
+  PersonaUpdate,
   Session,
   SessionCreate,
   SessionEvent,
@@ -110,6 +111,12 @@ export const api = {
   // Needs an ended session with a complete transcript; 409 if it isn't, 422 without interview questions.
   debrief: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}/debrief`, { method: "POST", headers: passcode() }).then(json<InsightReport>),
+  updatePersona: (id: string, body: PersonaUpdate) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...passcode() },
+      body: JSON.stringify(body),
+    }).then(json<Persona>),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
   getSession: (id: string) =>

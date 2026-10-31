@@ -49,6 +49,14 @@ export type Persona = {
   evidence: Evidence[];
 };
 
+/** PATCH /api/personas/{id}: given lists replace the stored ones; edited or new facts come back as guesses. */
+export type PersonaUpdate = {
+  jobs?: Fact[];
+  pains?: Fact[];
+  objections?: Fact[];
+  speechStyle?: { notes?: string | null };
+};
+
 /** Plain text pulled from an uploaded file (POST /api/sources/pdf). */
 export type ExtractedText = { text: string; pages: number };
 
