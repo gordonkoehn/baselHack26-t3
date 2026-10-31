@@ -830,7 +830,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             {avatarSwitch}
           </>
         )}
-        {phase === "sample" && <span role="status" className="text-sm text-muted">Loading the sample interview…</span>}
+        {phase === "sample" && (
+          <>
+            <span role="status" className="text-sm text-muted">Loading the sample interview…</span>
+            <button type="button" className={btn} onClick={cancelStart}>
+              Cancel
+            </button>
+          </>
+        )}
         {inCall && <span className="text-sm text-muted">Interview running in the popup…</span>}
         {phase === "ended" && (
           <span className="text-sm text-muted">

@@ -200,6 +200,24 @@ test("a call stuck connecting can be cancelled and the sample interview still ru
   await expect(page.getByTestId("debrief").getByTestId("sample-label")).toContainText(sampleLabel);
 });
 
+test("a sample interview stuck on its first request can be cancelled", async ({ page }) => {
+  await createPersona(page);
+  const posted = page.waitForRequest((request) => request.url().endsWith("/api/sessions") && request.method() === "POST");
+  await page.route("**/api/sessions", () => {});
+  await page.getByRole("button", { name: "Use sample interview", exact: true }).click();
+  await posted;
+  const room = page.getByTestId("interview-room");
+  await expect(room).toContainText("Loading the sample interview…");
+
+  await room.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(room).not.toContainText("Loading the sample interview…");
+  await expect(room.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByTestId("debrief")).toHaveCount(0);
+  await page.unroute("**/api/sessions");
+  await page.getByRole("button", { name: "Use sample interview", exact: true }).click();
+  await expect(page.getByTestId("debrief").getByTestId("sample-label")).toContainText(sampleLabel);
+});
+
 test("the sample interview after a failed start shows only the sample status", async ({ page }) => {
   await createPersona(page);
   await page.route("https://api.openai.com/v1/realtime/calls", (route) => route.fulfill({ status: 500, body: "" }));
@@ -241,6 +259,7 @@ test("a saved sample report labels quotes and exports; a real one does not", asy
 
   await open(true);
   await expect(page.getByTestId("sample-label")).toContainText(`${examplePersona.name} did not say these lines`);
+  await expect(page.getByTestId("sample-label")).toContainText("If this persona uses the prefilled example sources");
   await expect(page.getByTestId("debrief")).toContainText(`Sample script · turn ${quote.turnSeq}`);
   await expect(page.getByTestId("debrief")).not.toContainText(`${examplePersona.name} · interview turn`);
   const sampleExport = await download();
@@ -248,6 +267,7 @@ test("a saved sample report labels quotes and exports; a real one does not", asy
   expect(sampleExport).toContain(`Sample script turn ${quote.turnSeq}`);
   expect(sampleExport).not.toContain("Interview turn");
   expect(sampleExport).not.toContain("simulated interview");
+  expect(sampleExport).toContain("If the persona uses the prefilled example sources");
 
   await open(false);
   await expect(page.getByTestId("sample-label")).toHaveCount(0);

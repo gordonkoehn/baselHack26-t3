@@ -34,7 +34,7 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
     "Simulated AI persona: hypotheses, not customer evidence.",
     "",
     sample
-      ? 'Quotes are from the sample script, not from an interview. The example sources contain the same script, so "grounded" proves nothing here. Neither label is validated customer evidence.'
+      ? 'Quotes are from the sample script, not from an interview. If the persona uses the prefilled example sources, they contain the same script, so "grounded" proves nothing here. Neither label is validated customer evidence.'
       : 'Quotes are from the simulated interview. "grounded" means the persona\'s sources also support the statement; "guess" means they do not. Neither is validated customer evidence.',
   ];
 
