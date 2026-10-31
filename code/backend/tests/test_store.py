@@ -126,11 +126,28 @@ def test_conflict_after_first_insert_still_sets_ttl(redis):
     assert redis.ttl[f"ot:session:{a.session_id}:events"] == TTL_SECONDS
 
 
-def test_identical_retry_repairs_missing_ttl(redis):
-    store = Store(redis)
+def test_failed_script_writes_nothing():
+    """Write and TTL fail together: no hash is left behind without expiry."""
+
+    class EvalFails(FakeRedis):
+        def eval(self, script, keys, args):
+            raise TimeoutError("interrupted")
+
+    redis = EvalFails()
     event = events()[0]
-    store.append_events(event.session_id, [event])
-    key = f"ot:session:{event.session_id}:events"
-    del redis.ttl[key]  # as if EXPIRE failed after the write
-    assert store.append_events(event.session_id, [event]) == 0
-    assert redis.ttl[key] == TTL_SECONDS
+    with pytest.raises(StoreUnavailable):
+        Store(redis).append_events(event.session_id, [event])
+    assert redis.data == {} and redis.ttl == {}
+
+
+def test_ttl_set_in_same_call_as_write(redis):
+    """No separate EXPIRE command: the fake has none, so a second call would fail."""
+    assert not hasattr(redis, "expire") and not hasattr(redis, "hsetnx")
+    event = events()[0]
+    Store(redis).append_events(event.session_id, [event])
+    assert redis.ttl[f"ot:session:{event.session_id}:events"] == TTL_SECONDS
+
+
+def test_empty_batch_is_noop(redis):
+    assert Store(redis).append_events("s_1", []) == 0
+    assert redis.data == {}

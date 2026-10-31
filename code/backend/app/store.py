@@ -17,6 +17,22 @@ TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
 
 
+# KEYS[1] = events hash, ARGV = ttl, then seq/value pairs.
+# Returns per pair "" if inserted, else the value already stored for that seq.
+APPEND_EVENTS = """
+local out = {}
+for i = 2, #ARGV, 2 do
+  if redis.call('HSETNX', KEYS[1], ARGV[i], ARGV[i + 1]) == 1 then
+    out[#out + 1] = ''
+  else
+    out[#out + 1] = redis.call('HGET', KEYS[1], ARGV[i])
+  end
+end
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+return out
+"""
+
+
 class StoreUnavailable(Exception):
     """Store not configured or not reachable. Endpoints map this to 503."""
 
@@ -69,27 +85,26 @@ class Store:
     def append_events(self, session_id: str, events: list[SessionEvent]) -> int:
         """Store events, returns how many were new. Identical retries add nothing.
 
-        HSETNX per seq is atomic in Redis, so concurrent writers can't both win a seq.
+        One Lua script does every HSETNX plus the EXPIRE, so Redis runs it atomically:
+        concurrent writers can't both win a seq, and no write lands without its TTL.
         """
-        key = f"{PREFIX}:session:{session_id}:events"
+        if any(e.session_id != session_id for e in events):
+            raise ValueError("event belongs to another session")
+        if not events:
+            return 0
+        values = [_dump(e) for e in events]
+        args = [str(TTL_SECONDS)]
+        for event, value in zip(events, values, strict=True):
+            args += [str(event.seq), value]
+        stored = self._call(
+            "eval", APPEND_EVENTS, keys=[f"{PREFIX}:session:{session_id}:events"], args=args
+        )
         added = 0
-        try:
-            for event in events:
-                if event.session_id != session_id:
-                    raise ValueError("event belongs to another session")
-                value = _dump(event)
-                if self._call("hsetnx", key, str(event.seq), value):
-                    added += 1
-                    continue
-                existing = self._call("hget", key, str(event.seq))
-                if json.loads(existing) != json.loads(value):
-                    raise EventConflict(f"seq {event.seq} already stored with different content")
-        finally:
-            # shortcut: HSETNX and EXPIRE are separate calls; if EXPIRE fails and nobody retries,
-            # the hash keeps no TTL. Use MULTI or a Lua script if retention must be strict.
-            # Always (re)set: a conflict or a failed EXPIRE must not leave the hash without TTL,
-            # and an identical retry repairs it. EXPIRE on a missing key is a no-op.
-            self._call("expire", key, TTL_SECONDS)
+        for event, value, existing in zip(events, values, stored, strict=True):
+            if existing == "":
+                added += 1
+            elif json.loads(existing) != json.loads(value):
+                raise EventConflict(f"seq {event.seq} already stored with different content")
         return added
 
     def get_events(self, session_id: str) -> list[SessionEvent]:

@@ -17,19 +17,20 @@ class FakeRedis:
     def get(self, key):
         return self.data.get(key)
 
-    def hsetnx(self, key, field, value):
-        with self.lock:
-            h = self.data.setdefault(key, {})
-            if field in h:
-                return False
-            h[field] = value
-            return True
-
-    def hget(self, key, field):
-        return self.data.get(key, {}).get(field)
-
     def hgetall(self, key):
         return dict(self.data.get(key, {}))
 
-    def expire(self, key, seconds):
-        self.ttl[key] = seconds
+    def eval(self, script, keys, args):
+        """Runs the APPEND_EVENTS script's semantics in one locked step, like Redis would."""
+        assert "HSETNX" in script and "EXPIRE" in script
+        with self.lock:
+            h = self.data.setdefault(keys[0], {})
+            out = []
+            for field, value in zip(args[1::2], args[2::2], strict=True):
+                if field in h:
+                    out.append(h[field])
+                else:
+                    h[field] = value
+                    out.append("")
+            self.ttl[keys[0]] = int(args[0])
+            return out
