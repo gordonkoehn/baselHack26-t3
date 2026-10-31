@@ -49,6 +49,9 @@ export type Persona = {
   evidence: Evidence[];
 };
 
+/** Plain text pulled from an uploaded file (POST /api/sources/pdf). */
+export type ExtractedText = { text: string; pages: number };
+
 export type PersonaSource = { kind: SourceKind; title?: string | null; text: string };
 
 export type PersonaCreate = {

@@ -6,8 +6,9 @@ import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } fro
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
-// Files the browser can read as plain text without any extra library.
+// Files the browser can read as plain text without any extra library; PDFs go through the backend.
 const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
+const ACCEPTED = `${TEXT_FILES},.pdf`;
 
 type Draft = PersonaSource & { id: number };
 type Result = { persona: Persona; sources: PersonaSource[]; seconds: number };
@@ -46,6 +47,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
 
@@ -61,22 +63,31 @@ export default function Home() {
 
   async function addFiles(files: FileList | File[]) {
     setError(null);
-    const added: Draft[] = [];
-    const skipped: string[] = [];
+    setReading(true);
+    const problems: string[] = [];
     for (const file of Array.from(files)) {
       const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
-      if (!TEXT_FILES.split(",").includes(ext)) {
-        skipped.push(file.name);
-        continue;
+      try {
+        if (ext === ".pdf") {
+          const { text, pages } = await api.extractPdf(file);
+          const title = `${file.name} (${pages} ${pages === 1 ? "page" : "pages"})`;
+          setDrafts((ds) => [...ds, draft("note", title, text)]);
+        } else if (TEXT_FILES.split(",").includes(ext)) {
+          const text = await file.text();
+          setDrafts((ds) => [...ds, draft(kindFor(file.name), file.name, text)]);
+        } else {
+          problems.push(`${file.name}: not supported (use ${ACCEPTED})`);
+        }
+      } catch (e) {
+        problems.push(`${file.name}: ${e instanceof ApiError ? e.detail : "could not be read"}`);
       }
-      added.push(draft(kindFor(file.name), file.name, await file.text()));
     }
-    setDrafts((ds) => [...ds, ...added]);
-    if (skipped.length) setError(`Not supported yet (use ${TEXT_FILES}): ${skipped.join(", ")}`);
+    setReading(false);
+    if (problems.length) setError(problems.join(" · "));
   }
 
   async function create() {
-    if (loading || filled.length === 0) return;
+    if (loading || reading || filled.length === 0) return;
     // Snapshot the input: the card's citations must keep pointing at what was actually sent.
     const sources: PersonaSource[] = filled.map(({ kind, title, text }) => ({ kind, title, text }));
     startedAt.current = Date.now();
@@ -174,7 +185,7 @@ export default function Home() {
             <input
               type="file"
               multiple
-              accept={TEXT_FILES}
+              accept={ACCEPTED}
               className="hidden"
               disabled={loading}
               onChange={(e) => {
@@ -183,7 +194,9 @@ export default function Home() {
               }}
             />
           </label>
-          <span className="opacity-60">or drop {TEXT_FILES} files anywhere</span>
+          <span className="opacity-60">
+            {reading ? "Reading files…" : "or drop text, CSV or PDF files anywhere"}
+          </span>
           <button
             type="button"
             className="ml-auto rounded px-2 py-1 opacity-60 hover:opacity-100 disabled:opacity-30"
@@ -209,7 +222,7 @@ export default function Home() {
             type="button"
             className="rounded bg-foreground px-4 py-2 text-sm text-background disabled:opacity-40"
             onClick={create}
-            disabled={loading || filled.length === 0}
+            disabled={loading || reading || filled.length === 0}
           >
             {loading ? "Building persona…" : "Create persona"}
           </button>

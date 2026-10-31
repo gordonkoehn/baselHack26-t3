@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.routers import personas
+from app.routers import personas, sources
 from app.store import StoreUnavailable
 
 app = FastAPI(title="baselhack26 api")
 app.include_router(personas.router)
+app.include_router(sources.router)
 
 
 @app.exception_handler(StoreUnavailable)

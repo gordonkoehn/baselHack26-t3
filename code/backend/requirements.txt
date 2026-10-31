@@ -53,6 +53,8 @@ pydantic==2.14.2
     #   openai
 pydantic-core==2.50.2
     # via pydantic
+pypdf==6.21.4
+    # via backend
 python-dotenv==1.2.4
     # via uvicorn
 pyyaml==6.0.3

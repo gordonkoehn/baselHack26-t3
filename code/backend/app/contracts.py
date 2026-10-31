@@ -92,6 +92,11 @@ class PersonaSource(Model):
     text: str
 
 
+class ExtractedText(Model):
+    text: str
+    pages: int = Field(ge=1)
+
+
 class PersonaCreate(Model):
     sprint_id: str | None = None
     language: Language

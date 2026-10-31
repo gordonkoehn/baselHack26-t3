@@ -97,6 +97,15 @@
         "text": { "type": "string", "description": "Pasted content. Vercel caps request bodies at 4.5 MB; larger files go to blob storage first." }
       }
     },
+    "ExtractedText": {
+      "type": "object",
+      "description": "Plain text pulled from an uploaded file, to be sent as a PersonaSource. Scanned PDFs have no text and are rejected.",
+      "required": ["text", "pages"],
+      "properties": {
+        "text": { "type": "string" },
+        "pages": { "type": "integer", "minimum": 1 }
+      }
+    },
     "PersonaCreate": {
       "type": "object",
       "required": ["language", "sources"],
@@ -249,6 +258,7 @@
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
+    "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "413 too large, 422 not a readable PDF or no text layer." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
     "PATCH /api/sessions/{id}": { "body": "{ status }", "response": "Session", "status": "draft" },
