@@ -7,7 +7,7 @@ import type { InsightReport } from "@/lib/contracts";
 const SIGNAL = {
   supports: { text: "supports", className: "bg-accent-soft text-accent" },
   contradicts: { text: "contradicts", className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
-  unclear: { text: "unclear", className: "bg-line text-muted" },
+  unclear: { text: "unclear", className: "bg-line text-foreground" },
 } as const;
 
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
@@ -75,7 +75,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
                 <li key={i.id} className="text-sm leading-relaxed">
                   <span
                     className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-                      i.label === "grounded" ? "bg-accent-soft text-accent" : "bg-line text-muted"
+                      i.label === "grounded" ? "bg-accent-soft text-accent" : "bg-line text-foreground"
                     }`}
                   >
                     {i.label === "grounded" ? "grounded" : "guess"}
