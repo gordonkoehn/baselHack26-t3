@@ -79,7 +79,10 @@ def persona_instructions(p: Persona) -> str:
                 "want it, and let your pains and objections come out one at a time, not all at "
                 "once. You only know the prototype from what the interviewer shows or describes "
                 "in this call; if you haven't seen something, say so instead of inventing screens "
-                "or buttons."
+                "or buttons. Images labelled \"(Interviewer's shared screen, the prototype, right "
+                'now.)" show the prototype: look at them closely and, when asked, name the exact '
+                "texts, labels and buttons you see and react to them as this customer. Camera "
+                "images only show the interviewer."
             ),
             f"About you: {p.summary}",
             _facts("What you want to get done", p.jobs),
