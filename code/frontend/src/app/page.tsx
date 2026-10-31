@@ -318,6 +318,16 @@ export default function Home() {
 
 type FactField = "jobs" | "pains" | "objections";
 
+function readinessLine({ readiness, version }: Persona): string {
+  if (readiness) {
+    const { score, consistency, grounding } = readiness;
+    return `Readiness ${score.toFixed(2)}: consistency ${consistency.toFixed(2)} · grounding ${grounding.toFixed(2)} (do two trial runs agree, and do answers rest on sourced facts?)`;
+  }
+  return (version ?? 1) > 1
+    ? "No readiness score: this persona was edited after creation and is not re-checked."
+    : "No readiness score: the check did not finish.";
+}
+
 function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPersona: (p: Persona) => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   // The server decides the labels: an edited or new fact always comes back as a guess.
@@ -337,8 +347,11 @@ function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPers
 
   return (
     <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
-      <p className="mb-4 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
+      <p className="mb-2 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
         Ready in {seconds.toFixed(1)} s · {grounded} grounded · {facts.length - grounded} guesses
+      </p>
+      <p className="mb-4 text-xs text-muted" data-testid="readiness">
+        {readinessLine(persona)}
       </p>
       <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
       {meta && <p className="text-sm text-muted">{meta}</p>}
