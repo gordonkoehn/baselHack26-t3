@@ -215,6 +215,12 @@ describe("in a browser with requestVideoFrameCallback", () => {
     await expect(capture).resolves.toContain(PREFIX);
     expect(drawImage).toHaveBeenCalledOnce();
   });
+
+  it("captures without a presented frame while the page is hidden", async () => {
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+
+    await expect(captureFrame(fakeStream().stream)).resolves.toContain(PREFIX);
+  });
 });
 
 it("lets go of the caller's stream after capturing, without stopping it", async () => {
