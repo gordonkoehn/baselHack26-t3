@@ -11,7 +11,7 @@ client = TestClient(app)
 PDF = {"Content-Type": "application/pdf"}
 
 
-def make_pdf(text: str) -> bytes:
+def make_pdf(text: str, stream_filter: str | None = None) -> bytes:
     """A minimal one-page PDF with a real text layer, built by hand so tests need no PDF library."""
     stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
     objs = [
@@ -21,7 +21,11 @@ def make_pdf(text: str) -> bytes:
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
             b" /Resources << /Font << /F1 5 0 R >> >> >>"
         ),
-        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        (b"<< /Length %d" % len(stream))
+        + (f" /Filter /{stream_filter}".encode() if stream_filter else b"")
+        + b" >>\nstream\n"
+        + stream
+        + b"\nendstream",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
     out, offsets = b"%PDF-1.4\n", []
@@ -82,3 +86,10 @@ def test_too_much_text_is_413_not_truncated(monkeypatch):
     monkeypatch.setattr(sources, "MAX_CHARS", 5)
     res = client.post("/api/sources/pdf", content=make_pdf("longer than five"), headers=PDF)
     assert res.status_code == 413 and "text" not in res.json()
+
+
+def test_unsupported_stream_filter_is_422_json():
+    res = client.post(
+        "/api/sources/pdf", content=make_pdf("x", "ReviewUnsupportedFilter"), headers=PDF
+    )
+    assert res.status_code == 422 and res.headers["content-type"] == "application/json"
