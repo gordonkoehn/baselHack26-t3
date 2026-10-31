@@ -85,7 +85,7 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     request = store.get_persona_sources(persona.id)
     try:
         token = realtime.mint_client_secret(
-            persona, session.interview_guide, request.sources if request else []
+            persona, session.interview_guide, request.sources if request else [], session.id
         )
     except ProviderUnavailable:
         raise HTTPException(503, "voice provider unavailable") from None
@@ -108,7 +108,7 @@ def avatar_token(session_id: str, response: Response, store: StoreDep) -> Sessio
     if persona is None:
         raise HTTPException(404, "persona not found")
     try:
-        token = avatar.mint_session_token(persona)
+        token = avatar.mint_session_token(persona, session.id)
     except ProviderUnavailable:
         raise HTTPException(503, "avatar provider unavailable") from None
     response.headers["Cache-Control"] = "no-store"
