@@ -120,6 +120,7 @@ export function InterviewRoom({
   const cameraDelete = useRef<{ itemId: string; eventId: string; resolve: (removed: boolean) => void } | null>(null);
   const camView = useRef<HTMLVideoElement>(null);
   const [screenShare, setScreenShare] = useState<MediaStream | null>(null);
+  const screenShareRef = useRef<MediaStream | null>(null);
   // When the last screen image went out (in liveSeconds), or why it failed; shown while sharing.
   const [screenSentAt, setScreenSentAt] = useState<number | null>(null);
   const [screenNote, setScreenNote] = useState<string | null>(null);
@@ -295,6 +296,7 @@ export function InterviewRoom({
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    screenShareRef.current = null;
     setScreenShare(null);
     setMuted(false);
   }
@@ -302,11 +304,14 @@ export function InterviewRoom({
   // Sharing started or stopped. On stop, the last screen image leaves the context and the persona is
   // told, so it never describes an old screen as live. Text only: no response.create.
   function sharing(stream: MediaStream | null) {
+    const wasSharing = screenShareRef.current !== null;
+    screenShareRef.current = stream;
     setScreenShare(stream);
     setScreenSentAt(null);
     setScreenNote(null);
     const dc = channel.current;
-    if (stream || finalizing.current || dc?.readyState !== "open") return;
+    // Ignore null reports when nothing was shared (button mount/unmount must not pollute the call).
+    if (stream || !wasSharing || finalizing.current || dc?.readyState !== "open") return;
     try {
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {

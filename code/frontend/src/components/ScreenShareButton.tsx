@@ -51,10 +51,6 @@ export function ScreenShareButton({
     };
   }, []);
 
-  useEffect(() => {
-    report.current?.(stream);
-  }, [stream]);
-
   async function share() {
     if (picking.current) return;
     picking.current = true;
