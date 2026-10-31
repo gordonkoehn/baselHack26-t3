@@ -30,6 +30,7 @@ const server = async (data: string) => {
   await act(async () => FakeSocket.last?.onmessage?.({ data }));
   await settle();
 };
+const socketError = () => act(async () => FakeSocket.last?.onerror?.({}));
 
 // Everything written to the console, by us or by the SDK.
 function consoleText() {
@@ -64,6 +65,7 @@ describe("Avatar failure logging", () => {
   it("logs the server's reason once and keeps the visible message", async () => {
     await show();
     await server("ERROR: SESSION_TOKEN_EXPIRED");
+    await socketError(); // Aftermath of the failure: not a new one.
     expect(logged()).toBe("[avatar] off: ERROR: SESSION_TOKEN_EXPIRED");
     expect(screen.getByText(VISIBLE)).toBeTruthy();
     expect(screen.queryByText(/SESSION_TOKEN_EXPIRED/)).toBeNull();
@@ -78,7 +80,7 @@ describe("Avatar failure logging", () => {
 
   it("logs a startup error while the SDK retries, without giving up", async () => {
     await show();
-    await act(async () => FakeSocket.last?.onerror?.({}));
+    await socketError();
     expect(logged()).toContain("[avatar] attempt failed: Websocket Failed");
     expect(screen.queryByText(VISIBLE)).toBeNull();
     expect(screen.getByText("Avatar is joining…")).toBeTruthy();
@@ -92,9 +94,9 @@ describe("Avatar failure logging", () => {
   });
 
   it("logs a failed token request", async () => {
-    vi.mocked(api.avatarToken).mockRejectedValue(new Error("503 Avatar unavailable"));
+    vi.mocked(api.avatarToken).mockRejectedValue(new Error("503 avatar provider unavailable"));
     await show();
-    expect(logged()).toBe("[avatar] off: Error: 503 Avatar unavailable");
+    expect(logged()).toBe("[avatar] off: Error: 503 avatar provider unavailable");
   });
 
   it("keeps tokens out of the console, also out of the SDK's own error lines", async () => {
@@ -113,6 +115,7 @@ describe("Avatar failure logging", () => {
     const view = await show();
     view.unmount();
     await settle();
+    await socketError(); // Closing a socket that is still connecting fires this.
     expect(logged()).toBe("");
   });
 });
