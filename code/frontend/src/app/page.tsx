@@ -179,11 +179,26 @@ export default function Home() {
       }}
     >
       <div hidden={tab !== "sources"}>
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Drop in what you know about the customer</h1>
-        <p className="mt-1 max-w-2xl text-muted">
-        Notes, interview transcripts, Miro exports, PDFs or photos, unsorted. You get an interview-ready
-        persona where every fact is either grounded in a quote from these sources or marked as a guess.
+      <header className="mb-10 pt-6">
+        <p className="mb-6 font-mono text-sm tracking-wide text-muted">OpenTwin</p>
+        <h1 className="max-w-3xl text-5xl leading-[1.05] sm:text-6xl">
+          It tells you what it knows. And what it&apos;s{" "}
+          <span className="relative inline-block">
+            guessing.
+            <span
+              aria-hidden
+              className="evidence-bar absolute -bottom-2 left-0 !h-2 !w-full !border-0"
+              data-grounded="false"
+            />
+          </span>
+        </h1>
+        <p className="mt-8 max-w-2xl text-lg text-muted">
+          Turn real interview material into an AI test user, talk to it live, and see which answers
+          the sources back up.
+        </p>
+        <p className="mt-6 flex items-center gap-3 font-mono text-sm text-muted">
+          <span className="evidence-bar" data-grounded="true" aria-hidden /> on record
+          <span className="evidence-bar ml-3" data-grounded="false" aria-hidden /> guess
         </p>
       </header>
 
@@ -632,10 +647,9 @@ function FactItem({
   return (
     <li className="text-sm leading-relaxed">
       <span
-        className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-          isGrounded ? "bg-accent-soft text-accent" : "bg-line text-foreground"
-        }`}
+        className="mr-2 inline-flex items-center gap-1.5 font-mono text-xs font-medium"
       >
+        <span className="evidence-bar !w-6" data-grounded={isGrounded} aria-hidden />
         {isGrounded ? "grounded" : "guess"}
       </span>
       {draft === null ? (
