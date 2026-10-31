@@ -129,7 +129,7 @@ export default function Home() {
 
   return (
     <main
-      className="mx-auto max-w-3xl p-8 font-sans"
+      className="mx-auto w-full max-w-3xl px-5 py-10 font-sans sm:px-8"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -141,29 +141,35 @@ export default function Home() {
         if (!busy) addFiles(e.dataTransfer.files);
       }}
     >
-      <h1 className="mb-1 text-2xl font-semibold">OpenTwin</h1>
-      <p className="mb-6 opacity-70">
+      <header className="mb-8">
+        <p className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-accent">
+          <span aria-hidden className="inline-block size-2 rounded-full bg-accent" />
+          Persona interviews
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight">OpenTwin</h1>
+        <p className="mt-2 max-w-xl text-muted">
         Add sprint sources, get an interview-ready persona. Every fact is either grounded in a
         quote from the sources or marked as the persona&apos;s guess.
-      </p>
+        </p>
+      </header>
 
       <section
-        className={`mb-8 space-y-4 rounded ${dragging ? "outline-2 outline-dashed outline-current/40" : ""}`}
+        className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
-        <h2 className="text-sm font-medium">Sources ({filled.length})</h2>
+        <h2 className="text-sm font-semibold">Sources <span className="font-normal text-muted">({filled.length})</span></h2>
         {drafts.map((d, i) => (
-          <div key={d.id} className="space-y-2 rounded border border-current/20 p-3">
+          <div key={d.id} className="space-y-2 rounded-lg border border-line bg-background/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <input
                 aria-label={`Source ${i + 1} title`}
-                className="min-w-0 flex-1 rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-sm font-medium"
                 value={d.title ?? ""}
                 onChange={(e) => update(d.id, { title: e.target.value })}
                 disabled={busy}
               />
               <select
                 aria-label={`Source ${i + 1} kind`}
-                className="rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
+                className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
                 value={d.kind}
                 onChange={(e) => update(d.id, { kind: e.target.value as SourceKind })}
                 disabled={busy}
@@ -176,7 +182,7 @@ export default function Home() {
               </select>
               <button
                 type="button"
-                className="rounded px-2 py-1 text-sm opacity-60 hover:opacity-100 disabled:opacity-30"
+                className="rounded-md px-2 py-1 text-sm text-muted hover:text-foreground disabled:opacity-30"
                 onClick={() => setDrafts((ds) => ds.filter((x) => x.id !== d.id))}
                 disabled={busy}
                 aria-label={`Remove source ${i + 1}`}
@@ -186,7 +192,7 @@ export default function Home() {
             </div>
             <textarea
               aria-label={`Source ${i + 1} text`}
-              className="h-40 w-full rounded border border-current/30 bg-transparent p-3 font-mono text-xs"
+              className="h-40 w-full rounded-md border border-line bg-surface p-3 font-mono text-xs leading-relaxed"
               value={d.text}
               onChange={(e) => update(d.id, { text: e.target.value })}
               disabled={busy}
@@ -197,13 +203,13 @@ export default function Home() {
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <button
             type="button"
-            className="rounded border border-current/30 px-3 py-1.5 disabled:opacity-40"
+            className="rounded-md border border-line bg-surface px-3 py-1.5 hover:border-muted disabled:opacity-40"
             onClick={() => setDrafts((ds) => [...ds, draft("note", `Source ${ds.length + 1}`, "")])}
             disabled={busy}
           >
             Add text source
           </button>
-          <label className="cursor-pointer rounded border border-current/30 px-3 py-1.5">
+          <label className="cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 hover:border-muted">
             Add files…
             <input
               type="file"
@@ -217,12 +223,12 @@ export default function Home() {
               }}
             />
           </label>
-          <span className="opacity-60">
+          <span className="text-muted">
             {reading ? "Reading files…" : "or drop text, CSV, PDF or image files anywhere"}
           </span>
           <button
             type="button"
-            className="ml-auto rounded px-2 py-1 opacity-60 hover:opacity-100 disabled:opacity-30"
+            className="ml-auto rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
             onClick={() => setDrafts(SAMPLES())}
             disabled={busy}
           >
@@ -230,10 +236,10 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
           <select
             aria-label="Persona language"
-            className="rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
             value={language}
             onChange={(e) => setLanguage(e.target.value as Language)}
             disabled={busy}
@@ -243,17 +249,17 @@ export default function Home() {
           </select>
           <button
             type="button"
-            className="rounded bg-foreground px-4 py-2 text-sm text-background disabled:opacity-40"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-40"
             onClick={create}
             disabled={busy || filled.length === 0}
           >
             {loading ? "Building persona…" : "Create persona"}
           </button>
-          {loading && <span className="text-sm tabular-nums opacity-70">{elapsed.toFixed(1)} s</span>}
-          {filled.length === 0 && <span className="text-sm opacity-60">Add at least one source.</span>}
+          {loading && <span className="text-sm tabular-nums text-muted">{elapsed.toFixed(1)} s</span>}
+          {filled.length === 0 && <span className="text-sm text-muted">Add at least one source.</span>}
         </div>
         {error && (
-          <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-800">
+          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
             {error}
           </p>
         )}
@@ -272,13 +278,13 @@ function PersonaCard({ persona, sources, seconds }: Result) {
     .join(" · ");
 
   return (
-    <article className="rounded border border-current/20 p-6" data-testid="persona-card">
-      <p className="mb-4 text-xs opacity-60">
+    <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
+      <p className="mb-4 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
         Ready in {seconds.toFixed(1)} s · {grounded} grounded · {facts.length - grounded} guesses
       </p>
-      <h2 className="text-xl font-semibold">{persona.name}</h2>
-      {meta && <p className="text-sm opacity-70">{meta}</p>}
-      <p className="mt-3">{persona.summary}</p>
+      <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
+      {meta && <p className="text-sm text-muted">{meta}</p>}
+      <p className="mt-3 leading-relaxed">{persona.summary}</p>
 
       <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} />
       <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} />
@@ -298,9 +304,9 @@ function FactList(props: {
   const { title, facts, persona, sources } = props;
   return (
     <section className="mt-6">
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide opacity-60">{title}</h3>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">{title}</h3>
       {facts.length === 0 ? (
-        <p className="text-sm opacity-50">None.</p>
+        <p className="text-sm text-muted">None.</p>
       ) : (
         <ul className="space-y-3">
           {facts.map((fact, i) => (
@@ -333,19 +339,19 @@ function FactItem({
   const source = Number.isInteger(n) ? sources[n - 1] : undefined;
 
   return (
-    <li className="text-sm">
+    <li className="text-sm leading-relaxed">
       <span
         className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-          isGrounded ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
+          isGrounded ? "bg-accent-soft text-accent" : "bg-line text-muted"
         }`}
       >
         {isGrounded ? "grounded" : "guess"}
       </span>
       {fact.text}
       {isGrounded && (
-        <blockquote className="mt-1 border-l-2 border-green-300 pl-3 opacity-80">
+        <blockquote className="mt-1.5 border-l-2 border-accent/40 pl-3 text-foreground/80">
           “{evidence.quote}”
-          <span className="block text-xs opacity-50">
+          <span className="mt-0.5 block text-xs text-muted">
             {evidence.kind}
             {source?.title ? ` · ${source.title}` : ""}
             {evidence.sourceRef ? ` · ${evidence.sourceRef}` : ""}
