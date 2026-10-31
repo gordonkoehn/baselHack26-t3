@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { errorMessage } from "@/lib/errorMessage";
 import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
@@ -44,19 +45,6 @@ async function onWhite(file: File): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/jpeg", 0.92),
   );
-}
-
-function errorMessage(e: unknown): string {
-  if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
-  if (e.status === 401) return "This needs the team link with the passcode. Ask in Discord.";
-  if (e.status === 422) return `The input was rejected: ${e.detail}`;
-  // The backend's detail says how long to wait.
-  if (e.status === 429) return e.detail;
-  if (e.status === 502) return "The model's answer couldn't be used. Try again.";
-  if (e.status === 503) return "The persona service is temporarily unavailable. Try again in a moment.";
-  // The Next proxy answers 500 when the backend process isn't running at all.
-  if (e.status >= 500) return `Backend not reachable (${e.status}). Is \`make dev\` running?`;
-  return `Unexpected error ${e.status}: ${e.detail}`;
 }
 
 export default function Home() {
