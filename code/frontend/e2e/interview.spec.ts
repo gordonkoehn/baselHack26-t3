@@ -442,7 +442,7 @@ test("the sample sprint questions stay with the example, and a saved persona com
 
   await page.reload();
   await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await expect(guide).toHaveValue("");
   await expect(room.getByTestId("guide-check")).toBeVisible();
@@ -462,7 +462,7 @@ test("sources that are not the sample sprint start the interview with an empty g
   await page.getByLabel("Source 1 text").fill("A neighbour said the bins are always full.");
   await page.getByLabel("Source 2 text").fill("They want to see the money arrive.");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   const room = page.getByTestId("interview-room");
