@@ -33,7 +33,9 @@ def check_draft(draft: PersonaDraft, request: PersonaCreate) -> None:
     if len(ids) != len(set(ids)):
         raise ExtractionFailed("duplicate evidence ids")
     for e in draft.evidence:
-        if not e.quote or not any(_norm(e.quote) in s for s in sources):
+        quote = _norm(e.quote or "")
+        # An empty quote would match every source, so it counts as missing.
+        if not quote or not any(quote in s for s in sources):
             raise ExtractionFailed(f"evidence {e.id}: quote not found verbatim in the sources")
     for fact in draft.jobs + draft.pains + draft.objections:
         if fact.label == "grounded" and fact.evidence_id not in ids:

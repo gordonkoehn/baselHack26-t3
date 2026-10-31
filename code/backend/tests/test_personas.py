@@ -124,3 +124,12 @@ def test_store_down_503(client, monkeypatch):
     app.dependency_overrides.pop(get_store)
     get_store.cache_clear()
     assert client.get("/api/personas/p_x").status_code == 503
+
+
+@pytest.mark.parametrize("quote", [None, "", "  \n\t "])
+def test_blank_quote_rejected_and_not_saved(client, quote):
+    bad = [{**EXAMPLE["evidence"][0], "quote": quote}]
+    use_extractor(lambda _req: draft(evidence=bad))
+    assert client.post("/api/personas", json=REQUEST).status_code == 502
+    store = app.dependency_overrides[get_store]()
+    assert not any(k.startswith("ot:persona:") for k in store.redis.data)
