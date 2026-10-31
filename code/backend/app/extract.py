@@ -171,4 +171,15 @@ def transcribe(data: bytes, mime: str) -> str:
             instructions=TRANSCRIBE,
             input=[{"role": "user", "content": [part]}],
         )
+    if (
+        response.status != "completed"
+        or response.error is not None
+        or any(
+            content.type == "refusal"
+            for item in response.output
+            if item.type == "message"
+            for content in item.content
+        )
+    ):
+        raise ExtractionFailed("transcription failed")
     return response.output_text.strip()
