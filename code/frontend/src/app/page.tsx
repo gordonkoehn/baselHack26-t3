@@ -229,7 +229,7 @@ export default function Home() {
             Add text source
           </button>
           <label
-            className={`rounded-md border border-line bg-surface px-3 py-1.5 ${
+            className={`rounded-md border border-line bg-surface px-3 py-1.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
               busy ? "pointer-events-none opacity-40" : "cursor-pointer hover:border-muted"
             }`}
           >
@@ -238,7 +238,7 @@ export default function Home() {
               type="file"
               multiple
               accept={ACCEPTED}
-              className="hidden"
+              className="sr-only"
               disabled={busy}
               onChange={(e) => {
                 if (e.target.files) addFiles(e.target.files);

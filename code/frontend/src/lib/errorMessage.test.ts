@@ -6,6 +6,7 @@ describe("errorMessage", () => {
   it.each([
     [401, "This needs the team link with the passcode. Ask in Discord."],
     [422, "The input was rejected: boom"],
+    [429, "boom"],
     [502, "The model's answer couldn't be used. Try again."],
     [503, "The persona service is temporarily unavailable. Try again in a moment."],
     // The Next proxy answers 500 when the backend process isn't running.
