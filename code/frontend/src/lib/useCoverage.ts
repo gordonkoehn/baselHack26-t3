@@ -73,7 +73,8 @@ export function useCoverage({
   sources: PersonaSource[];
   /** A check of this persona version the workspace still holds; no need to pay for another. */
   initial: CoverageReport | null;
-  onReport: (report: CoverageReport) => void;
+  /** The report the workspace header may show; null while the goal or own criteria differ. */
+  onReport: (report: CoverageReport | null) => void;
   /** The patched persona and the note source the backend stored the answers as. */
   onAnswered: (persona: Persona, source: PersonaSource) => void;
 }) {
@@ -84,6 +85,8 @@ export function useCoverage({
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The goal from storage is in: before that, the shown default would outdate every report.
+  const [loaded, setLoaded] = useState(false);
 
   async function check(input = { goal, criteria }) {
     // The score screen has no goal field, so it has to say where to fill it in.
@@ -124,6 +127,7 @@ export function useCoverage({
     const input = startingInput(saved, sources);
     setGoal(input.goal);
     setCriteria(input.criteria);
+    setLoaded(true);
     if (!initial) void check(input);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -163,6 +167,14 @@ export function useCoverage({
   // A check answers one test: levels for another goal or other criteria would mislead just the same.
   const testChanged = report !== null && !sameTest(report, goal, criteria);
   const stale = personaChanged || testChanged;
+
+  // The header shows the workspace's copy, so a goal or criteria edit must outdate it there too;
+  // changing back restores it, as here.
+  useEffect(() => {
+    if (!loaded || report === null || personaChanged) return;
+    onReport(testChanged ? null : report);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, testChanged]);
 
   return {
     goal,

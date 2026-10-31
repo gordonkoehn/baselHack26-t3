@@ -219,6 +219,34 @@ describe("useCoverage", () => {
     expect(result.current.current).toEqual(OPEN_REPORT);
   });
 
+  it("outdates the workspace's report too when the goal changes, and restores it when it changes back", async () => {
+    vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
+    const { result } = mount(null);
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
+    options.onReport.mockClear();
+    act(() => result.current.setGoal("Another test"));
+    expect(options.onReport).toHaveBeenLastCalledWith(null);
+    act(() => result.current.setGoal(OPEN_GOAL));
+    expect(options.onReport).toHaveBeenLastCalledWith(OPEN_REPORT);
+  });
+
+  it("outdates the workspace's report when own criteria change", async () => {
+    vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
+    const { result } = mount(null);
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
+    act(() => result.current.setCriteria(["Cares about design"]));
+    expect(options.onReport).toHaveBeenLastCalledWith(null);
+  });
+
+  it("doesn't outdate a held report for the stored goal while that goal loads", async () => {
+    localStorage.setItem("opentwin.coverage", JSON.stringify({ goal: "My test", criteria: [] }));
+    const held = { ...REPORT, testGoal: "My test", criteria: REPORT.criteria.filter((c) => !c.custom) };
+    vi.spyOn(api, "checkCoverage").mockResolvedValue(held);
+    const { result } = mount(held);
+    await waitFor(() => expect(result.current.goal).toBe("My test"));
+    expect(options.onReport).not.toHaveBeenCalledWith(null);
+  });
+
   it("drops the levels when own criteria change", async () => {
     vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
     const { result } = mount(null);

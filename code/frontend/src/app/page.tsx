@@ -608,7 +608,7 @@ function PersonaProfile({
   tab: Tab;
   onTab: (tab: Tab) => void;
   coverage: CoverageReport | null;
-  onReport: (report: CoverageReport) => void;
+  onReport: (report: CoverageReport | null) => void;
   verdict: boolean | null;
   onVerdict: (ok: boolean) => void;
   showTestCall: boolean;

@@ -164,9 +164,18 @@ def test_provider_failures(client, exc, status):
     assert post(client).status_code == status
 
 
+def bump_version(**changes):
+    """The persona as answers leave it: a newer version, the report kept."""
+    store = app.dependency_overrides[get_store]()
+    persona = store.get_persona(PERSONA.id)
+    store.update_persona(persona.model_copy(update={"version": persona.version + 1, **changes}))
+    return store
+
+
 def test_recheck_keeps_weights_and_still_backed_rows(client):
     use_checker(lambda *_: draft([row(n, weight=3) for n in DEFAULT_CRITERIA]))
     assert post(client).json()["score"] == 1.0
+    bump_version()
     # The model re-rolls: everything "missing" at weight 1. Nothing behind the old rows changed.
     rerolled = [row(n, status="missing", weight=1, ids=()) for n in DEFAULT_CRITERIA]
     use_checker(lambda *_: draft(rerolled))
@@ -180,8 +189,7 @@ def test_recheck_keeps_weights_and_still_backed_rows(client):
 def test_recheck_drops_covered_when_its_evidence_is_gone(client):
     use_checker(lambda *_: draft([row(n) for n in DEFAULT_CRITERIA]))
     post(client)
-    store = app.dependency_overrides[get_store]()
-    store.save_persona(PERSONA.model_copy(update={"evidence": []}))
+    bump_version(evidence=[])
     use_checker(lambda *_: draft([row(n, status="missing", ids=()) for n in DEFAULT_CRITERIA]))
     assert post(client).json()["score"] == 0.0
 
@@ -548,7 +556,7 @@ def test_good_enough_never_contradicts_the_recommendation(client, missing):
     ]
     use_checker(lambda *_: draft(rows))
     body = post(client).json()
-    assert category(body, "solution")["level"] == "green"
+    assert category(body, "solution")["level"] == "yellow"
     assert body["recommendation"] == "needs_input" and body["overall"] == "add_more"
 
 
@@ -567,3 +575,50 @@ def test_a_report_saved_before_the_categories_is_ignored(client):
     store._call("set", f"{PREFIX}:coverage:{PERSONA.id}", old)
     use_checker(lambda *_: draft([row(n) for n in DEFAULT_CRITERIA]))
     assert post(client).status_code == 200
+
+
+def test_a_guessed_must_have_blocks_good_enough_and_green(client):
+    # xwsam's repro: a weight-3 row whose support is not in its quote is only guessed.
+    with_sources(client, NOTE, TRANSCRIPT)
+    unbacked = "What the solution is"
+    rows = [
+        row(n, weight=3, support="words nobody said") if n == unbacked else row(n)
+        for n in DEFAULT_CRITERIA
+    ]
+    use_checker(lambda *_: draft(rows))
+    body = post(client).json()
+    assert next(c for c in body["criteria"] if c["name"] == unbacked)["status"] == "guessed"
+    assert category(body, "solution")["level"] == "yellow"
+    assert body["recommendation"] == "needs_input" and body["overall"] == "add_more"
+
+
+def test_rechecks_of_the_same_version_do_not_pile_up(client):
+    # xwsam's repro: run 2 is all green, run 3 reports every row missing on the unchanged persona.
+    with_sources(client, NOTE, TRANSCRIPT)
+    use_checker(lambda *_: draft([row(n) for n in DEFAULT_CRITERIA]))
+    assert post(client).json()["overall"] == "good_enough"
+    use_checker(lambda *_: draft([row(n, status="missing", ids=()) for n in DEFAULT_CRITERIA]))
+    body = post(client).json()
+    assert body["score"] == 0.0 and {c["level"] for c in body["categories"]} == {"red"}
+    assert body["overall"] == "add_more"
+
+
+def test_a_check_running_during_an_edit_is_not_saved(client):
+    # 4rifi's and Copilot's case: a PATCH lands while the model is still answering.
+    with_sources(client, NOTE, TRANSCRIPT)
+    edit = {"jobs": [], "pains": [], "objections": []}
+
+    def checker(*_):
+        assert client.patch(f"/api/personas/{PERSONA.id}", json=edit).status_code == 200
+        return draft([row(n) for n in DEFAULT_CRITERIA])
+
+    use_checker(checker)
+    stale = post(client).json()
+    assert stale["personaVersion"] == PERSONA.version
+    store = app.dependency_overrides[get_store]()
+    assert store.get_coverage(PERSONA.id) is None
+    # So it can't become the floor of the next check either.
+    use_checker(lambda *_: draft([row(n, status="missing", ids=()) for n in DEFAULT_CRITERIA]))
+    body = post(client).json()
+    assert body["personaVersion"] == PERSONA.version + 1
+    assert body["score"] == 0.0 and body["overall"] == "add_more"

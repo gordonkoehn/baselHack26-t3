@@ -227,6 +227,9 @@ def score_category(
     covered = len(rows) - len(gaps)
     share = covered / len(rows)
     level = level_for(share)
+    # A must-have without evidence is never green, however much else is covered.
+    if level == "green" and any(c.weight == 3 for c in gaps):
+        level = "yellow"
     reason = f"Evidence backs {covered} of {len(rows)} points"
     if gaps:
         named = ", ".join(c.name.lower() for c in gaps[:NAMED_GAPS])
@@ -275,9 +278,11 @@ def score_coverage(
     Every requested criterion appears once, in order. "covered" needs evidence the persona
     really has and the model's support words found verbatim in one of the cited quotes, so a
     quote about another topic can't cover a criterion; otherwise it becomes "guessed". With a
-    previous report for the same test, weights stay and no row drops below its previous value
-    while the evidence behind it is still there, so answering gap questions can't make the score
-    fall because the model re-rolled other rows.
+    previous report for the same test and an earlier persona version (answers, a new face or
+    voice), weights stay and no row drops below its previous value while the evidence behind it
+    is still there, so answering gap questions can't make the score fall because the model
+    re-rolled other rows. A re-check of the same version scores fresh, so repeated checks can't
+    pile up the best of several model runs.
 
     Challenge and solution criteria may also cite a source (source:N): they are about the problem
     and the product, which a persona needn't have absorbed. Criteria about the person may not.
@@ -326,15 +331,16 @@ def score_coverage(
         old = before.get(name.casefold())
         if old is not None:
             still_backed = old.status != "covered" or set(old.evidence_ids) <= known
-            # An edit forgets the report (update_persona), so this floor only ever holds across
-            # answers. shortcut: a fact an answer replaces keeps its row; answers mostly add.
+            # Only across answers, a face or a voice: an edit forgets the report (update_persona).
+            # shortcut: a fact an answer replaces keeps its row; answers mostly add.
             if still_backed and _value(old) > _value(current):
                 current = old.model_copy(update={"custom": custom})
             current = current.model_copy(update={"weight": old.weight})
         criteria.append(current)
     total = sum(c.weight for c in criteria)
     score = round(sum(c.weight * _value(c) for c in criteria) / total, 2)
-    blocked = any(c.weight == 3 and c.status == "missing" for c in criteria)
+    # Guessed counts as open: a must-have the quote check downgraded is still unbacked.
+    blocked = any(c.weight == 3 and c.status != "covered" for c in criteria)
     # Questions only while something that matters is still guessed or missing.
     gaps = any(c.weight >= 2 and c.status != "covered" for c in criteria)
     categories = [score_category(name, criteria) for name in CATEGORY_CRITERIA]
@@ -386,12 +392,14 @@ def check_coverage(
     except ExtractionFailed as exc:
         raise HTTPException(502, f"coverage check unusable: {exc}") from None
     previous = store.get_coverage(persona.id)
-    if previous and (previous.test_goal, [c.name for c in previous.criteria]) != (
-        body.test_goal,
-        names,
+    if previous and (
+        previous.persona_version == persona.version
+        or (previous.test_goal, [c.name for c in previous.criteria]) != (body.test_goal, names)
     ):
         previous = None
     report = score_coverage(persona, body, names, draft, previous, sources)
+    # Not saved if the persona changed during the model call: an edit deleted the old report, and
+    # this one judged the persona before it. The browser sees its old version and asks again.
     store.save_coverage(report)
     return report
 

@@ -1,7 +1,14 @@
+import json
 import re
 import threading
 
-from app.store import APPEND_EVENTS, COUNT_HIT, INDEX_PERSONA, TRANSITION_SESSION
+from app.store import (
+    APPEND_EVENTS,
+    COUNT_HIT,
+    INDEX_PERSONA,
+    SAVE_COVERAGE,
+    TRANSITION_SESSION,
+)
 
 
 class FakeRedis:
@@ -59,6 +66,13 @@ class FakeRedis:
                     self.data[keys[0]] = args[1]
                     self.ttl[keys[0]] = int(args[2])
                 return ["ok", args[1]]
+            if script == SAVE_COVERAGE:
+                raw = self.data.get(keys[0])
+                if raw is None or json.loads(raw)["version"] != int(args[0]):
+                    return 0
+                self.data[keys[1]] = args[1]
+                self.ttl[keys[1]] = int(args[2])
+                return 1
             assert script == APPEND_EVENTS
             h = self.data.setdefault(keys[0], {})
             out = []
