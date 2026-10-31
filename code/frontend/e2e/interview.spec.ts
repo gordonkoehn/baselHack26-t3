@@ -350,6 +350,26 @@ test("an open fact edit and a failed save stay behind when another persona is pi
   await expect(card.getByRole("button", { name: `Edit: ${first.jobs[0].text}`, exact: true })).toBeVisible();
 });
 
+test("a call can't start while a library pick is loading, so the pick can't cut it off", async ({ page, request }) => {
+  const { first } = await twoPersonas(page);
+  const start = page.getByRole("button", { name: "Start voice interview" });
+  let release = () => {};
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`**/api/personas/${first.id}`, async (route) => {
+    await released;
+    await route.fallback();
+  });
+
+  const picking = pickFromLibrary(page, request, first.id);
+  await expect(start).toBeDisabled();
+  release();
+  await picking;
+
+  const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await start.click();
+  expect(((await (await started).json()) as Session).personaId).toBe(first.id);
+});
+
 test("the persona list sends the passcode and stays away when refused", async ({ page }) => {
   await page.route("**/api/personas", (route) =>
     route.request().method() === "GET"

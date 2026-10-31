@@ -38,7 +38,7 @@ type ServerEvent = {
   error?: { message?: string; event_id?: string };
 };
 
-export function InterviewRoom({ persona }: { persona: Persona }) {
+export function InterviewRoom({ persona, startBlocked }: { persona: Persona; startBlocked: boolean }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -751,8 +751,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <button
             type="button"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-40"
             onClick={start}
+            disabled={startBlocked}
           >
             {phase === "idle" ? "Start voice interview" : "Start again"}
           </button>

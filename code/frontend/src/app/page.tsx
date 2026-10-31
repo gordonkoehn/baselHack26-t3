@@ -394,6 +394,7 @@ export default function Home() {
           <PersonaCard
             key={result.persona.id}
             {...result}
+            opening={opening}
             onPersona={(persona) =>
               setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
             }
@@ -406,7 +407,13 @@ export default function Home() {
 
 type FactField = "jobs" | "pains" | "objections";
 
-function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPersona: (p: Persona) => void }) {
+function PersonaCard({
+  persona,
+  sources,
+  seconds,
+  opening,
+  onPersona,
+}: Result & { opening: boolean; onPersona: (p: Persona) => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   // The server decides the labels: an edited or new fact always comes back as a guess.
   async function save(field: FactField, facts: Fact[]) {
@@ -448,7 +455,8 @@ function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPers
         onSave={(f) => save("objections", f)}
       />
       {/* Keyed by persona so a new persona never inherits the previous call. */}
-      <InterviewRoom key={persona.id} persona={persona} />
+      {/* The picked persona replaces this card when it arrives, which would cut off a call started now. */}
+      <InterviewRoom key={persona.id} persona={persona} startBlocked={opening} />
     </article>
   );
 }
