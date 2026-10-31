@@ -78,6 +78,17 @@ retried. An ambiguous write timeout may leave a session that expires naturally.
 Create/read checks the deployed store path, not provider readiness or durability
 under load. No deployed requests or store writes were made during implementation.
 
+## Manual run (workflow_dispatch)
+
+No GitHub Deployment records exist yet, so `deployment_status` does not fire. An
+owner can run the check by hand: Actions, deployed-smoke, Run workflow, on the
+default branch. `target_url` must exactly equal an `origin` in
+`DEPLOYED_SMOKE_TARGETS` (no trailing slash, path, query or port change). An
+optional `persona_id` must equal that origin's configured persona. Anything else,
+or a run from another branch, fails before the secret step. Inputs are read from
+the event file, never interpolated into shell. The workflow must be on the default
+branch before it can be dispatched, so the first manual run happens after merge.
+
 ## Authentication and demo-passcode PR108
 
 Optional repository variable `DEPLOYED_SMOKE_AUTH_HEADER_NAME` and secret
@@ -168,7 +179,8 @@ next external workflow node rather than this sandbox.
 1. Capture a sanitized real frontend preview event with its immutable URL and
    project identity. Review the smallest explicit project/URL trust rule and add
    accepted/rejected event tests before changing exact-origin handling. Unknown
-   or dynamic URLs currently fail closed; no wildcard or dispatch URL is accepted.
+   or dynamic URLs currently fail closed; no wildcard is accepted, and a manual
+   dispatch URL must exactly match a configured origin.
 2. Capture a sanitized backend-project event and agree how to identify and skip
    that project before exposing secrets or making requests. Add a backend-event
    regression separately; do not map the API origin to the frontend smoke, which

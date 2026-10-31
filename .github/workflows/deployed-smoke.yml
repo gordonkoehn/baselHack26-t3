@@ -1,13 +1,26 @@
 name: deployed-smoke
 on:
   deployment_status:
+  # Manual run from the default branch; inputs must match DEPLOYED_SMOKE_TARGETS exactly.
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Approved origin from DEPLOYED_SMOKE_TARGETS (exact match)
+        required: true
+        type: string
+      persona_id:
+        description: Optional; must equal the persona configured for that origin
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   smoke:
-    if: github.event.deployment_status.state == 'success'
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -32,25 +45,39 @@ jobs:
                   raise SystemExit(message)
 
           event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-          deployment = event["deployment"]
-          status = event["deployment_status"]
           repo = os.environ["GITHUB_REPOSITORY"]
           require(event["repository"]["full_name"] == repo, "Repository mismatch")
-          creator = os.environ["TRUSTED_CREATOR_ID"]
-          require(creator.isdigit(), "Configure DEPLOYED_SMOKE_CREATOR_ID")
-          require(str(deployment["creator"]["id"]) == creator
-                  and str(status["creator"]["id"]) == creator, "Untrusted deployment creator")
-          require(deployment["repository_url"] == "https://api.github.com/repos/" + repo,
-                  "Deployment repository mismatch")
           try:
               targets = json.loads(os.environ["TRUSTED_TARGETS"])
-              target = targets[deployment["environment"]]
-          except (ValueError, KeyError, TypeError):
-              raise SystemExit("Configure DEPLOYED_SMOKE_TARGETS for this environment") from None
-          require(status["environment"] == deployment["environment"], "Environment mismatch")
-          url = status.get("environment_url", "")
-          require(isinstance(target, dict) and url == target.get("origin"),
-                  "Target must exactly match an administrator-approved project origin")
+          except ValueError:
+              targets = None
+          require(isinstance(targets, dict) and targets, "Configure DEPLOYED_SMOKE_TARGETS")
+          requested_persona = ""
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+              require(os.environ["GITHUB_REF"] == "refs/heads/" + event["repository"]["default_branch"],
+                      "Manual runs must use the default branch")
+              inputs = event.get("inputs") or {}
+              url = inputs.get("target_url", "")
+              matches = [t for t in targets.values() if isinstance(t, dict) and t.get("origin") == url]
+              require(len(matches) == 1,
+                      "Target must exactly match an administrator-approved project origin")
+              target = matches[0]
+              requested_persona = inputs.get("persona_id") or ""
+          else:
+              deployment = event["deployment"]
+              status = event["deployment_status"]
+              creator = os.environ["TRUSTED_CREATOR_ID"]
+              require(creator.isdigit(), "Configure DEPLOYED_SMOKE_CREATOR_ID")
+              require(str(deployment["creator"]["id"]) == creator
+                      and str(status["creator"]["id"]) == creator, "Untrusted deployment creator")
+              require(deployment["repository_url"] == "https://api.github.com/repos/" + repo,
+                      "Deployment repository mismatch")
+              target = targets.get(deployment["environment"])
+              require(target is not None, "Configure DEPLOYED_SMOKE_TARGETS for this environment")
+              require(status["environment"] == deployment["environment"], "Environment mismatch")
+              url = status.get("environment_url", "")
+              require(isinstance(target, dict) and url == target.get("origin"),
+                      "Target must exactly match an administrator-approved project origin")
           parsed = urlsplit(url)
           require(parsed.scheme == "https" and parsed.hostname and parsed.port in (None, 443)
                   and not parsed.username and not parsed.password and not parsed.query
@@ -60,6 +87,8 @@ jobs:
           import re
           require(isinstance(persona, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", persona),
                   "Configure a synthetic persona_id")
+          require(requested_persona in ("", persona),
+                  "persona_id must equal the persona configured for this origin")
           with open(os.environ["GITHUB_ENV"], "a") as output:
               output.write(f"SMOKE_BASE_URL={url}\nSMOKE_ALLOWED_ORIGIN={url}\nSMOKE_PERSONA_ID={persona}\n")
           PY

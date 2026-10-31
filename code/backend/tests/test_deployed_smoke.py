@@ -343,6 +343,7 @@ def deployment(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
     monkeypatch.setenv("GITHUB_ENV", str(output))
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "deployment_status")
     monkeypatch.setenv("TRUSTED_CREATOR_ID", "123")
     monkeypatch.setenv(
         "TRUSTED_TARGETS",
@@ -429,6 +430,103 @@ def test_workflow_missing_configuration_is_red(deployment, monkeypatch, key, val
     with pytest.raises(SystemExit):
         deployment.validate()
     assert not deployment.output.exists()
+
+
+@pytest.fixture
+def dispatch(deployment, monkeypatch):
+    """Manual workflow_dispatch run from the default branch; no deployment creator involved."""
+    deployment.event.clear()
+    deployment.event.update(
+        {
+            "repository": {"full_name": "owner/repo", "default_branch": "main"},
+            "inputs": {"target_url": "https://approved-project.invalid", "persona_id": ""},
+        }
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("TRUSTED_CREATOR_ID", "")
+    return deployment
+
+
+@pytest.mark.parametrize("persona", [None, "", "p_smoke"])
+def test_dispatch_accepts_exact_approved_origin_and_configured_persona(dispatch, persona):
+    if persona is None:
+        del dispatch.event["inputs"]["persona_id"]
+    else:
+        dispatch.event["inputs"]["persona_id"] = persona
+    dispatch.validate()
+    assert dispatch.output.read_text() == (
+        "SMOKE_BASE_URL=https://approved-project.invalid\n"
+        "SMOKE_ALLOWED_ORIGIN=https://approved-project.invalid\nSMOKE_PERSONA_ID=p_smoke\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("target_url", ""),
+        ("target_url", "https://attacker.vercel.app"),
+        ("target_url", "https://approved-project.invalid/"),
+        ("target_url", "https://approved-project.invalid/path"),
+        ("target_url", "https://approved-project.invalid?x=1"),
+        ("target_url", "https://approved-project.invalid:8443"),
+        ("target_url", "http://approved-project.invalid"),
+        ("target_url", "https://APPROVED-project.invalid"),
+        ("target_url", " https://approved-project.invalid"),
+        ("target_url", "https://approved-project.invalid\nSMOKE_PERSONA_ID=evil"),
+        ("persona_id", "p_other"),
+        ("persona_id", "p_smoke\nEVIL=value"),
+    ],
+)
+def test_dispatch_rejects_unapproved_inputs_before_secret_step(dispatch, key, value):
+    dispatch.event["inputs"][key] = value
+    with pytest.raises(SystemExit):
+        dispatch.validate()
+    assert not dispatch.output.exists()
+
+
+@pytest.mark.parametrize("ref", ["refs/heads/73-check-deployed-app", "refs/pull/1/merge", ""])
+def test_dispatch_rejects_non_default_branch(dispatch, monkeypatch, ref):
+    monkeypatch.setenv("GITHUB_REF", ref)
+    with pytest.raises(SystemExit):
+        dispatch.validate()
+    assert not dispatch.output.exists()
+
+
+def test_dispatch_rejects_foreign_repository(dispatch):
+    dispatch.event["repository"]["full_name"] = "fork/repo"
+    with pytest.raises(SystemExit):
+        dispatch.validate()
+    assert not dispatch.output.exists()
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        "",
+        "{}",
+        "[]",
+        json.dumps(
+            {"Production": {"origin": "http://approved-project.invalid", "persona_id": "p"}}
+        ),
+        json.dumps({"Production": {"origin": "https://approved-project.invalid"}}),
+    ],
+)
+def test_dispatch_missing_or_unsafe_configuration_is_red(dispatch, monkeypatch, targets):
+    monkeypatch.setenv("TRUSTED_TARGETS", targets)
+    origin = json.loads(targets or "{}").get("Production", {}) if targets.startswith("{") else {}
+    dispatch.event["inputs"]["target_url"] = origin.get(
+        "origin", "https://approved-project.invalid"
+    )
+    with pytest.raises(SystemExit):
+        dispatch.validate()
+    assert not dispatch.output.exists()
+
+
+def test_dispatch_inputs_never_reach_shell_through_expressions():
+    """Inputs are read from the event file only; `${{ inputs.* }}` would allow script injection."""
+    expressions = re.findall(r"\$\{\{(.*?)\}\}", WORKFLOW.read_text())
+    assert not [e for e in expressions if "inputs" in e]
 
 
 @pytest.mark.parametrize("failure", ["", "redirect", "transport"])
