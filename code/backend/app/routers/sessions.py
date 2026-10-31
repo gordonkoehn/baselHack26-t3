@@ -4,9 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from app import livekit
+from app import realtime
 from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
-from app.livekit import LiveKitUnavailable
+from app.extract import ProviderUnavailable
 from app.store import Store, get_store
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -36,8 +36,9 @@ def create_session(body: SessionCreate, store: StoreDep) -> Session:
         id=f"s_{uuid.uuid4().hex[:12]}",
         persona_id=body.persona_id,
         status="created",
-        provider="livekit",
-        join_url=livekit.livekit_url(),
+        provider="openai-realtime",
+        # The browser connects to realtime.CALLS_URL with the token; there's no room to join.
+        join_url=None,
         interview_guide=body.interview_guide,
     )
     store.save_session(session)
@@ -72,10 +73,13 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     session = _load(store, session_id)
     if session.status == "ended":
         raise HTTPException(409, "session has ended")
+    persona = store.get_persona(session.persona_id)
+    if persona is None:
+        raise HTTPException(404, "persona not found")
     try:
-        token = livekit.mint_token(session.id, session.persona_id)
-    except LiveKitUnavailable:
-        raise HTTPException(503, "voice provider not configured") from None
+        token = realtime.mint_client_secret(persona)
+    except ProviderUnavailable:
+        raise HTTPException(503, "voice provider unavailable") from None
     # A bearer token: never cache it anywhere between the backend and the browser.
     response.headers["Cache-Control"] = "no-store"
     return token
