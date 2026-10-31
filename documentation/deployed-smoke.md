@@ -6,6 +6,10 @@ the frontend proxy and `/`. Build the frontend first (or use `make smoke`). Busy
 local ports fail before startup. Cleanup signals only process groups created by
 this invocation, including their children. Private per-run logs are removed on
 exit; raw logs, response bodies and credentials are never printed.
+If an owned backend or frontend process exits during startup, the diagnostic names
+that service and its numeric exit status. Exit status zero also fails readiness;
+negative statuses indicate termination by a signal. Cleanup still covers only
+this invocation's process groups.
 
 Remote mode never starts or terminates servers:
 

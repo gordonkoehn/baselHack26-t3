@@ -30,6 +30,7 @@ def harness(monkeypatch):
     monkeypatch.setenv("SMOKE_ALLOWED_ORIGIN", "http://127.0.0.1:9999")
     monkeypatch.setenv("SMOKE_PERSONA_ID", "p_smoke")
     calls, processes, killed = [], [], []
+    exit_codes, waited = {}, []
     replies = {}
     failures = []
 
@@ -54,8 +55,13 @@ def harness(monkeypatch):
 
     def popen(command, **kwargs):
         process = SimpleNamespace(pid=10000 + len(processes), command=command, options=kwargs)
-        process.poll = lambda: None
-        process.wait = lambda **kwargs: 0
+        process.poll = lambda: exit_codes.get(kwargs["cwd"])
+
+        def wait(**options):
+            waited.append((process.pid, options["timeout"]))
+            return 0
+
+        process.wait = wait
         processes.append(process)
         return process
 
@@ -88,6 +94,8 @@ def harness(monkeypatch):
         failures=failures,
         processes=processes,
         killed=killed,
+        exit_codes=exit_codes,
+        waited=waited,
     )
 
 
@@ -249,6 +257,54 @@ def test_local_retries_are_finite_and_cleanup_preserves_failure(harness):
         harness.execute()
     assert len(harness.calls) == 30
     assert harness.killed == [(p.pid, signal.SIGTERM) for p in harness.processes]
+
+
+@pytest.mark.parametrize("service", ["backend", "frontend"])
+@pytest.mark.parametrize("status", [0, 17, -15])
+def test_local_premature_exit_identifies_service_and_cleans_owned_groups(
+    harness, monkeypatch, capsys, service, status
+):
+    harness.exit_codes[service] = status
+    original_popen = subprocess.Popen
+
+    def noisy_popen(command, **options):
+        options["stdout"].write("private credential https://private.invalid --secret=value\n")
+        return original_popen(command, **options)
+
+    monkeypatch.setattr(subprocess, "Popen", noisy_popen)
+    with pytest.raises(SystemExit, match="1"):
+        harness.execute()
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == (
+        f"smoke FAILED: local {service} exited during startup (exit status {status})\n"
+    )
+    assert not harness.calls
+    assert len(harness.processes) == 2
+    assert harness.killed == [(p.pid, signal.SIGTERM) for p in harness.processes]
+    assert harness.waited == [(p.pid, 3) for p in harness.processes]
+
+
+def test_local_second_spawn_failure_is_sanitized_and_cleans_first_group(
+    harness, monkeypatch, capsys
+):
+    original_popen = subprocess.Popen
+
+    def fail_frontend(command, **options):
+        if options["cwd"] == "frontend":
+            raise OSError("private credential https://private.invalid --secret=value")
+        return original_popen(command, **options)
+
+    monkeypatch.setattr(subprocess, "Popen", fail_frontend)
+    with pytest.raises(SystemExit, match="1"):
+        harness.execute()
+    assert capsys.readouterr().err == (
+        "smoke FAILED: invalid configuration or command unavailable\n"
+    )
+    assert not harness.calls
+    assert len(harness.processes) == 1
+    assert harness.killed == [(harness.processes[0].pid, signal.SIGTERM)]
+    assert harness.waited == [(harness.processes[0].pid, 3)]
 
 
 def test_local_failure_after_startup_cleans_only_owned_processes(harness):

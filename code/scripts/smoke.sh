@@ -138,12 +138,15 @@ def local():
                 ("frontend", ["npx", "next", "start", "-p", "3000"]),
             ]:
                 with (Path(logs) / (folder + ".log")).open("w") as output:
-                    processes.append(subprocess.Popen(command, cwd=folder, stdout=output,
-                                                       stderr=output, start_new_session=True))
+                    process = subprocess.Popen(command, cwd=folder, stdout=output,
+                                               stderr=output, start_new_session=True)
+                    processes.append((folder, process))
             # Fixed budget: at most 30 requests, each at most 12 seconds, plus 29 sleeps.
             for attempt in range(30):
-                if any(p.poll() is not None for p in processes):
-                    fail("local server exited during startup; check build and port availability")
+                for service, process in processes:
+                    status = process.poll()
+                    if status is not None:
+                        fail(f"local {service} exited during startup (exit status {status})")
                 try:
                     health("http://localhost:3000", "")
                     break
@@ -154,12 +157,12 @@ def local():
             request("http://localhost:3000", "/", 200, "")
         finally:
             # Each group was created by this invocation; never search/kill by command name.
-            for process in processes:
+            for _, process in processes:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-            for process in processes:
+            for _, process in processes:
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
