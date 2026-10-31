@@ -154,3 +154,19 @@ export type InsightReport = {
     followUps?: string[];
   }[];
 };
+
+/** POST /api/insights/summary: 1 to 50 interviews. A repeated id counts once. */
+export type InsightSummaryRequest = { sessionIds: string[] };
+
+/** Saved debriefs side by side, grouped by exact question text. Computed without a model. */
+export type InsightSummary = {
+  questions: {
+    question: string;
+    /** Interviews with this signal. An interview whose guide lacks the question counts in none of the three. */
+    supports: number;
+    contradicts: number;
+    unclear: number;
+    /** Strongest quotes: at most two per interview, with grounded ones first. */
+    insights: (Insight & { sessionId: string })[];
+  }[];
+};

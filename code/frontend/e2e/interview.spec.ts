@@ -441,6 +441,51 @@ test("two interviews with one persona are both listed, also after a reload, and 
   await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
 });
 
+test("two debriefs for the same guide give one table of counts, and every quote opens its interview", async ({ page, context }) => {
+  await createPersona(page);
+  const past = page.getByRole("region", { name: "Past interviews" });
+  const first = await completeInterview(page);
+  await expect(past.getByRole("link")).toHaveCount(1);
+  await expect(past.getByRole("checkbox")).toHaveCount(0);
+  const second = await completeInterview(page);
+
+  const boxes = past.getByRole("checkbox");
+  await expect(boxes).toHaveCount(2);
+  const compare = past.getByRole("link", { name: "Compare 2 interviews" });
+  await boxes.nth(0).check();
+  await expect(compare).toHaveCount(0);
+  await boxes.nth(1).check();
+
+  const opened = context.waitForEvent("page");
+  await compare.click();
+  const view = await opened;
+  // Oldest first, so the numbers below follow the order the interviews happened in.
+  expect(new URL(view.url()).searchParams.getAll("id")).toEqual([first, second]);
+  await expect(view.getByText("Simulated personas: hypotheses for real customer research.")).toBeVisible();
+
+  const table = view.getByTestId("compare-table");
+  for (const [index, { question, signal }] of exampleReport.questions.entries()) {
+    const counts = ["supports", "contradicts", "unclear"].map((s) => (s === signal ? "2" : "0"));
+    const body = table.locator("tbody").nth(index);
+    await expect(body.getByRole("rowheader")).toHaveText(question);
+    await expect(body.getByRole("row").first().getByRole("cell")).toHaveText(counts);
+    const quotes = body.getByRole("link");
+    await expect(quotes).toHaveCount(2);
+    for (const [number, id] of [first, second].entries()) {
+      await expect(quotes.nth(number)).toContainText(answers[index]);
+      await expect(quotes.nth(number)).toContainText(`Interview ${number + 1}`);
+      await expect(quotes.nth(number)).toHaveAttribute("href", `/report/${id}`);
+    }
+  }
+  await expect(table.locator("tbody")).toHaveCount(exampleReport.questions.length);
+
+  const source = context.waitForEvent("page");
+  await table.getByRole("link").first().click();
+  const report = await source;
+  await expect(report.getByTestId("debrief")).toContainText(answers[0]);
+  expect(new URL(report.url()).pathname).toBe(`/report/${first}`);
+});
+
 test("past interviews link only saved debriefs and leave out sessions that never started", async ({ page }) => {
   const neverStarted = { id: "s_0", personaId: "p_1", status: "ended", provider: "openai-realtime", startedAt: null, debriefReady: false };
   await page.route("**/api/personas/*/sessions", (route) => route.fulfill({ json: [...examplePersonaSessions, neverStarted] }));

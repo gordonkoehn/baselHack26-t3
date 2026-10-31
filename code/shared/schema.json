@@ -285,6 +285,53 @@
           }
         }
       }
+    },
+    "InsightSummaryRequest": {
+      "type": "object",
+      "required": ["sessionIds"],
+      "properties": {
+        "sessionIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "type": "string" },
+          "description": "Interviews to compare. A repeated id counts once."
+        }
+      }
+    },
+    "InsightSummary": {
+      "type": "object",
+      "description": "Saved debriefs side by side, computed without a model. Questions are grouped by exact text, in order of first appearance.",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["question", "supports", "contradicts", "unclear", "insights"],
+            "properties": {
+              "question": { "type": "string" },
+              "supports": { "type": "integer", "minimum": 0, "description": "Interviews with this signal. An interview whose guide lacks the question counts in none of the three." },
+              "contradicts": { "type": "integer", "minimum": 0 },
+              "unclear": { "type": "integer", "minimum": 0 },
+              "insights": {
+                "type": "array",
+                "description": "Strongest quotes: at most two per interview, so none is left out, with grounded ones first.",
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/Insight" },
+                    {
+                      "type": "object",
+                      "required": ["sessionId"],
+                      "properties": { "sessionId": { "type": "string", "description": "The interview this quote is from." } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "endpoints": {
@@ -305,6 +352,7 @@
     "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },
     "POST /api/sessions/{id}/coach": { "body": "{ turnSeq }", "response": "SessionEvent (copilot.suggestion)", "status": "draft" },
     "POST /api/sessions/{id}/debrief": { "response": "InsightReport", "status": "draft" },
-    "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" }
+    "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" },
+    "POST /api/insights/summary": { "body": "InsightSummaryRequest", "response": "InsightSummary", "note": "No passcode, like GET /api/sessions/{id}/insights: it never calls a model and only returns what those ids can already read. 404 if any interview has no saved debrief (never a partial count), 422 for no ids or more than 50, 503 store unavailable." }
   }
 }

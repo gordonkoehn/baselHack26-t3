@@ -3,14 +3,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app import debrief, extract
+from app import debrief, extract, summary
 from app.auth import require_passcode
-from app.contracts import InsightReport, Persona, Session, SessionEvent
+from app.contracts import (
+    InsightReport,
+    InsightSummary,
+    InsightSummaryRequest,
+    Persona,
+    Session,
+    SessionEvent,
+)
 from app.extract import DebriefDraft, ExtractionFailed, ProviderUnavailable
 from app.rate_limit import rate_limit
 from app.routers.sessions import StoreDep, _load
 
 router = APIRouter(prefix="/api/sessions", tags=["insights"])
+summary_router = APIRouter(prefix="/api/insights", tags=["insights"])
 
 Debriefer = Callable[[Session, Persona, list[SessionEvent]], DebriefDraft]
 
@@ -64,3 +72,15 @@ def create_debrief(session_id: str, store: StoreDep, debriefer: DebrieferDep) ->
     # Detect changes during generation; this read and save are not a multi-writer transaction.
     store.save_report(report)
     return report
+
+
+# No passcode, like read_insights: no model call, and only what these ids can already read.
+@summary_router.post("/summary", response_model_by_alias=True)
+def summarize_interviews(body: InsightSummaryRequest, store: StoreDep) -> InsightSummary:
+    session_ids = list(dict.fromkeys(body.session_ids))
+    reports = store.get_reports(session_ids)
+    # A partial table would look like a complete count, so a missing debrief fails the whole request.
+    missing = [id_ for id_, report in zip(session_ids, reports, strict=True) if report is None]
+    if missing:
+        raise HTTPException(404, f"report not found: {', '.join(missing)}")
+    return summary.summarize(reports)

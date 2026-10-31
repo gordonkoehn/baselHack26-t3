@@ -12,6 +12,7 @@ from pydantic import Field, create_model
 from app import avatar, realtime
 from app.contracts import (
     InsightReport,
+    InsightSummary,
     Persona,
     PersonaSummary,
     PersonaUpdate,
@@ -37,6 +38,7 @@ EXAMPLES = {
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
+    "insight-summary.json": ("InsightSummary", InsightSummary, False),
 }
 
 
@@ -175,6 +177,11 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
     assert response(client.get(f"{url}/insights"), "InsightReport") == report
     listed = response(client.get(f"/api/personas/{created['id']}/sessions"), "Session", array=True)
     assert [(s["id"], s["debriefReady"]) for s in listed] == [(session["id"], True)]
+    summary = response(
+        client.post("/api/insights/summary", json={"sessionIds": [session["id"]]}),
+        "InsightSummary",
+    )
+    assert any(q["insights"] for q in summary["questions"]), "Exercise nested insight contracts"
 
 
 @pytest.mark.parametrize("change", ["required", "type"])

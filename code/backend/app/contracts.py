@@ -189,3 +189,23 @@ class InsightReport(Model):
     session_id: str
     generated_at: str
     questions: list[InsightQuestion]
+
+
+class InsightSummaryRequest(Model):
+    session_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class SummaryInsight(Insight):
+    session_id: str
+
+
+class SummaryQuestion(Model):
+    question: str
+    supports: int = Field(default=0, ge=0)
+    contradicts: int = Field(default=0, ge=0)
+    unclear: int = Field(default=0, ge=0)
+    insights: list[SummaryInsight] = []
+
+
+class InsightSummary(Model):
+    questions: list[SummaryQuestion]
