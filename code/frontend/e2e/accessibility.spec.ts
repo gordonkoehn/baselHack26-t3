@@ -46,6 +46,7 @@ test.beforeEach(async ({ page, context, baseURL }) => {
       if (!url.pathname.startsWith("/api/")) return route.continue();
       if (url.pathname === "/api/personas" && request.method() === "POST") return fulfill(persona);
       if (url.pathname === "/api/personas" && request.method() === "GET") return fulfill([]);
+      if (url.pathname === "/api/faces") return fulfill([]);
       if (url.pathname === "/api/sessions" && request.method() === "POST") {
         return fulfill({ id: sessionId, personaId: persona.id, status: "created", provider: "openai-realtime" }, 201);
       }
@@ -98,6 +99,7 @@ async function respondToDebrief(fail = false) {
 async function openDebrief(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   await expect(page.getByRole("dialog").getByText("Live, speak now")).toBeVisible();
   await page.getByRole("button", { name: "End interview", exact: true }).click();

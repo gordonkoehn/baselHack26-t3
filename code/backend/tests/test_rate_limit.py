@@ -14,7 +14,7 @@ from app.extract import ProviderUnavailable
 from app.main import app
 from app.routers.guides import get_reviewer
 from app.routers.insights import get_debriefer
-from app.routers.personas import get_extractor
+from app.routers.personas import get_answerer, get_coverage_checker, get_extractor
 from app.store import PREFIX, Store, get_store
 from tests.fakes import FakeRedis
 from tests.test_debrief import load
@@ -36,6 +36,12 @@ def blank_pdf() -> bytes:
 # Every paid route, with a request that reaches its provider unless the limit stops it.
 PAID = [
     ("/api/personas", "personas", {"json": REQUEST}),
+    ("/api/personas/p_1/coverage", "personas", {"json": {"testGoal": "A dashboard"}}),
+    (
+        "/api/personas/p_1/answers",
+        "personas",
+        {"json": {"answers": [{"question": "Q", "answer": "A"}]}},
+    ),
     ("/api/sources/pdf", "sources", {"content": blank_pdf()}),
     ("/api/sources/image", "sources", {"content": b"\x89PNG\r\n\x1a\n" + b"\0" * 32}),
     ("/api/guides/review", "guides", {"json": {"questions": ["Why?"], "language": "en"}}),
@@ -77,11 +83,18 @@ def ctx(monkeypatch):
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_extractor] = lambda: provider
     app.dependency_overrides[get_debriefer] = lambda: provider
+    app.dependency_overrides[get_coverage_checker] = lambda: provider
+    app.dependency_overrides[get_answerer] = lambda: provider
     app.dependency_overrides[get_reviewer] = lambda: provider
     yield Context(TestClient(app), redis, provider)
-    app.dependency_overrides.pop(get_reviewer)
-    app.dependency_overrides.pop(get_extractor)
-    app.dependency_overrides.pop(get_debriefer)
+    for dependency in (
+        get_extractor,
+        get_debriefer,
+        get_coverage_checker,
+        get_answerer,
+        get_reviewer,
+    ):
+        app.dependency_overrides.pop(dependency)
 
 
 def limit(monkeypatch, bucket: str, per_ip: int, overall: int) -> None:

@@ -1,9 +1,13 @@
 import type {
+  CoverageReport,
+  CoverageRequest,
   ExtractedText,
+  Face,
   GuideReview,
   GuideReviewRequest,
   InsightReport,
   Persona,
+  PersonaAnswers,
   PersonaCreate,
   PersonaSummary,
   PersonaUpdate,
@@ -164,6 +168,39 @@ export const api = {
       headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Persona>),
+  // Calls the model, not stored: is this persona good enough for what the team will test?
+  checkCoverage: (id: string, body: CoverageRequest) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/coverage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...passcode() },
+      body: JSON.stringify(body),
+    }).then(json<CoverageReport>),
+  // Adds facts from the team's gap answers to the same persona (version bump, same id).
+  answerGaps: (id: string, body: PersonaAnswers) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/answers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...passcode() },
+      body: JSON.stringify(body),
+    }).then(json<Persona>),
+  listFaces: () => fetch("/api/faces").then(json<Face[]>),
+  // The raw image is the body; the backend sniffs the type from the bytes.
+  uploadPhoto: (id: string, image: Blob) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/photo`, {
+      method: "PUT",
+      headers: { "Content-Type": image.type || "application/octet-stream", ...passcode() },
+      body: image,
+    }).then(json<Persona>),
+  // Simli builds a call face from the stored photo; uses one of the account's paid generations.
+  startFace: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/face`, { method: "POST", headers: passcode() }).then(json<Persona>),
+  refreshFace: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/face/refresh`, { method: "POST", headers: passcode() }).then(
+      json<Persona>,
+    ),
+  removePhoto: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/photo`, { method: "DELETE", headers: passcode() }).then(
+      json<Persona>,
+    ),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
   getSession: (id: string) =>
