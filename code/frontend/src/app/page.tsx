@@ -168,7 +168,7 @@ export default function Home() {
           const text = await file.text();
           setDrafts((ds) => [...ds, draft("note", file.name, text)]);
         } else {
-          problems.push(`${file.name}: not supported (use ${ACCEPTED})`);
+          problems.push(`${file.name}: not supported (use ${ACCEPTED.replaceAll(",", ", ")})`);
         }
       } catch (e) {
         problems.push(`${file.name}: ${e instanceof ApiError ? e.detail : "could not be read"}`);
@@ -443,7 +443,7 @@ export default function Home() {
         </div>
         </div>
         {error && (
-          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm break-words text-red-800 dark:bg-red-950 dark:text-red-200">
             {error}
           </p>
         )}
