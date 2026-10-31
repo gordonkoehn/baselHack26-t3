@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "question": "Would you pay 10 CHF for this?",
+      "issues": ["hypothetical", "closed"],
+      "rewrite": "Tell me about the last time you paid for something like this."
+    },
+    {
+      "question": "How do you sort your recycling today?",
+      "issues": [],
+      "rewrite": null
+    }
+  ]
+}

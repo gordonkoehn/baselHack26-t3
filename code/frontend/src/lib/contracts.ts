@@ -134,3 +134,24 @@ export type InsightReport = {
     followUps?: string[];
   }[];
 };
+
+export type GuideIssue = "leading" | "hypothetical" | "closed" | "pitch";
+
+export type GuideReviewRequest = {
+  /** 1 to 50 nonblank questions of at most 500 characters. */
+  questions: string[];
+  /** Language of the rewrites. */
+  language: Language;
+};
+
+export type GuideReviewItem = {
+  question: string;
+  issues: GuideIssue[];
+  /** Neutral, open version on one line. Null when there are no issues. */
+  rewrite: string | null;
+};
+
+export type GuideReview = {
+  /** One entry per question, in request order. */
+  items: GuideReviewItem[];
+};

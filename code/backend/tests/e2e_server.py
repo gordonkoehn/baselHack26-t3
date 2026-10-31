@@ -12,8 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app import realtime
+from app.contracts import GuideReview, GuideReviewItem, GuideReviewRequest
 from app.extract import DebriefDraft, PersonaDraft
 from app.main import app
+from app.routers.guides import get_reviewer
 from app.routers.insights import get_debriefer
 from app.routers.personas import get_extractor
 from app.store import Store, get_store
@@ -35,6 +37,7 @@ socket.socket.connect_ex = deny_connection
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
 persona = json.loads((EXAMPLES / "persona.json").read_text())
 report = json.loads((EXAMPLES / "insight-report.json").read_text())
+guide_review = GuideReview.model_validate_json((EXAMPLES / "guide-review.json").read_text())
 store = Store(FakeRedis())
 
 
@@ -58,6 +61,17 @@ def extract_debrief(_session, _persona, _events):
     return DebriefDraft.model_validate({"questions": report["questions"]})
 
 
+def review_guide(request: GuideReviewRequest) -> GuideReview:
+    # Fixed provider output for the example's questions; anything else comes back without issues.
+    known = {item.question: item for item in guide_review.items}
+    return GuideReview(
+        items=[
+            known.get(q) or GuideReviewItem(question=q, issues=[], rewrite=None)
+            for q in request.questions
+        ]
+    )
+
+
 class FakeSecrets:
     def create(self, **_kwargs):
         return SimpleNamespace(value="e2e-not-a-credential", expires_at=int(time.time()) + 600)
@@ -68,3 +82,4 @@ realtime._client = lambda: SimpleNamespace(realtime=SimpleNamespace(client_secre
 app.dependency_overrides[get_store] = lambda: store
 app.dependency_overrides[get_extractor] = lambda: extract_persona
 app.dependency_overrides[get_debriefer] = lambda: extract_debrief
+app.dependency_overrides[get_reviewer] = lambda: review_guide

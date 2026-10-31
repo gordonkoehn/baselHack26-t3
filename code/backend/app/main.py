@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.routers import events, insights, personas, sessions, sources
+from app.routers import events, guides, insights, personas, sessions, sources
 from app.store import StoreUnavailable
 
 app = FastAPI(title="baselhack26 api")
 app.include_router(personas.router)
 app.include_router(sources.router)
+app.include_router(guides.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
 app.include_router(insights.router)
