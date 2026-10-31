@@ -189,7 +189,7 @@ describe("DebriefView", () => {
     [new ApiError(409, "turn 4 missing"), "The transcript is not complete yet: turn 4 missing"],
     [new ApiError(503, "down"), "The debrief model is unavailable right now. Try again in a moment."],
     [new ApiError(500, "boom"), "Debrief failed (500): boom"],
-    [new TypeError("Failed to fetch"), "Backend not reachable."],
+    [new TypeError("Failed to fetch"), "Couldn't connect. Check your connection and try again."],
   ])("explains %s and recovers on retry", async (failure, message) => {
     const debrief = vi.spyOn(api, "debrief").mockRejectedValueOnce(failure).mockResolvedValueOnce(REPORT);
     show();
