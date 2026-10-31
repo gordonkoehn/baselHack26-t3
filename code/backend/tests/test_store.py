@@ -6,46 +6,13 @@ import pytest
 
 from app.contracts import InsightReport, Persona, Session, SessionEvent
 from app.store import TTL_SECONDS, EventConflict, Store, StoreUnavailable
+from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
 
 
 def load(name: str):
     return json.loads((EXAMPLES / name).read_text())
-
-
-class FakeRedis:
-    """The few Upstash commands the store uses, atomic like Redis (one lock)."""
-
-    def __init__(self):
-        self.data: dict = {}
-        self.ttl: dict = {}
-        self.lock = threading.Lock()
-
-    def set(self, key, value, ex=None):
-        with self.lock:
-            self.data[key] = value
-            self.ttl[key] = ex
-
-    def get(self, key):
-        return self.data.get(key)
-
-    def hsetnx(self, key, field, value):
-        with self.lock:
-            h = self.data.setdefault(key, {})
-            if field in h:
-                return False
-            h[field] = value
-            return True
-
-    def hget(self, key, field):
-        return self.data.get(key, {}).get(field)
-
-    def hgetall(self, key):
-        return dict(self.data.get(key, {}))
-
-    def expire(self, key, seconds):
-        self.ttl[key] = seconds
 
 
 class BrokenRedis:
