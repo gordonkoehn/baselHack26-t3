@@ -118,15 +118,23 @@ def invented_numbers(text: str, corpus: str) -> set[str]:
 
 
 def invented_names(text: str, corpus: str) -> list[str]:
-    known = {word.casefold() for word in WORD.findall(corpus)}
+    """Runs of capitalized words with a word from outside the corpus ("Bäckerei Keller").
+
+    Heuristic, in both directions. A name opening a sentence ("Peter Keller vertraut") looks the
+    same as "Klare Transparenz fehlt", so it passes; two nouns in a row with no article between
+    them ("will Kindern Spielplätze") can fail. Failures are printed for a person to judge.
+    """
+    known = {word.casefold() for word in WORD.findall(corpus.replace("-", " "))}
     found = []
     for match in NAME.finditer(text):
+        words = match.group().split()
         before = text[: match.start()].rstrip()
-        # Any word can start a sentence capitalized ("Klare Transparenz fehlt").
+        # Any word can start a sentence capitalized, so the first one there says nothing.
         if not before or before[-1] in ".!?:":
-            continue
-        if all(word.casefold() not in known for word in match.group().split()):
-            found.append(match.group())
+            words = words[1:]
+        parts = " ".join(words).replace("-", " ").split()
+        if len(words) > 1 and any(part.casefold() not in known for part in parts):
+            found.append(" ".join(words))
     return found
 
 
@@ -155,7 +163,8 @@ def score_persona(draft: PersonaDraft, request: PersonaCreate) -> list[Check]:
         _check(
             "grounded_facts_no_invented_names",
             [f.text for f in grounded],
-            lambda text: invented_names(text, sources),
+            # The prompt invents the persona's own name on purpose.
+            lambda text: invented_names(text, f"{sources}\n{draft.name}"),
         ),
         _check(
             "persona_keeps_language",
@@ -180,11 +189,19 @@ def score_debrief(
     draft: DebriefDraft, session: Session, persona: Persona, events: list[SessionEvent]
 ) -> list[Check]:
     utterances = [e.data["text"] for e in events if e.type == "utterance"]
-    persona_turns = [
-        e.data["text"] for e in events if e.type == "utterance" and e.data["speaker"] == "persona"
-    ]
+    persona_turns = {
+        e.seq: e.data["text"]
+        for e in events
+        if e.type == "utterance" and e.data["speaker"] == "persona"
+    }
     insights = [insight for question in draft.questions for insight in question.insights]
     themes = [insight.theme for insight in insights]
+    # Stricter than build_report, which moves or drops a quote on the wrong turn.
+    misquoted = [
+        insight.quote or "(no quote)"
+        for insight in insights
+        if not insight.quote.strip() or insight.quote not in persona_turns.get(insight.turn_seq, "")
+    ]
     # A finding may name the guide's topics and the persona, but nothing else from outside the call.
     corpus = "\n".join([*utterances, *session.interview_guide, persona.name])
     try:
@@ -195,10 +212,11 @@ def score_debrief(
     return [
         Check("debrief_accepted_by_server", int(not unusable), 1, unusable),
         _at_least_one("debrief_has_insights", len(insights), "insight"),
-        _check(
-            "debrief_quotes_in_persona_turns",
-            [insight.quote for insight in insights],
-            lambda quote: not quote.strip() or not any(quote in turn for turn in persona_turns),
+        Check(
+            "debrief_quotes_in_cited_turns",
+            len(insights) - len(misquoted),
+            len(insights),
+            misquoted,
         ),
         _check(
             "debrief_no_invented_numbers",

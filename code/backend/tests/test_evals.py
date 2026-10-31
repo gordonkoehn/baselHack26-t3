@@ -1,14 +1,16 @@
 """`make eval` spends money and never runs here: these feed its scoring and runner fixed fixtures."""
 
 import json
+import os
 from copy import deepcopy
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 import openai
 import pytest
 
-from app import extract
+from app import debrief, extract
 from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaSource, Session
 from app.contracts import SessionEvent as Event
 from app.extract import DebriefDraft, PersonaDraft
@@ -166,8 +168,8 @@ def test_reply_at_the_length_limit_passes():
 @pytest.mark.parametrize(
     ("draft", "check"),
     [
-        (debrief_draft(quote="nur Werbung, sonst"), "debrief_quotes_in_persona_turns"),
-        (debrief_draft(quote="Was denkst du?"), "debrief_quotes_in_persona_turns"),
+        (debrief_draft(quote="nur Werbung, sonst"), "debrief_quotes_in_cited_turns"),
+        (debrief_draft(quote="Was denkst du?"), "debrief_quotes_in_cited_turns"),
         (debrief_draft(theme="Sie würde 99 Shares geben"), "debrief_no_invented_numbers"),
         (debrief_draft(theme="Sie vertraut der Brot Keller"), "debrief_no_invented_names"),
         (
@@ -187,7 +189,39 @@ def test_debrief_scores_the_raw_draft_not_the_repaired_report():
     draft = debrief_draft(quote="nur Werbung, sonst")
     checks = {c.name: c for c in score_debrief(draft, session(), persona(), events())}
     assert checks["debrief_accepted_by_server"].ok
-    assert not checks["debrief_quotes_in_persona_turns"].ok
+    assert not checks["debrief_quotes_in_cited_turns"].ok
+
+
+@pytest.mark.parametrize(
+    ("replies", "cited", "reported_insights"),
+    [
+        # Said twice, cited on the interviewer's turn: build_report can't tell which, so drops it.
+        ([QUOTE, QUOTE], 1, 0),
+        # Said once, cited on the wrong turn: build_report moves it.
+        ([QUOTE, "Keine Ahnung."], 4, 1),
+    ],
+)
+def test_debrief_quote_on_the_wrong_turn_fails_though_the_server_repairs_it(
+    replies, cited, reported_insights
+):
+    def event(seq, kind, data):
+        return Event(session_id="s_eval", seq=seq, at="2026-10-31T14:00:00Z", type=kind, data=data)
+
+    transcript = [
+        event(1, "utterance", {"speaker": "interviewer", "text": "Und?"}),
+        event(2, "utterance", {"speaker": "persona", "text": replies[0]}),
+        event(3, "utterance", {"speaker": "interviewer", "text": "Und?"}),
+        event(4, "utterance", {"speaker": "persona", "text": replies[1]}),
+        event(5, "session.ended", {}),
+    ]
+    draft = debrief_draft()
+    draft.questions[0].insights[0].turn_seq = cited
+
+    report = debrief.build_report(session(), persona(), transcript, draft)
+    assert len(report.questions[0].insights) == reported_insights
+    assert failed(score_debrief(draft, session(), persona(), transcript)) == {
+        "debrief_quotes_in_cited_turns"
+    }
 
 
 def test_debrief_may_use_numbers_and_names_from_the_call():
@@ -205,6 +239,44 @@ def test_numbers_are_compared_as_whole_values():
 def test_a_capitalized_sentence_start_is_not_a_name():
     assert scoring.invented_names("Klare Transparenz fehlt.", "") == []
     assert scoring.invented_names("Es fehlt. Klare Transparenz fehlt.", "") == []
+
+
+@pytest.mark.parametrize(
+    ("text", "name"),
+    [
+        ("Vertraut Peter Keller nicht", "Peter Keller"),
+        ("Für Sandra Bucher zählt Transparenz", "Sandra Bucher"),
+        ("Es fehlt. Für Sandra Bucher zählt das.", "Sandra Bucher"),
+        # One word from the sources doesn't make the rest of the name real.
+        ("Kauft bei Bäckerei Keller ein", "Bäckerei Keller"),
+        ("Sammelt für Spielplatz Emmen", "Spielplatz Emmen"),
+    ],
+)
+def test_an_invented_name_is_found_next_to_a_capitalized_or_known_word(text, name):
+    assert scoring.invented_names(text, REQUEST.sources[0].text) == [name]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Vertraut Bäckerei Muff nicht",
+        "Sie mag Spielplatz Littau",
+        # The same words, hyphenated in the sources.
+        "Sammelt Kilo Shares",
+    ],
+)
+def test_a_name_from_the_sources_is_not_invented(text):
+    assert scoring.invented_names(text, f"{REQUEST.sources[0].text} Kilo-Shares") == []
+
+
+def test_a_name_opening_the_text_is_a_known_gap():
+    # Same shape as "Klare Transparenz fehlt", which must pass: see invented_names.
+    assert scoring.invented_names("Peter Keller vertraut sie nicht", "") == []
+
+
+def test_a_grounded_fact_may_use_the_personas_own_name():
+    jobs = [Fact(text="Für Nadine Meier ist das Werbung", label="grounded", evidence_id="e1")]
+    assert failed(score_persona(persona_draft(jobs=jobs), REQUEST)) == set()
 
 
 def test_table_flags_a_score_that_got_worse():
@@ -244,6 +316,7 @@ class FakeResponses:
 
     def __init__(self, reply=QUOTE, usage=(100, 50)):
         self.reply = reply
+        self.persona = persona_draft()
         self.usage = SimpleNamespace(input_tokens=usage[0], output_tokens=usage[1])
         self.calls: list[dict] = []
 
@@ -260,7 +333,7 @@ class FakeResponses:
     def parse(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs["text_format"] is PersonaDraft:
-            return self._response(output_parsed=persona_draft())
+            return self._response(output_parsed=self.persona)
         _, _, guide = run.load_case()
         return self._response(output_parsed=case_debrief(guide, self.reply))
 
@@ -313,7 +386,11 @@ def test_run_uses_the_live_prompts_and_bounds_every_call(provider, tmp_path):
     assert provider.retries == [0]
     assert len(provider.calls) == run.MAX_CALLS
     assert provider.calls[0]["instructions"].startswith(extract.INSTRUCTIONS[:40])
-    assert provider.calls[1]["instructions"].startswith("HARD RULES")
+    reply_instructions = provider.calls[1]["instructions"]
+    assert reply_instructions.startswith("HARD RULES")
+    # The live prompt's briefing: the guide and the product note, not the interview transcript.
+    assert run.load_case()[2][1] in reply_instructions
+    assert "Spielplatz Littau (Luzern)" in reply_instructions
     assert provider.calls[-1]["instructions"] == extract.DEBRIEF_INSTRUCTIONS
     assert all(
         call["max_output_tokens"] == (1_000 if "text_format" not in call else 12_000)
@@ -328,6 +405,68 @@ def test_failed_check_exits_1_and_shows_the_failure(provider, tmp_path, capsys):
     assert run.main(tmp_path) == 1
     out = capsys.readouterr().out
     assert "FAIL: " in out and "reply_keeps_language: I would rather" in out
+
+
+def test_persona_checks_score_the_raw_draft_not_the_grounded_one(provider, tmp_path):
+    # ground_draft drops this evidence and downgrades its fact, so scoring after it would pass.
+    provider.persona = persona_draft(
+        pains=[Fact(text="Zweifelt", label="grounded", evidence_id="e2")],
+        evidence=[
+            Evidence(id="e1", kind="transcript", claim="Skepsis", quote=QUOTE),
+            Evidence(id="e2", kind="transcript", claim="Zweifel", quote="Nur Werbung, sonst."),
+        ],
+    )
+    assert run.main(tmp_path) == 1
+    scores = json.loads((next(tmp_path.iterdir()) / "scores.json").read_text())
+    results = {check["name"]: check["result"] for check in scores["checks"]}
+    assert results["evidence_quotes_in_sources"] == "1/2"
+
+
+def test_an_unusable_reply_stops_the_run_with_exit_2(provider, tmp_path, capsys):
+    provider.reply = " "
+    assert run.main(tmp_path) == 2
+    assert len(provider.calls) == 2
+    assert "ExtractionFailed: unusable persona reply" in capsys.readouterr().out
+
+
+def test_a_crash_exits_2_and_still_prints_what_was_spent(provider, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(run, "SAMPLE", tmp_path / "missing.ts")
+    assert run.main(tmp_path) == 2
+    captured = capsys.readouterr()
+    assert "Eval did not finish: FileNotFoundError" in captured.out
+    assert "Cost: 0 call(s)" in captured.out
+    assert "Traceback" in captured.err
+    assert provider.calls == []
+
+
+def test_unreadable_earlier_scores_exit_2_before_any_call(provider, tmp_path, capsys):
+    older = tmp_path / "20200101T000000Z"
+    older.mkdir()
+    (older / "scores.json").write_text("not json")
+    assert run.main(tmp_path) == 2
+    assert "Eval did not finish: JSONDecodeError" in capsys.readouterr().out
+    assert provider.calls == []
+
+
+def test_env_file_from_the_example_loads_without_printing_secrets(tmp_path, capfd, monkeypatch):
+    # OPENAI_API_KEY stays empty, so this stops before any client exists.
+    env = run.CODE.joinpath(".env.example").read_text()
+    for key in ("UPSTASH_REDIS_REST_TOKEN", "SIMLI_API_KEY", "DEMO_PASSCODE"):
+        env = env.replace(f"{key}=", f"{key}=FAKE-SECRET-{key}")
+    (tmp_path / ".env").write_text(env)
+    monkeypatch.setattr(run, "ENV_FILE", tmp_path / ".env")
+    with patch.dict(os.environ, clear=True):
+        assert run.cli() == 2
+        assert os.environ["DEMO_PASSCODE"] == "FAKE-SECRET-DEMO_PASSCODE"
+        assert os.environ["OPENAI_API_KEY"] == ""
+    captured = capfd.readouterr()
+    assert "FAKE-SECRET" not in captured.out + captured.err
+
+
+def test_make_eval_does_not_hand_the_env_file_to_uv():
+    makefile = run.CODE.joinpath("Makefile").read_text()
+    recipe = makefile.split("\neval:", 1)[1].split("\n\n", 1)[0]
+    assert "python -m evals.run" in recipe and "--env-file" not in recipe
 
 
 def test_without_a_key_nothing_is_called_or_written(monkeypatch, tmp_path, capsys):
@@ -381,10 +520,10 @@ def test_worst_case_cost_counts_the_whole_budget_and_every_output_cap():
 
 
 def test_last_scores_are_compared_with_the_previous_run(provider, tmp_path, capsys):
-    older = tmp_path / "20200101T000000Z"
-    older.mkdir()
-    saved = {"checks": [{"name": "reply_length", "result": "9/9", "failures": []}]}
-    (older / "scores.json").write_text(json.dumps(saved))
+    for folder, result in (("20100101T000000Z", "8/9"), ("20200101T000000Z", "9/9")):
+        (tmp_path / folder).mkdir()
+        saved = {"checks": [{"name": "reply_length", "result": result, "failures": []}]}
+        (tmp_path / folder / "scores.json").write_text(json.dumps(saved))
     (tmp_path / "30000101T000000Z").mkdir()  # a run that never finished has no scores
     provider.reply = "wort " * (scoring.MAX_REPLY_WORDS + 1)
     assert run.main(tmp_path) == 1

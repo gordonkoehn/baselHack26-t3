@@ -1,7 +1,9 @@
 """`make eval`: real persona extraction, interview replies and debrief on the Quartier-Börse case.
 
-Opt-in and never part of `make check` or CI, because it spends money. Exit code 0: every check
-passed. 1: a check failed. 2: the eval could not finish (no key, provider error, budget).
+Opt-in and never part of `make check` or CI, because it spends money. `python -m evals.run` exits
+0: every check passed. 1: a check failed. 2: the eval could not finish (no key, provider error,
+budget, crash). `make eval` exits 2 for both failures, as make does for any failed recipe; its
+"Error 1" or "Error 2" line and the printed output keep them apart.
 
 Limit: replies come from OPENAI_MODEL through the Responses API with the live persona prompt, not
 from the Realtime voice model, so this catches prompt regressions, not voice model behaviour.
@@ -11,10 +13,12 @@ import json
 import os
 import re
 import sys
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from app import extract
@@ -27,6 +31,7 @@ from app.routers.personas import ground_draft
 from evals.scoring import Check, format_table, score_debrief, score_persona, score_replies
 
 CODE = Path(__file__).resolve().parents[2]
+ENV_FILE = CODE / "backend" / ".env"
 REPORTS = CODE / "reports" / "evals"
 TESTCASE = CODE.parent / "documentation" / "testcase-quartier-boerse.md"
 SAMPLE = CODE / "frontend" / "src" / "lib" / "sample.ts"
@@ -237,34 +242,36 @@ def main(reports: Path = REPORTS) -> int:
         f"Real provider calls, model {model}: at most {MAX_CALLS} calls and {TOKEN_BUDGET} tokens"
         + (f", about ${worst:.2f} at worst." if worst is not None else "; no price known.")
     )
-    previous = last_scores(reports)
     folder = reports / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    folder.mkdir(parents=True)
 
     # No SDK retries: a retry is a billed call the meter can't see.
     meter = Meter(extract._client().with_options(max_retries=0).responses)
     extract._client = lambda: SimpleNamespace(responses=meter)
     try:
+        folder.mkdir(parents=True)
+        previous = last_scores(reports)
         checks = run_case(folder)
-    except (ProviderUnavailable, ExtractionFailed, BudgetExceeded) as exc:
+        _save(
+            folder,
+            "scores.json",
+            {
+                "model": model,
+                "calls": meter.calls,
+                "inputTokens": meter.input_tokens,
+                "outputTokens": meter.output_tokens,
+                "checks": [
+                    {"name": c.name, "result": c.result, "failures": c.failures} for c in checks
+                ],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - any crash means "did not finish", with the spend shown
+        if not isinstance(exc, ProviderUnavailable | ExtractionFailed | BudgetExceeded):
+            traceback.print_exc()
         print(f"Eval did not finish: {type(exc).__name__}: {exc}")
         print(meter.summary(model))
         print(f"Partial outputs: {folder}")
         return 2
 
-    _save(
-        folder,
-        "scores.json",
-        {
-            "model": model,
-            "calls": meter.calls,
-            "inputTokens": meter.input_tokens,
-            "outputTokens": meter.output_tokens,
-            "checks": [
-                {"name": c.name, "result": c.result, "failures": c.failures} for c in checks
-            ],
-        },
-    )
     print(format_table(checks, previous))
     for check in checks:
         for failure in check.failures:
@@ -276,5 +283,12 @@ def main(reports: Path = REPORTS) -> int:
     return 1 if failed else 0
 
 
+def cli() -> int:
+    # Not `uv run --env-file`: its parser stops at an apostrophe in a comment of .env and prints the
+    # rest of the file, secrets included. Variables already in the environment win.
+    load_dotenv(ENV_FILE)
+    return main()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())

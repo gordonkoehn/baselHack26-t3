@@ -59,6 +59,7 @@ dev = [
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "pytest" },
+    { name = "python-dotenv" },
     { name = "ruff" },
 ]
 
@@ -76,6 +77,7 @@ dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jsonschema" },
     { name = "pytest", specifier = ">=9.2.0" },
+    { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "ruff", specifier = ">=0.17.3" },
 ]
 

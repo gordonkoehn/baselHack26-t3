@@ -33,4 +33,4 @@ e2e:              ## browser regression tests (install Chromium with npx playwri
 	cd frontend && npm run test:e2e
 
 eval:             ## opt-in, spends money: score prompts with real OpenAI calls (never in CI)
-	cd backend && uv run $(if $(wildcard backend/.env),--env-file .env) python -m evals.run
+	cd backend && uv run python -m evals.run
