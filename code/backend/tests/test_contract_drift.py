@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from pydantic import Field, create_model
 
 from app import avatar, realtime
-from app.contracts import InsightReport, Persona, Session, SessionEvent, SessionToken
+from app.contracts import InsightReport, Persona, PersonaUpdate, Session, SessionEvent, SessionToken
 from app.extract import DebriefDraft, PersonaDraft, ProbeAnswer
 from app.main import app
 from app.routers.insights import get_debriefer
@@ -23,6 +23,7 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 # Explicit coverage: adding or renaming a file requires choosing its contract here.
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
+    "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
