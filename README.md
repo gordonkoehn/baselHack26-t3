@@ -1,4 +1,4 @@
-# baselhack26
+# OpenTwin
 
 Structure: `code/` (`frontend/` Next.js, `backend/` FastAPI, `shared/` API contract) · `documentation/` · `assets/`.
 

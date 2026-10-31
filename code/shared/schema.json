@@ -116,7 +116,7 @@
       }
     },
 
-    "Provider": { "enum": ["tavus", "anam", "livekit", "openai-realtime", "simli"], "description": "Which realtime vendor the browser joins." },
+    "Provider": { "enum": ["openai-realtime", "simli"], "description": "Which realtime vendor the browser joins." },
     "Session": {
       "type": "object",
       "required": ["id", "personaId", "status", "provider"],
@@ -125,7 +125,7 @@
         "personaId": { "type": "string" },
         "status": { "enum": ["created", "live", "ended"] },
         "provider": { "$ref": "#/$defs/Provider" },
-        "joinUrl": { "type": ["string", "null"], "description": "Room URL the browser joins (Tavus/Daily, LiveKit)." },
+        "joinUrl": { "type": ["string", "null"], "description": "URL the browser connects to, if any." },
         "interviewGuide": { "type": "array", "items": { "type": "string" } },
         "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
