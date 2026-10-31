@@ -26,6 +26,7 @@ import {
   QUARTIER_BOERSE,
   QUARTIER_BOERSE_GUIDE,
   SAMPLE_TRANSCRIPT,
+  TEAM_TWIN,
   isMiriamKessler,
 } from "@/lib/sample";
 
@@ -80,6 +81,8 @@ const SAMPLES = (): Draft[] => [
   draft("note", "Interview guide Quartier-Börse", QUARTIER_BOERSE),
   draft("transcript", "Interview transcript (synthetic)", SAMPLE_TRANSCRIPT),
 ];
+
+const TEAM_SAMPLES = (): Draft[] => TEAM_TWIN.map((source) => draft(source.kind, source.title, source.text));
 
 // Draw the image on white: the vision model reads text on a transparent PNG as black on black.
 // Also shrink to 2048 px (the model downsizes anyway), so phone photos stay far below 10 MB.
@@ -394,6 +397,14 @@ export default function Home() {
             disabled={busy}
           >
             Reset to example
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
+            onClick={() => setDrafts(TEAM_SAMPLES())}
+            disabled={busy}
+          >
+            Team twin
           </button>
         </div>
 

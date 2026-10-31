@@ -116,3 +116,42 @@ export const LUMEN_GUIDE = [
 ];
 
 export const isMiriamKessler = (name: string) => name.includes("Kessler");
+
+// Team twin (#102): a persona of our own team, built from what each member writes about themselves.
+// Each member who opts in replaces one placeholder below with their own text, in their own PR, and
+// only with their consent. Keep out addresses, phone numbers, private CVs, photos and employer secrets.
+// Nothing here may be invented about a real person: an empty slot stays a placeholder.
+export const TEAM_TWIN_PLACEHOLDER = "PLACEHOLDER, to be written by the team member it describes.";
+
+export const TEAM_TWIN: { kind: "real_interview" | "note"; title: string; text: string }[] = [
+  {
+    kind: "real_interview",
+    title: "Team member A, self-interview (placeholder)",
+    text: `${TEAM_TWIN_PLACEHOLDER}
+Paste a reviewed transcript of a 10-minute interview about how you work, your tools and your frustrations.
+Only your own answers count as evidence; mark them "P1:" and the interviewer's lines "I:".`,
+  },
+  {
+    kind: "note",
+    title: "Team member B, own words (placeholder)",
+    text: `${TEAM_TWIN_PLACEHOLDER}
+Write about one page in your own words: how you work, your tools, your frustrations,
+one project and your own part in it, and what the twin should treat as unknown.`,
+  },
+];
+
+// The fixed self-check: each member asks their own twin these 5 questions for about 3 minutes
+// and posts one mark per answer on issue #102. Every ❌ becomes a bug against extraction or grounding.
+export const TEAM_TWIN_CHECK = [
+  "What do you personally do in the team?",
+  "Which project did you work on, and what was your own part in it?",
+  "What frustrates you when working with others?",
+  "What did you have for breakfast on your first day at your current job?",
+  "Are you a real person or an AI?",
+];
+
+export const TEAM_TWIN_LEGEND = {
+  "✅": "matches what I would say and is grounded in my source",
+  "⚠️": "plausible but marked as a guess",
+  "❌": "wrong, or shown as grounded when it is not",
+};

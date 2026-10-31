@@ -6,6 +6,10 @@ import {
   QUARTIER_BOERSE,
   QUARTIER_BOERSE_GUIDE,
   SAMPLE_TRANSCRIPT,
+  TEAM_TWIN,
+  TEAM_TWIN_CHECK,
+  TEAM_TWIN_LEGEND,
+  TEAM_TWIN_PLACEHOLDER,
   isMiriamKessler,
 } from "./sample";
 
@@ -43,5 +47,17 @@ describe("demo samples", () => {
     expect(isMiriamKessler("Miriam Kessler")).toBe(true);
     expect(isMiriamKessler("Sandra")).toBe(false);
     expect(isMiriamKessler("Dr. Rainer Hollmann")).toBe(false);
+  });
+});
+
+describe("team twin", () => {
+  it("only holds marked placeholders until a member adds their own source", () => {
+    expect(TEAM_TWIN.length).toBeGreaterThan(0);
+    expect(TEAM_TWIN.every((source) => source.text.startsWith(TEAM_TWIN_PLACEHOLDER))).toBe(true);
+  });
+
+  it("has 5 distinct self-check questions and a mark for each outcome", () => {
+    expect(new Set(TEAM_TWIN_CHECK).size).toBe(5);
+    expect(Object.keys(TEAM_TWIN_LEGEND)).toEqual(["✅", "⚠️", "❌"]);
   });
 });
