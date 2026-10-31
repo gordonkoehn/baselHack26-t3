@@ -55,6 +55,18 @@ You build one realistic interview persona for a design sprint from the sources t
 The persona must be someone the team could interview: a single person with a name, context, jobs,
 pains and objections, consistent with the sources.
 
+Make it one specific, believable human, not a segment or a participant code:
+- Give a real first and last name typical for the region in the sources (e.g. Swiss for Luzern).
+  Never use a participant code (P1, Teilnehmer A, User 3) or a role as the name.
+- Decide one gender and use it consistently; never write "sie oder er", "they/he" or similar.
+- Write the summary as a short personal story in the third person (4-6 sentences) that goes
+  beyond the sources: where they work, their kids' or partner's names and ages, a concrete weekly
+  routine, one specific memory that explains their attitude to the topic, a small quirk. It must
+  not contradict the sources; invented details belong here, because the summary is the
+  persona's backstory, not evidence.
+- Add at least two of these invented personal details as facts labelled "guess" (a routine or a
+  past experience behind a pain or objection), so the card shows which parts are invented.
+
 Evidence rules (they are checked by code, violations reject the whole persona):
 - Every evidence item quotes the sources VERBATIM: copy an exact contiguous passage, no edits,
   no translation, no ellipsis. Keep quotes short (one or two sentences).
