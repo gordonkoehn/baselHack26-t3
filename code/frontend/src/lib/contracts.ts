@@ -80,9 +80,11 @@ export type Session = {
   readySeconds?: number | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
+  sample?: boolean;
 };
 
-export type SessionCreate = { personaId: string; interviewGuide?: string[] };
+export type SessionCreate = { personaId: string; interviewGuide?: string[]; sample?: boolean };
 
 export type SessionUpdate = { status: "live" | "ended" };
 

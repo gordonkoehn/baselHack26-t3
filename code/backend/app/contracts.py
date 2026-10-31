@@ -127,11 +127,13 @@ class Session(Model):
     ready_seconds: float | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    sample: bool = False
 
 
 class SessionCreate(Model):
     persona_id: str
     interview_guide: list[str] = []
+    sample: bool = False
 
 
 class SessionUpdate(Model):

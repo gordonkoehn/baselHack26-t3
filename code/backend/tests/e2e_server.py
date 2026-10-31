@@ -13,11 +13,11 @@ from types import SimpleNamespace
 
 from app import realtime
 from app.contracts import GuideReview, GuideReviewItem, GuideReviewRequest
-from app.extract import DebriefDraft, PersonaDraft
+from app.extract import DebriefDraft, PersonaDraft, ProbeAnswer
 from app.main import app
 from app.routers.guides import get_reviewer
 from app.routers.insights import get_debriefer
-from app.routers.personas import get_extractor
+from app.routers.personas import get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
 
@@ -55,6 +55,11 @@ def extract_persona(_request):
     )
 
 
+def answer_probe(_instructions, _question):
+    # Always the same, so both runs agree. F1 is the first fact, whatever its label ended up as.
+    return ProbeAnswer(answer="Ja.", position="yes", fact_ids=["F1"])
+
+
 def extract_debrief(_session, _persona, _events):
     # Fixed provider output, independent of stored events: real quote validation must reject
     # missing/altered transcript content instead of the fake inventing matching evidence.
@@ -81,5 +86,6 @@ class FakeSecrets:
 realtime._client = lambda: SimpleNamespace(realtime=SimpleNamespace(client_secrets=FakeSecrets()))
 app.dependency_overrides[get_store] = lambda: store
 app.dependency_overrides[get_extractor] = lambda: extract_persona
+app.dependency_overrides[get_prober] = lambda: answer_probe
 app.dependency_overrides[get_debriefer] = lambda: extract_debrief
 app.dependency_overrides[get_reviewer] = lambda: review_guide

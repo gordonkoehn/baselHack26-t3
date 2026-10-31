@@ -13,6 +13,8 @@ make dev     # backend :8000 + frontend :3000 → open http://localhost:3000
 make fix     # auto-format + lint fixes
 make check   # what CI runs — do this before pushing
 ```
+`make eval` scores the persona and debrief prompts with real OpenAI calls. It needs `OPENAI_API_KEY`, costs money (it prints the cap and the actual cost), never runs in CI, and saves raw outputs to `code/reports/evals/` (gitignored) for diffing between prompt versions.
+
 No make? From `code/`: `cd backend && uv sync && uv run uvicorn app.main:app --reload` and, in a second terminal, `cd frontend && npm ci && npm run dev`.
 
 API keys: from `code/`: `cp .env.example backend/.env` and fill in. For the deployed app, ask the integrator.

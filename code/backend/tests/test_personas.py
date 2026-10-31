@@ -8,7 +8,7 @@ from app import extract
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
-from app.routers.personas import get_extractor
+from app.routers.personas import get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
 
@@ -25,6 +25,10 @@ REQUEST = {
 }
 
 
+def no_probes(_instructions, _question):
+    raise ProviderUnavailable("readiness probes are covered in test_readiness.py")
+
+
 def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
@@ -37,6 +41,7 @@ def client():
     store = Store(FakeRedis())
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_extractor] = lambda: lambda _req: draft()
+    app.dependency_overrides[get_prober] = lambda: no_probes
     yield TestClient(app)
     app.dependency_overrides.clear()
 
