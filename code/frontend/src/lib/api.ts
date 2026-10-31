@@ -112,4 +112,9 @@ export const api = {
     fetch(`/api/sessions/${encodeURIComponent(id)}/debrief`, { method: "POST", headers: passcode() }).then(json<InsightReport>),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
+  getSession: (id: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Session>),
+  // The saved report only, 404 if there is none. Unlike debrief() it never calls the model, so it needs no passcode.
+  getInsights: (id: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(id)}/insights`, { cache: "no-store" }).then(json<InsightReport>),
 };

@@ -205,6 +205,23 @@ test("clipboard denial is announced, retry succeeds, and unavailable clipboard p
   expect(state.unexpected).toEqual([]);
 });
 
+test("copy link falls back to showing the address when the clipboard is denied", async ({ page }) => {
+  const state = await openDebrief(page);
+  const debrief = page.getByTestId("debrief");
+  const copyLink = debrief.getByRole("button", { name: "Copy link", exact: true });
+  const link = `http://127.0.0.1:3165/report/${report.sessionId}`;
+  await page.evaluate(() => { window.e2eReportExport.failCopy = true; });
+  await copyLink.click();
+  await expect(debrief.getByRole("alert")).toHaveText(`Could not copy the link. Copy it from here: ${link}`);
+  await page.evaluate(() => { window.e2eReportExport.failCopy = false; });
+  await copyLink.click();
+  await expect(debrief.getByRole("status")).toContainText("Link copied");
+  await expect(debrief.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(() => window.e2eReportExport.copied)).toEqual([link]);
+  expect(state.calls()).toBe(1);
+  expect(state.unexpected).toEqual([]);
+});
+
 test("failed report cannot expose export actions", async ({ page }) => {
   const state = await openDebrief(page, { failDebrief: true });
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
