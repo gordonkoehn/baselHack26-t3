@@ -1,0 +1,66 @@
+name: discord-alerts
+# Tells the team on Discord when something needs attention. Successes stay quiet.
+on:
+  status:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  deploy-failed:
+    if: >-
+      github.event_name == 'status' &&
+      startsWith(github.event.context, 'Vercel') &&
+      contains(toJSON(github.event.branches.*.name), '"main"') &&
+      contains(fromJSON('["failure", "error"]'), github.event.state)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          PROJECT: ${{ github.event.context }}
+          DETAIL: ${{ github.event.description }}
+          URL: ${{ github.event.target_url }}
+        run: |
+          [ -z "$WEBHOOK" ] && exit 0
+          jq -n --arg c "@here ❌ Deploy failed: $PROJECT. $DETAIL
+          <$URL>" '{content: $c, allowed_mentions: {parse: ["everyone"]}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+
+  main-ci-failed:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+          URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          [ -z "$WEBHOOK" ] && exit 0
+          clean=$(printf %s "$TITLE" | sed 's/@/at /g')
+          jq -n --arg c "@here ❌ CI failed on main: $clean
+          <$URL>" '{content: $c, allowed_mentions: {parse: ["everyone"]}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+
+  critical-bug:
+    if: >-
+      github.event_name == 'issues' &&
+      contains(github.event.issue.labels.*.name, 'critical')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TITLE: ${{ github.event.issue.title }}
+          NUMBER: ${{ github.event.issue.number }}
+          URL: ${{ github.event.issue.html_url }}
+        run: |
+          [ -z "$WEBHOOK" ] && exit 0
+          clean=$(printf %s "$TITLE" | sed 's/@/at /g')
+          jq -n --arg c "@here 🚨 Critical bug #$NUMBER: $clean
+          <$URL>" '{content: $c, allowed_mentions: {parse: ["everyone"]}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
