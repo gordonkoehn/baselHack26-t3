@@ -123,6 +123,10 @@ class SessionCreate(Model):
     interview_guide: list[str] = []
 
 
+class SessionUpdate(Model):
+    status: Literal["live", "ended"]
+
+
 class SessionToken(Model):
     provider: Provider
     token: str | None = None

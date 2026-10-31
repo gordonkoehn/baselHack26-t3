@@ -140,6 +140,13 @@
         "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." }
       }
     },
+    "SessionUpdate": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["live", "ended"], "description": "created -> live -> ended, or created -> ended. Repeating the current status is a no-op; going back is 409." }
+      }
+    },
     "SessionToken": {
       "type": "object",
       "required": ["provider", "expiresAt"],
@@ -261,7 +268,7 @@
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "413 over 10 MB, 100 pages or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no text layer (no OCR)." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
-    "PATCH /api/sessions/{id}": { "body": "{ status }", "response": "Session", "status": "draft" },
+    "PATCH /api/sessions/{id}": { "body": "SessionUpdate", "response": "Session", "status": "draft" },
     "POST /api/sessions/{id}/token": { "response": "SessionToken", "status": "draft" },
     "POST /api/sessions/{id}/events": { "body": "SessionEvent[]", "response": { "accepted": "integer" }, "status": "draft" },
     "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },
