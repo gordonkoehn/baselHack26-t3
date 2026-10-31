@@ -25,6 +25,7 @@ declare global {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
       lose: () => void;
+      connection: (state: RTCPeerConnectionState) => void;
       voice: () => void;
       stale: (() => void)[];
       sent: SentEvent[];
@@ -41,7 +42,7 @@ export async function installRealtime(page: Page) {
   await page.addInitScript(({ keepMicrophoneLive }) => {
     const state: Window["e2eRealtime"] = {
       emit: () => { throw new Error("No realtime channel yet"); },
-      lose: () => {}, voice: () => {}, stale: [],
+      lose: () => {}, connection: () => {}, voice: () => {}, stale: [],
       sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
     };
     window.e2eRealtime = state;
@@ -59,6 +60,8 @@ export async function installRealtime(page: Page) {
     }
     class Peer extends EventTarget {
       channel = new Channel();
+      link: RTCPeerConnectionState = "connected";
+      get connectionState() { return this.link; }
       ontrack: ((event: { streams: MediaStream[]; track: MediaStreamTrack }) => void) | null = null;
       addTrack() {}
       createDataChannel() {
@@ -70,6 +73,10 @@ export async function installRealtime(page: Page) {
         state.lose = () => {
           this.channel.readyState = "closed";
           this.channel.dispatchEvent(new Event("close"));
+        };
+        state.connection = (value) => {
+          this.link = value;
+          this.dispatchEvent(new Event("connectionstatechange"));
         };
         state.emit = (event) => this.channel.onmessage?.(new MessageEvent("message", { data: JSON.stringify(event) }));
         return this.channel;

@@ -187,16 +187,23 @@ def test_questions_that_cannot_be_matched_by_position_still_fail(inputs, change)
 @pytest.mark.parametrize(
     "disguise",
     [
-        lambda q, i: f"{i + 1}. {q}",
-        lambda q, i: f"{q} (Frage)",
-        lambda q, i: q.upper().replace(":", " -").rstrip("?"),
+        lambda q: q.upper(),
+        lambda q: f"  {q} ".replace(" ", "  "),
+        lambda q: q.rstrip("?!.") + " -",
+        lambda q: q.upper().replace(":", " -").replace(" ", "").rstrip("?"),
     ],
 )
-def test_a_swap_is_caught_through_small_rewording(inputs, disguise):
+def test_a_swap_is_caught_through_case_spacing_and_punctuation(inputs, disguise):
     session, persona, events, draft = inputs
-    draft.questions[0], draft.questions[1] = draft.questions[1], draft.questions[0]
-    for i, question in enumerate(draft.questions):
-        question.question = disguise(session.interview_guide[[1, 0, 2][i]], i)
+    draft.questions[0].question = disguise(session.interview_guide[1])
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "?", " ... ", "¿?", "_"])
+def test_a_blank_or_punctuation_only_question_fails(inputs, blank):
+    session, persona, events, draft = inputs
+    draft.questions[1].question = blank
     with pytest.raises(ExtractionFailed, match="questions"):
         debrief.build_report(session, persona, events, draft)
 
@@ -208,20 +215,18 @@ GUIDE = [
 ]
 
 
-@pytest.mark.parametrize(
-    "asked",
-    [
-        ["Erhöht das Matching den Projektanteil?", "Ist Teilen ein Mehrwert oder ein Verlust?"],
-        ["Partner-Matching: mehr fürs Projekt?", "Teilen: Mehrwert oder Verlust?"],
-    ],
-)
-def test_a_swap_is_caught_through_ordinary_shortening(inputs, asked):
+def test_known_limit_a_question_both_reordered_and_reworded_is_not_detected(inputs):
     session, persona, events, draft = inputs
     session.interview_guide = GUIDE
-    draft.questions[0].question, draft.questions[1].question = asked
+    draft.questions[0].question = "Erhöht das Matching den Projektanteil?"
+    draft.questions[1].question = "Ist Teilen ein Mehrwert oder ein Verlust?"
     draft.questions[2].question = GUIDE[2]
-    with pytest.raises(ExtractionFailed, match="questions"):
-        debrief.build_report(session, persona, events, draft)
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == GUIDE
+
+
+def test_the_prompt_tells_the_model_to_keep_the_guides_order():
+    assert "the same order" in " ".join(extract.DEBRIEF_INSTRUCTIONS.split())
 
 
 @pytest.mark.parametrize(
@@ -267,20 +272,6 @@ def test_shortening_or_translating_in_place_passes(inputs, guide, asked):
     assert [q.question for q in report.questions] == guide
 
 
-def test_a_rewording_closer_to_a_similar_guide_question_fails_rather_than_risk_a_swap(inputs):
-    session, persona, events, draft = inputs
-    session.interview_guide = [
-        "How much do you pay for the app each month?",
-        "How much do you use the app each month?",
-        "Would you recommend it?",
-    ]
-    draft.questions[0].question = "How much do you spend on the app each month?"
-    draft.questions[1].question = session.interview_guide[1]
-    draft.questions[2].question = session.interview_guide[2]
-    with pytest.raises(ExtractionFailed, match="questions"):
-        debrief.build_report(session, persona, events, draft)
-
-
 def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
     session, persona, events, draft = inputs
     session.interview_guide = [
@@ -290,8 +281,33 @@ def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
     ]
     draft.questions[0].question = "1. Would you really pay for the basic plan at all?"
     draft.questions[1].question = "Would you pay for the premium plan (monthly)?"
-    # A translation has no text to compare, so it can only be matched by position.
     draft.questions[2].question = "Würden Sie den Basisplan weiterempfehlen?"
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+def test_an_honest_rewording_of_the_lumen_guide_passes(inputs):
+    session, persona, events, draft = inputs
+    guide = Path(__file__).parents[3] / "documentation/usecases/lumen-ipp/interview"
+    session.interview_guide = (guide / "guide-short-miriam-kessler.txt").read_text().splitlines()
+    draft.questions.append(draft.questions[2].model_copy())
+    asked = [
+        "How are you today?",
+        "How do you find the prototype email?",
+        "What would you improve?",
+        "What exactly would you change on the prototype?",
+    ]
+    for question, text in zip(draft.questions, asked, strict=True):
+        question.question = text
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+def test_a_repeated_guide_question_copied_at_either_position_passes(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = ["Why?", "Why?", "How much?"]
+    for question, text in zip(draft.questions, ["why", "WHY?", "How much?"], strict=True):
+        question.question = text
     report = debrief.build_report(session, persona, events, draft)
     assert [q.question for q in report.questions] == session.interview_guide
 
@@ -302,7 +318,6 @@ def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
         lambda q: q + " altered",
         lambda q: q.rstrip("?") + ".",
         lambda q: "Completely different words",
-        lambda q: "",
     ],
 )
 def test_reworded_question_matches_by_position_and_keeps_the_guides_text(inputs, reworded):
@@ -338,6 +353,11 @@ def test_reworded_question_does_not_loosen_quote_verification(inputs):
         ("I'd pay 1'000 Franken.", "I'd pay 1", False),
         ("I'd pay 1.50 at most.", "I'd pay 1", False),
         ("I'd pay 1,000 francs.", "000 francs", False),
+        ("I'd pay 1 000 francs.", "I'd pay 1", False),
+        ("I'd pay 1\u00a0000 francs.", "I'd pay 1", False),
+        ("I'd pay 1\u202f000 francs.", "I'd pay 1", False),
+        ("I'd pay 1 000 francs.", "I'd pay 1 000", True),
+        ("I'd pay 10 francs.", "I'd pay 10", True),
         ("This is non-binding for me.", "binding for me", False),
         ("I'd pay 1,000 francs.", "I'd pay 1,000", True),
         ("This is non-binding for me.", "non-binding", True),

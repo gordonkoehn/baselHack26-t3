@@ -264,9 +264,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     if (g !== gen.current || callClosed.current) return;
     callLost.current = true;
     setConnectionLost(true);
-    // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    // Mid-call, turns cut off by the drop leave no provider event, so nothing open proves nothing was lost.
-    if (!liveEstablished.current || !finalizing.current || work.current.missingTurns) lost.current = true;
+    // Turns cut off by a drop leave no provider event, so nothing open proves nothing was lost.
+    lost.current = true;
     hangUp();
     if (finalizing.current) {
       if (!draining.current) void closeDrained();
@@ -678,8 +677,16 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     setTyped("");
   }
 
+  // Words said into a bad connection leave no event, and "disconnected" only counts as lost after
+  // its grace, so End can come first. A browser that doesn't report a state can't show anything.
+  function markBadConnection() {
+    const state = pc.current?.connectionState;
+    if (state && state !== "connected") lost.current = true;
+  }
+
   async function end() {
     if (finalizing.current) return;
+    markBadConnection();
     finalizing.current = true;
     endStarted.current = Date.now();
     providerActivity.current = endStarted.current;
@@ -734,6 +741,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
 
   async function closeDrained() {
     if (finishing.current || draining.current) return;
+    markBadConnection();
     if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());

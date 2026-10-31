@@ -77,6 +77,12 @@ describe("DebriefView", () => {
     expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript has gaps");
   });
 
+  it("opens a gapped report with the warning, before the summary", async () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} />);
+    const position = screen.getByTestId("transcript-gaps").compareDocumentPosition(screen.getByTestId("debrief-summary"));
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("shows no gaps banner when none are known", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, transcriptGaps: false });
     show();

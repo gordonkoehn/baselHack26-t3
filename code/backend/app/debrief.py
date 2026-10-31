@@ -2,7 +2,6 @@
 
 import re
 from datetime import UTC, datetime
-from difflib import SequenceMatcher
 
 from pydantic import ValidationError
 
@@ -11,9 +10,6 @@ from app.extract import DebriefDraft, ExtractionFailed
 
 # What the browser saves when an answer is cut off (InterviewRoom.tsx). The persona didn't say it.
 INTERRUPTED = "(interrupted)"
-# Below this, text similarity says nothing: unrelated questions in one language share letters, up
-# to about 0.48 in our samples. Shortened questions that were swapped score from about 0.55.
-SAME_QUESTION = 0.5
 # Characters that join what comes before and after them into one word or number: "non-binding",
 # "1,000", "1'000", "1.50", "wouldn't", including the accents speech and typing use as apostrophes.
 JOINS = r"['’ʼ´`.,\-‐‑]"
@@ -82,8 +78,10 @@ def _said(quote: str, text: str) -> bool:
     """Whether text holds the quote as whole words: "I would" of "I wouldn't" reverses it.
 
     This checks words, not meaning: "I would" of "I would not pay" is still something they said.
+    Limits: a quote can still start inside a space-grouped number ("000 francs" of "1 000 francs"),
+    or stop at a joiner not in JOINS, such as a slash, a long dash or a prime.
     """
-    pattern = rf"(?<!\w)(?<!\w{JOINS}){re.escape(quote.strip())}(?!\w|{JOINS}\w)"
+    pattern = rf"(?<!\w)(?<!\w{JOINS}){re.escape(quote.strip())}(?!\w|{JOINS}\w|(?<=\d)\s\d)"
     return re.search(pattern, text) is not None
 
 
@@ -103,33 +101,23 @@ def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
 
 
 def _comparable(question: str) -> str:
-    return " ".join(re.sub(r"[^\w\s]", "", question).casefold().split())
-
-
-def _closer_to_another(asked: str, own: str, guide: list[str]) -> bool:
-    def closeness(question: str) -> float:
-        return SequenceMatcher(
-            None, _comparable(asked), _comparable(question), autojunk=False
-        ).ratio()
-
-    return any(closeness(q) > max(closeness(own), SAME_QUESTION) for q in guide)
+    return re.sub(r"[\W_]", "", question).casefold()
 
 
 def _check_positions(asked: list[str], guide: list[str]) -> None:
     """Answers belong to the guide question at their position, whatever the model called it.
 
-    That is only safe with one answer per question in guide order, so a missing or extra answer
-    fails, and so does text closer to another guide question, whose quotes would land under the
-    wrong one. Only the wording can show this, so the check has limits both ways:
-    - It still passes a reorder whose wording stays below SAME_QUESTION for the other question, as
-      a translation or full paraphrase can, and an unrelated question at the right position. Both
-      are then shown under the guide's text.
-    - It fails an honest rewording that lands closer to a similar guide question, such as one with
-      the same opening words. That is visible and can be retried, and a wrong answer under a
-      question is not visible at all, so a close call fails.
+    That needs one answer per question in guide order, so a missing or extra answer fails. So does
+    a blank or punctuation-only question, and one that is a different guide question apart from
+    case, spacing and punctuation, since its answers would land under the wrong one.
+
+    Limit: a question both reordered and reworded can't be detected, so its answers show under the
+    wrong guide question. Only the prompt's instruction to keep the guide's order prevents that.
     """
+    own = [_comparable(g) for g in guide]
     if len(asked) != len(guide) or any(
-        _closer_to_another(a, g, guide) for a, g in zip(asked, guide, strict=True)
+        key != position and (not key or key in own)
+        for key, position in zip(map(_comparable, asked), own, strict=True)
     ):
         raise ExtractionFailed("debrief questions do not match guide")
 

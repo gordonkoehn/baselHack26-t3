@@ -190,14 +190,69 @@ for (const playing of [true, false]) {
   });
 }
 
-test("a connection drop after End, with only the saved answer still playing, loses nothing", async ({ page, request }) => {
+test("a connection drop after End, with only the saved answer still playing, is marked as gaps", async ({ page, request }) => {
   const session = await start(page);
   await answerStillPlaying(page);
   await end(page);
   await page.evaluate(() => window.e2eRealtime.lose());
   await settle(page);
+  await expectGaps(page, request, session);
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+});
+
+// The browser reports "disconnected" 5 seconds before the call counts as lost, and End often comes
+// first: the persona went quiet. Words said into a frozen call leave no event to show they are missing.
+test("End while the connection is disconnected is marked as gaps, with nothing open", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await end(page);
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("End while the connection is disconnected stays marked as gaps if it recovers before closing", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await end(page);
+  await page.evaluate(() => window.e2eRealtime.connection("connected"));
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("End while the connection is disconnected is marked as gaps when the grace runs out during the drain", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await end(page);
+  await page.clock.runFor(5_000);
+  await settle(page);
+  await expectGaps(page, request, session);
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
+});
+
+test("a connection going bad during the drain is marked as gaps, even if closing beats the grace", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await end(page);
+  await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("a disconnect that recovers before End stays complete", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await page.evaluate(() => window.e2eRealtime.connection("connected"));
+  await end(page);
+  await settle(page);
   await expectCompleteWithDebrief(page, request, session);
-  await expect(page.getByTestId("connection-lost")).not.toContainText("gaps");
 });
 
 for (const status of ["completed", "cancelled"] as const) {

@@ -71,9 +71,10 @@ change endedAt. The backend enforces this ordering atomically, without client mu
 Startup timeout cases also exercise hung POST/PATCH Save again recovery with the same
 payload/seq, visible captured turns and the debrief gate for calls that never went live. A
 call that did go live always gets an end marker: lost turns set `transcriptGaps` on it and the
-debrief says so (#156). A drop mid-call always counts, since turns it cut off leave no event.
-After End, audio still playing is not a lost turn. Audio heard with no saved words is, and so
-are saved words answering speech that transcribed to nothing.
+debrief says so (#156). A drop always counts, since turns it cut off leave no event, and so does
+a connection that is not healthy when End is pressed or when the drain closes. On a healthy
+connection, audio still playing after End is not a lost turn. Audio heard with no saved words
+is, and so are saved words answering speech that transcribed to nothing.
 It also covers server playback drain, empty/failed transcription, cancelled/
 failed/incomplete answers, bounded ten-second recovery and explicit continuation, incomplete
 close, generation isolation, response rejection, connection loss during drain/recovery, and

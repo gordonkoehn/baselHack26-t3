@@ -190,7 +190,7 @@ export function DebriefView({
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
           {report.transcriptGaps && (
-            <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="transcript-gaps">
+            <p className="mt-2 rounded-md border-2 border-foreground bg-surface p-3 text-sm font-bold text-foreground" data-testid="transcript-gaps">
               {TRANSCRIPT_GAPS}
             </p>
           )}
