@@ -21,7 +21,14 @@ import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/Identi
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
 import { PersonaScore } from "@/components/PersonaScore";
-import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import {
+  LUMEN_GUIDE,
+  LUMEN_PERSONAS,
+  QUARTIER_BOERSE,
+  QUARTIER_BOERSE_GUIDE,
+  SAMPLE_TRANSCRIPT,
+  isMiriamKessler,
+} from "@/lib/sample";
 import { useCoverage } from "@/lib/useCoverage";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
@@ -30,6 +37,19 @@ const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
 const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
 const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
+
+// Once a Lumen persona has been built, the library shows the Lumen case: built ones open, the rest
+// are listed as examples.
+function library(recent: PersonaSummary[]) {
+  const built = LUMEN_PERSONAS.map((l) => recent.find((p) => p.name.includes(l.surname))).filter(
+    (p): p is PersonaSummary => p !== undefined,
+  );
+  if (built.length === 0) return { personas: recent, examples: [] };
+  return {
+    personas: built,
+    examples: LUMEN_PERSONAS.filter((l) => !built.some((p) => p.name.includes(l.surname))),
+  };
+}
 
 type Draft = PersonaSource & { id: number };
 // seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
@@ -45,6 +65,10 @@ function guideFor(sources: { text: string }[]): string {
     sources.length === 2 && sources[0]?.text === QUARTIER_BOERSE && sources[1]?.text === SAMPLE_TRANSCRIPT;
   return example ? EXAMPLE_GUIDE : "";
 }
+
+// The Lumen demo twin starts with the short Lumen guide, built or picked from the library.
+const guideForPersona = (persona: Persona, fallback: string) =>
+  isMiriamKessler(persona.name) ? LUMEN_GUIDE.join("\n") : fallback;
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -78,7 +102,7 @@ async function onWhite(file: File): Promise<Blob> {
 
 export default function Home() {
   const [drafts, setDrafts] = useState<Draft[]>(SAMPLES);
-  const [language, setLanguage] = useState<Language>("de");
+  const [language, setLanguage] = useState<Language>("en");
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +189,7 @@ export default function Home() {
         persona,
         sources,
         seconds: (Date.now() - startedAt.current) / 1000,
-        guide: guideFor(sources),
+        guide: guideForPersona(persona, guideFor(sources)),
       });
       setTab("score");
     } catch (e) {
@@ -189,7 +213,8 @@ export default function Home() {
     setOpening(true);
     setError(null);
     try {
-      setResult({ persona: await api.getPersona(id), sources: [], seconds: null, guide: "" });
+      const persona = await api.getPersona(id);
+      setResult({ persona, sources: [], seconds: null, guide: guideForPersona(persona, "") });
       setTab("score");
     } catch (e) {
       setError(errorMessage(e));
@@ -253,7 +278,7 @@ export default function Home() {
             Recent personas
           </h2>
           <ul className="mt-2 divide-y divide-line">
-            {recent.map((p) => (
+            {library(recent).personas.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
@@ -268,6 +293,13 @@ export default function Home() {
                     {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </span>
                 </button>
+              </li>
+            ))}
+            {library(recent).examples.map((l) => (
+              <li key={l.surname} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm text-muted">
+                <span className="font-medium text-foreground">{l.name}</span>
+                <span className="min-w-0 truncate">{l.role}</span>
+                <span className="ml-auto text-xs">example</span>
               </li>
             ))}
           </ul>
