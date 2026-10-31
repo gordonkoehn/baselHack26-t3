@@ -40,6 +40,7 @@ def create_session(body: SessionCreate, store: StoreDep) -> Session:
         join_url=None,
         interview_guide=body.interview_guide,
         sample=body.sample,
+        product=body.product,
     )
     store.save_session(session)
     return session
@@ -76,7 +77,11 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     request = store.get_persona_sources(persona.id)
     try:
         token = realtime.mint_client_secret(
-            persona, session.interview_guide, request.sources if request else [], session.id
+            persona,
+            session.interview_guide,
+            request.sources if request else [],
+            session.id,
+            session.product,
         )
     except ProviderUnavailable:
         raise HTTPException(503, "voice provider unavailable") from None

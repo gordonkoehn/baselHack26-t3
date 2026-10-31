@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import openai
 
-from app.contracts import Fact, Persona, PersonaSource, SessionToken
+from app.contracts import Fact, Persona, PersonaSource, Product, SessionToken
 from app.extract import ProviderUnavailable, _client
 from app.faces import VOICES
 from app.provider_log import provider_call
@@ -35,8 +35,18 @@ def _facts(title: str, facts: list[Fact]) -> str:
     return f"{title}:\n" + ("\n".join(lines) or "- none")
 
 
-def _briefing(guide: list[str], sources: list[PersonaSource]) -> list[str]:
-    product = "\n\n".join(s.text.strip() for s in sources if s.kind in PRODUCT_KINDS)
+def _product_text(product: Product | None) -> str:
+    if product is None:
+        return ""
+    return f"{product.name.strip()}: {product.description.strip()}"
+
+
+def _briefing(
+    guide: list[str], sources: list[PersonaSource], product: Product | None = None
+) -> list[str]:
+    material = "\n\n".join(s.text.strip() for s in sources if s.kind in PRODUCT_KINDS)
+    # The team's own description comes first, so it survives the cut when material is long.
+    product = "\n\n".join(x for x in (_product_text(product), material) if x)
     parts = []
     if product:
         parts.append(
@@ -57,7 +67,10 @@ def _briefing(guide: list[str], sources: list[PersonaSource]) -> list[str]:
 
 
 def persona_instructions(
-    p: Persona, guide: list[str] | None = None, sources: list[PersonaSource] | None = None
+    p: Persona,
+    guide: list[str] | None = None,
+    sources: list[PersonaSource] | None = None,
+    product: Product | None = None,
 ) -> str:
     """Build deterministic, in-character interview instructions from a persona."""
     who = ", ".join(str(x) for x in [p.name, p.age, p.location, p.context.job] if x)
@@ -117,7 +130,7 @@ def persona_instructions(
             _facts("What you want to get done", p.jobs),
             _facts("What bothers you", p.pains),
             _facts("Why you might say no", p.objections),
-            *_briefing(guide or [], sources or []),
+            *_briefing(guide or [], sources or [], product),
             (
                 "Behaviour: you are a customer, a bit reserved, not an assistant. Answer what was "
                 "asked, naturally in 1-3 short sentences, sometimes only half a sentence. Don't "
@@ -156,6 +169,7 @@ def mint_client_secret(
     guide: list[str] | None = None,
     sources: list[PersonaSource] | None = None,
     session_id: str | None = None,
+    product: Product | None = None,
 ) -> SessionToken:
     try:
         with provider_call("openai", "realtime_token", session_id):
@@ -164,7 +178,7 @@ def mint_client_secret(
                 session={
                     "type": "realtime",
                     "model": os.environ.get("OPENAI_REALTIME_MODEL") or DEFAULT_MODEL,
-                    "instructions": persona_instructions(persona, guide, sources),
+                    "instructions": persona_instructions(persona, guide, sources, product),
                     "audio": {
                         # Transcribe the interviewer too, so the browser can log both sides.
                         "input": {

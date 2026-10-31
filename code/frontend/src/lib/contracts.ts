@@ -108,6 +108,15 @@ export type PersonaCreate = {
 
 export type Provider = "openai-realtime" | "simli";
 
+/** What the sprint tests. The persona hears name and description as background; the link is for the team. */
+export type Product = {
+  name: string;
+  /** What it is, who it is for and what the prototype shows, in plain words. */
+  description: string;
+  /** The persona never opens it; it only sees the shared screen. */
+  prototypeUrl?: string | null;
+};
+
 export type Session = {
   id: string;
   personaId: string;
@@ -120,9 +129,16 @@ export type Session = {
   endedAt?: string | null;
   /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
   sample?: boolean;
+  /** The product under test, if the team described one. */
+  product?: Product | null;
 };
 
-export type SessionCreate = { personaId: string; interviewGuide?: string[]; sample?: boolean };
+export type SessionCreate = {
+  personaId: string;
+  interviewGuide?: string[];
+  sample?: boolean;
+  product?: Product | null;
+};
 
 export type SessionUpdate = { status: "live" | "ended" };
 

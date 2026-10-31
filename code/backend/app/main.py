@@ -9,7 +9,7 @@ from app.store import StoreUnavailable
 
 REQUEST_ID_HEADER = "X-Request-Id"
 
-app = FastAPI(title="OpenTwin API")
+app = FastAPI(title="baselhack26 api")
 app.include_router(personas.router)
 app.include_router(personas.faces_router)
 app.include_router(sources.router)

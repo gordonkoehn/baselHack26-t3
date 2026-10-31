@@ -152,6 +152,14 @@ class PersonaCreate(Model):
 Provider = Literal["openai-realtime", "simli"]
 
 
+class Product(Model):
+    """What the sprint tests: background for the persona, context for the debrief."""
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=4000)
+    prototype_url: str | None = Field(default=None, max_length=500)
+
+
 class Session(Model):
     id: str
     persona_id: str
@@ -163,12 +171,14 @@ class Session(Model):
     started_at: str | None = None
     ended_at: str | None = None
     sample: bool = False
+    product: Product | None = None
 
 
 class SessionCreate(Model):
     persona_id: str
     interview_guide: list[str] = []
     sample: bool = False
+    product: Product | None = None
 
 
 class SessionUpdate(Model):

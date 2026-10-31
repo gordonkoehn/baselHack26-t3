@@ -136,7 +136,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
   });
   await installRealtime(page);
   await installExports(page);
-  await page.goto("/");
+  await page.goto("/studio");
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
   await page.getByRole("button", { name: "Create persona", exact: true }).click();

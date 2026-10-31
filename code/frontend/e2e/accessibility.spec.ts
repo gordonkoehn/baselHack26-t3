@@ -97,7 +97,7 @@ async function respondToDebrief(fail = false) {
 }
 
 async function openDebrief(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByRole("button", { name: "Start video interview", exact: true }).click();
@@ -114,7 +114,7 @@ async function openDebrief(page: Page) {
 }
 
 test("file upload is reachable by Tab, visibly focused and opens with Enter and Space", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/studio");
   const input = page.getByLabel("Add files…", { exact: true });
   await expect(input).toHaveAttribute("multiple", "");
   await expect(input).toHaveAttribute("accept", ".txt,.md,.csv,.json,.tsv,.pdf,.png,.jpg,.jpeg,.webp,.gif");
