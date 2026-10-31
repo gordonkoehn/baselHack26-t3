@@ -55,8 +55,9 @@ remain unchanged and provider availability is not tested.
    immutable preview URLs, update the mapping before the success event, or use a
    project-owned stable preview alias if it is the actual event URL. Unknown
    environments/URLs fail without sending secrets.
-5. Configure access protection below if needed. Merge the workflow onto the default
-   branch so it can trigger. Exercise preview and production and intentionally
+5. Resolve the trusted-workflow and secret-policy gate below BEFORE configuring
+   smoke secrets. Configure access protection only after that owner review.
+   Exercise preview and production and intentionally
    remove a required store env var on a disposable preview to verify a red check.
    This live validation is OPEN. The job reports smoke results; it does not undo
    deployments or automatically establish a pre-merge branch protection requirement.
@@ -81,11 +82,20 @@ requests. Direct script equivalents: `SMOKE_AUTH_HEADER_NAME` and
 `SMOKE_AUTH_HEADER_VALUE`. Set both or neither. Values go to curl via stdin,
 never command arguments or logs. Header control characters are rejected.
 
-PR108 is present on the integration base. Set the header name to `X-Demo-Passcode`
-and its secret value to the deployment's `DEMO_PASSCODE` when that protection is
-enabled. Smoke does not invent a passcode bypass or speculative login endpoint.
-The local mock suite verifies header transport; compatibility against an actual
-protected deployment remains open.
+None of these four smoke routes uses `require_passcode`: `/api/health` returns a
+static status, `/` serves the frontend, and session create/read use the store
+without checking `X-Demo-Passcode`. Supplying that header therefore does not
+validate `DEMO_PASSCODE`. On Vercel, a missing passcode makes protected routes
+return 503 while this smoke can still pass. A wrong passcode similarly remains
+undetected here. Session creation supplies its own synthetic guide and calls no
+provider. The create/read roundtrip covers the persona lookup and session store
+through the frontend `/api/*` rewrite (`BACKEND_URL`), not paid-route readiness.
+
+Demo-passcode configuration and rejection/acceptance on protected routes, realtime
+and avatar token minting, and actual provider availability require separate owner
+validation. Do not invoke a paid route merely to make this smoke green. The local
+mock suite verifies optional header transport only; protected deployment and
+provider compatibility remain OPEN. No passcode bypass or login endpoint is added.
 If Vercel Deployment Protection applies, optional secret
 `DEPLOYED_SMOKE_VERCEL_BYPASS_TOKEN` (script: `SMOKE_VERCEL_BYPASS_TOKEN`) supplies
 `x-vercel-protection-bypass`. Never put credentials in target URLs.
@@ -93,8 +103,26 @@ If Vercel Deployment Protection applies, optional secret
 ## Workflow security and bounds
 
 Only successful deployment statuses run the job, with `contents: read` and a
-five-minute deadline. Checkout uses the default branch, disables persisted
-credentials, and never executes a deployment SHA or fork/PR checkout. Validation
+five-minute deadline. Checkout fetches the default-branch script and disables
+persisted credentials. This does not choose or secure the workflow definition.
+GitHub's `deployment_status` event table specifies `GITHUB_SHA` as the deployment
+commit and `GITHUB_REF` as the deployment ref, not the default branch. A deployment
+branch can therefore carry a changed job definition; an inline validator in that
+definition cannot establish its own trust. Default-branch checkout alone does not
+protect repository secrets from such a workflow.
+
+**OPEN owner gate before enabling secrets:** establish which deployment refs may
+run workflows and whether those refs can modify jobs with access to repository
+secrets. Review the actual workflow provenance and repository secret/Actions
+policy. Either restrict all secret-capable deployment refs to trusted, reviewed
+code, or separately design and review a trusted workflow execution boundary with
+enforced secret access (for example, a protected environment with suitable ref
+restrictions and approval). The current job declares no protected environment;
+none of those external controls has been configured or verified by this change.
+Do not add smoke secrets until the owner demonstrates that an untrusted deployment
+ref cannot access them. Choosing a new event topology is a separate checkpoint.
+
+Within the current workflow definition, validation
 checks the repository, both creator IDs, deployment environment and exact approved
 origin before exposing optional secrets to the request step. Approve only preview
 targets whose deployed code may receive these credentials: trusted checkout alone
@@ -110,9 +138,10 @@ most thirty requests and twenty-nine one-second sleeps. Cleanup is bounded and
 preserves failure status. Python 3, bash and curl are required; no dependency
 installation or untrusted shell download runs in the workflow.
 
-Official GitHub references checked during implementation:
+Official GitHub references (event-table semantics supplied in the checkpoint
+brief; no network verification in this checkpoint):
 
-- [Deployment status event and default-branch workflow behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#deployment_status)
+- [Deployment status event, deployment commit and deployment ref](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#deployment_status)
 - [Secrets availability, including fork and missing-secret behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
 - [Treat event text as untrusted data](https://docs.github.com/en/actions/concepts/security/script-injections)
 
@@ -129,3 +158,22 @@ uv run pytest -q tests/test_deployed_smoke.py tests/test_sessions.py tests/test_
 Tests fake curl/process/socket operations and exercise the workflow validator with
 synthetic events. No ports or real services are used. Full `make check` runs in the
 next external workflow node rather than this sandbox.
+
+## Next small checkpoints (not implemented here)
+
+1. Capture a sanitized real frontend preview event with its immutable URL and
+   project identity. Review the smallest explicit project/URL trust rule and add
+   accepted/rejected event tests before changing exact-origin handling. Unknown
+   or dynamic URLs currently fail closed; no wildcard or dispatch URL is accepted.
+2. Capture a sanitized backend-project event and agree how to identify and skip
+   that project before exposing secrets or making requests. Add a backend-event
+   regression separately; do not map the API origin to the frontend smoke, which
+   requires `/` to return 200. Backend events currently fail rather than skip.
+3. Resolve the trusted-workflow/secret-policy gate with the owner before enabling
+   credentials. Then prove actual event delivery, a fresh frontend preview and
+   production smoke, and a deliberately missing store variable on a disposable
+   preview producing a red check. Passcode/provider acceptance remains separate.
+
+This checkpoint is part of #73, not closure. PR118 must retain an open operational
+acceptance list; the publishing owner should use `Refs #73` until live acceptance
+is proved. No account, deployment, secret, provider or store settings were changed.

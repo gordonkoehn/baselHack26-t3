@@ -1,6 +1,7 @@
 """Exercise smoke orchestration without sockets, deployments, providers or subprocess servers."""
 
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -316,6 +317,28 @@ def test_workflow_accepts_exact_approved_identity_and_origin(deployment):
     )
 
 
+def test_workflow_checkout_uses_default_branch_without_persisting_credentials():
+    """Protect checkout configuration outside the embedded validator's coverage."""
+    source = WORKFLOW.read_text()
+    checkouts = list(re.finditer(r"(?m)^( +)-\s+uses:\s+actions/checkout@[^\s]+\s*$", source))
+    assert len(checkouts) == 1
+    checkout = checkouts[0]
+    # Read this step only: a later step's settings cannot satisfy the assertions.
+    next_step = re.search(r"(?m)^" + checkout[1] + r"-\s", source[checkout.end() :])
+    assert next_step is not None
+    block = source[checkout.end() : checkout.end() + next_step.start()]
+    settings = dict(re.findall(r"(?m)^[ \t]+([\w-]+):[ \t]*([^\n#]+)", block))
+    assert settings.get("ref", "").strip().strip("\"'") == (
+        "${{ github.event.repository.default_branch }}"
+    )
+    assert settings.get("persist-credentials", "").strip().strip("\"'") == "false"
+    # Checkout config protects the fetched script, not the event-selected job definition.
+    assert source.index("Validate deployment identity and exact target") > checkout.end()
+    assert source.index("Check deployed frontend, proxy and session store") > (
+        source.index("Validate deployment identity and exact target")
+    )
+
+
 @pytest.mark.parametrize(
     "section,key,value",
     [
@@ -352,7 +375,8 @@ def test_workflow_missing_configuration_is_red(deployment, monkeypatch, key, val
     assert not deployment.output.exists()
 
 
-def test_real_shell_remote_entrypoint_with_fake_curl(tmp_path):
+@pytest.mark.parametrize("failure", ["", "redirect", "transport"])
+def test_real_shell_remote_entrypoint_with_fake_curl(tmp_path, failure):
     """Run the actual shell/Python boundary; the only HTTP command is a local fake."""
     import os
 
@@ -366,6 +390,12 @@ def test_real_shell_remote_entrypoint_with_fake_curl(tmp_path):
         "with open(os.environ['SMOKE_TEST_TRACE'], 'a') as f:\n"
         "    f.write(json.dumps({'args': args, 'config': config}) + '\\n')\n"
         "url = args[-1]\n"
+        "if os.environ['SMOKE_TEST_FAILURE'] == 'transport':\n"
+        "    print('synthetic-secret', file=sys.stderr)\n"
+        "    sys.exit(28)\n"
+        "if os.environ['SMOKE_TEST_FAILURE'] == 'redirect':\n"
+        "    print('synthetic-secret\\n302', end='')\n"
+        "    sys.exit(0)\n"
         "if url.endswith('/api/health'):\n"
         "    print('{\"status\":\"ok\"}\\n200', end='')\n"
         "elif url.endswith('/'):\n"
@@ -379,10 +409,12 @@ def test_real_shell_remote_entrypoint_with_fake_curl(tmp_path):
     env.update(
         PATH=str(tmp_path) + os.pathsep + os.environ["PATH"],
         SMOKE_TEST_TRACE=str(trace),
+        SMOKE_TEST_FAILURE=failure,
         SMOKE_ALLOWED_ORIGIN="http://127.0.0.1:9999",
         SMOKE_PERSONA_ID="p_smoke",
         SMOKE_AUTH_HEADER_NAME="Cookie",
         SMOKE_AUTH_HEADER_VALUE="synthetic-secret",
+        SMOKE_VERCEL_BYPASS_TOKEN="synthetic-bypass",
     )
     result = subprocess.run(
         ["bash", str(SCRIPT), "http://127.0.0.1:9999"],
@@ -393,13 +425,31 @@ def test_real_shell_remote_entrypoint_with_fake_curl(tmp_path):
         text=True,
         timeout=10,
     )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "smoke OK\n"
+    assert result.returncode == (1 if failure else 0), result.stderr
+    assert result.stdout == ("" if failure else "smoke OK\n")
     assert "synthetic-secret" not in result.stdout + result.stderr
+    assert "synthetic-bypass" not in result.stdout + result.stderr
     calls = [json.loads(line) for line in trace.read_text().splitlines()]
-    assert len(calls) == 4
+    assert len(calls) == (1 if failure else 4)
     assert all('header = "Cookie: synthetic-secret"' in call["config"] for call in calls)
+    assert all(
+        'header = "x-vercel-protection-bypass: synthetic-bypass"' in call["config"]
+        for call in calls
+    )
     assert all("synthetic-secret" not in " ".join(call["args"]) for call in calls)
+    assert all("synthetic-bypass" not in " ".join(call["args"]) for call in calls)
+    for call in calls:
+        args = call["args"]
+        assert args[0] == "-q"
+        for option, value in (
+            ("--connect-timeout", "3"),
+            ("--max-time", "10"),
+            ("--retry", "0"),
+            ("--max-redirs", "0"),
+            ("--config", "-"),
+        ):
+            assert args[args.index(option) + 1] == value
+        assert not {"-L", "--location", "--location-trusted", "--retry-all-errors"} & set(args)
 
 
 def test_write_timeout_is_not_retried(harness):
