@@ -11,59 +11,78 @@ const ENVELOPE_BYTES = 1024;
 // the running Realtime conversation. Nothing is stored or sent anywhere else.
 export function ScreenShareButton({
   pc,
-  channel,
+  ask,
 }: {
   pc: RefObject<RTCPeerConnection | null>;
-  channel: RefObject<RTCDataChannel | null>;
+  // InterviewRoom's send path: registers the expected answer so "End" waits for it.
+  ask: (content: object[]) => boolean;
 }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const current = useRef<MediaStream | null>(null);
+  const mounted = useRef(true);
 
   // Stop sharing when the interview ends or the card goes away.
-  useEffect(() => () => current.current?.getTracks().forEach((t) => t.stop()), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      current.current?.getTracks().forEach((t) => t.stop());
+      current.current = null;
+    };
+  }, []);
 
   async function share() {
     setNote(null);
     try {
       const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      // Granted after the interview ended: don't leave the screen captured.
+      if (!mounted.current) {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
       // The browser's own "Stop sharing" ends the track; mirror that here.
-      s.getVideoTracks()[0]?.addEventListener("ended", () => setStream(null), { once: true });
+      s.getVideoTracks()[0]?.addEventListener(
+        "ended",
+        () => {
+          if (current.current === s) current.current = null;
+          if (mounted.current) setStream((cur) => (cur === s ? null : cur));
+        },
+        { once: true },
+      );
       current.current = s;
       setStream(s);
     } catch {
-      setNote("Screen sharing was cancelled or blocked.");
+      if (mounted.current) setNote("Screen sharing was cancelled or blocked.");
     }
   }
 
   function stop() {
     stream?.getTracks().forEach((t) => t.stop());
+    current.current = null;
     setStream(null);
   }
 
   async function show() {
-    const dc = channel.current;
-    if (!stream || !dc || dc.readyState !== "open") return;
+    const shared = stream;
+    if (!shared) return;
     setBusy(true);
     setNote(null);
     try {
       const negotiated = pc.current?.sctp?.maxMessageSize;
       const limit = Number.isFinite(negotiated) && negotiated ? negotiated : FALLBACK_MESSAGE_BYTES;
-      const image = await captureFrame(stream, { maxBytes: Math.min(limit, FALLBACK_MESSAGE_BYTES) - ENVELOPE_BYTES });
-      dc.send(
-        JSON.stringify({
-          type: "conversation.item.create",
-          item: { type: "message", role: "user", content: [{ type: "input_image", image_url: image }] },
-        }),
-      );
+      const image = await captureFrame(shared, {
+        maxBytes: Math.min(limit, FALLBACK_MESSAGE_BYTES) - ENVELOPE_BYTES,
+      });
+      // Sharing stopped (or the card closed) while capturing: send nothing.
+      if (!mounted.current || current.current !== shared) return;
       // The persona reacts to what it now sees, in character.
-      dc.send(JSON.stringify({ type: "response.create" }));
-      setNote("Shown to the persona.");
+      setNote(ask([{ type: "input_image", image_url: image }]) ? "Shown to the persona." : "The call is not open.");
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "Could not capture the screen.");
+      if (mounted.current) setNote(e instanceof Error ? e.message : "Could not capture the screen.");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 

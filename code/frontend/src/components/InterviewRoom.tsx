@@ -252,21 +252,24 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     }
   }
 
-  // Typed question: a fallback when the room is noisy, and the same path the pilot uses.
-  function ask() {
+  // Sends interviewer content (typed text or a screen frame) and asks the persona to answer it.
+  // Every path goes through here so "End" always waits for the answer it triggered.
+  function askWith(content: object[]): boolean {
     const dc = channel.current;
-    if (!dc || dc.readyState !== "open" || !typed.trim()) return;
-    dc.send(
-      JSON.stringify({
-        type: "conversation.item.create",
-        item: { type: "message", role: "user", content: [{ type: "input_text", text: typed.trim() }] },
-      }),
-    );
+    if (!dc || dc.readyState !== "open") return false;
+    dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     pending.current.add(`a:${++asks.current}`);
     dc.send(JSON.stringify({ type: "response.create" }));
-    addTurn("interviewer", typed.trim());
     askedAt.current = performance.now();
+    return true;
+  }
+
+  // Typed question: a fallback when the room is noisy, and the same path the pilot uses.
+  function ask() {
+    const text = typed.trim();
+    if (!text || !askWith([{ type: "input_text", text }])) return;
+    addTurn("interviewer", text);
     setTyped("");
   }
 
@@ -339,7 +342,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={end}>
               End interview
             </button>
-            <ScreenShareButton pc={pc} channel={channel} />
+            <ScreenShareButton pc={pc} ask={askWith} />
           </>
         )}
         {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
