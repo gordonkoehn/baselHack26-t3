@@ -59,7 +59,11 @@ export function Avatar({
         onActive({ clear: () => live.ClearBuffer() });
         setState("live");
       } catch {
-        fail();
+        // shortcut: stopped during the SDK's retry backoff, start() still opens a new websocket
+        // and only then throws. Only a second stop() reaches that socket. Drop when simli-client
+        // checks for a stop before it retries.
+        if (cancelled || failed) stop();
+        else fail();
       }
     })();
     return () => {

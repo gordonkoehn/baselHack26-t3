@@ -102,6 +102,7 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   await expect(dialog).toHaveJSProperty("open", false);
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 5/5");
+  await expect(page.getByTestId("sample-label")).toHaveCount(0);
   const transcript = page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (4 turns)" });
   await expect(transcript).toBeVisible();
   await expect(transcript).toHaveJSProperty("open", false);
