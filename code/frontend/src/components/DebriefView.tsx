@@ -12,8 +12,9 @@ const SIGNAL = {
 } as const;
 
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
-// Quotes are verbatim from the synthetic interview; "grounded" means the finding was matched to a
-// fact in the persona's sources. Neither means "validated with real users".
+// Quotes are verbatim from the synthetic interview; "grounded" means the finding repeats a persona
+// fact that cites a source passage, and the quote is not compared to it. Neither means "validated
+// with real users".
 // With savedReport it is read-only: it shows that report and never asks the backend to write one.
 export function DebriefView({
   sessionId,
@@ -153,13 +154,14 @@ export function DebriefView({
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
               say these lines. If this persona uses the prefilled example sources, they contain the same script, so
-              &ldquo;matched to a source&rdquo; proves nothing here.
+              &ldquo;grounded&rdquo; proves nothing here.
             </p>
           ) : (
             <p className="mt-1 text-xs leading-relaxed text-muted">
               Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-              findings. &ldquo;grounded&rdquo; means the finding was matched to a fact in the persona&apos;s sources; the
-              quote is still the AI persona&apos;s. &ldquo;guess&rdquo; means it was not matched to a source.
+              findings. &ldquo;grounded&rdquo; means the finding repeats a persona fact that cites a passage in the
+              sources; the quote is still the AI persona&apos;s and is not compared to that fact. &ldquo;guess&rdquo; means
+              it was not matched to a source.
             </p>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -218,7 +220,7 @@ export function DebriefView({
                         “{i.quote}”
                         <span className="mt-0.5 block text-xs text-muted">
                           {sample ? "Sample script" : `${personaName} (AI persona)`} · {sample ? "turn" : "interview turn"} {i.turnSeq}
-                          {i.label === "grounded" ? " · finding matched to a source" : " · not matched to a source"}
+                          {i.label === "grounded" ? " · finding repeats a sourced fact, quote not compared to it" : " · not matched to a source"}
                         </span>
                       </blockquote>
                     </li>

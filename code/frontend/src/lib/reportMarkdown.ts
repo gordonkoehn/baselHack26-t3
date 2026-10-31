@@ -35,7 +35,7 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
     "",
     sample
       ? 'Quotes are from the sample script, not from an interview. If the persona uses the prefilled example sources, they contain the same script, so "grounded" proves nothing here. Neither label is validated customer evidence.'
-      : 'Quotes are from the simulated interview, never from a real customer. "grounded" means the finding was matched to a fact in the persona\'s sources; "guess" means it was not matched to a source. Neither is validated customer evidence.',
+      : 'Quotes are from the simulated interview, never from a real customer. "grounded" means the finding repeats a persona fact that cites a passage in the sources, and the quote is not compared to that fact; "guess" means it was not matched to a source. Neither is validated customer evidence.',
   ];
 
   for (const [index, question] of report.questions.entries()) {
@@ -45,7 +45,7 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
     for (const insight of question.insights) {
       lines.push(`- **[${insight.label}]** ${textLines(insight.theme).join("  \n  ")}`, "",
         ...textLines(insight.quote).map((line) => `  > ${line}${line ? "  " : ""}`), "",
-        `  ${sample ? "Sample script turn" : "AI persona quote · interview turn"} ${insight.turnSeq} · ${insight.label === "grounded" ? "finding matched to a source" : "not matched to a source"}`, "");
+        `  ${sample ? "Sample script turn" : "AI persona quote · interview turn"} ${insight.turnSeq} · ${insight.label === "grounded" ? "finding repeats a sourced fact, quote not compared to it" : "not matched to a source"}`, "");
     }
     lines.push("### Follow-up questions for real customers", "");
     if (!question.followUps?.length) lines.push("No follow-up questions recorded.");

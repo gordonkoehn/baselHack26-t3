@@ -43,7 +43,7 @@ describe("DebriefView", () => {
     screen.getByText("Feels like marketing", { exact: false });
     screen.getByText("Ask real users next: Ask how they split without the badge.");
     const [backed, unbacked] = Array.from(container.querySelectorAll("blockquote"), (quote) => quote.textContent);
-    expect(backed).toBe("“Dann geb ich alles.”Anna (AI persona) · interview turn 3 · finding matched to a source");
+    expect(backed).toBe("“Dann geb ich alles.”Anna (AI persona) · interview turn 3 · finding repeats a sourced fact, quote not compared to it");
     expect(unbacked).toBe("“Klingt nach Werbung.”Anna (AI persona) · interview turn 5 · not matched to a source");
     const labels = Array.from(container.querySelectorAll("li li > span"), (label) => label.textContent);
     expect(labels).toEqual(["grounded", "guess"]);

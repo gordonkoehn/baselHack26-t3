@@ -79,7 +79,7 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("## Question 1");
     expect(markdown).toContain("Signal: contradicts");
     expect(markdown).toContain("- **[grounded]** Backed");
-    expect(markdown).toContain("AI persona quote · interview turn 2 · finding matched to a source");
+    expect(markdown).toContain("AI persona quote · interview turn 2 · finding repeats a sourced fact, quote not compared to it");
     expect(markdown).toContain("- **[guess]** Unbacked");
     expect(markdown).toContain("AI persona quote · interview turn 5 · not matched to a source");
     expect(markdown).not.toContain("backed by");

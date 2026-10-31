@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import Persona, Session, SessionEvent
+from app.contracts import Fact, Persona, Session, SessionEvent
 from app.extract import DebriefDraft, ExtractionFailed, ProviderUnavailable
 from app.main import app
 from app.routers.insights import get_debriefer
@@ -99,6 +99,45 @@ def test_saved_report_is_reused_after_persona_expires(context, monkeypatch):
     persona_lookup.assert_not_called()
     context.provider.assert_called_once()
     context.save.assert_called_once()
+
+
+WRONG_FACT = "Collection point fee is too high for her household"
+
+
+@pytest.mark.parametrize(
+    "correction",
+    [
+        {"pains": []},
+        {"pains": [{"text": "Fee is fine for her", "label": "grounded", "evidenceId": "e1"}]},
+        {"pains": [{"text": WRONG_FACT, "label": "guess", "evidenceId": None}]},
+    ],
+    ids=["removed", "edited", "relabelled"],
+)
+def test_fact_corrected_on_the_card_cannot_come_back_as_grounded(context, correction):
+    # The evidence and a grounded sibling on the same id both survive the correction (#94).
+    persona = context.store.get_persona("p_1")
+    persona.pains = [Fact(text=WRONG_FACT, label="grounded", evidence_id="e1")]
+    context.store.save_persona(persona)
+    assert context.client.patch("/api/personas/p_1", json=correction).status_code == 200
+    draft = context.provider.return_value
+    draft.questions[0].insights[0].label = "grounded"
+    draft.questions[0].insights[0].theme = WRONG_FACT
+    draft.questions[0].insights[0].evidence_id = "e1"
+
+    assert context.client.post(DEBRIEF).status_code == 200
+    insight = context.client.get(INSIGHTS).json()["questions"][0]["insights"][0]
+    assert insight["label"] == "guess" and insight["evidenceId"] is None
+
+
+def test_citation_of_an_uncorrected_fact_is_saved_as_grounded(context):
+    draft = context.provider.return_value
+    draft.questions[0].insights[0].label = "grounded"
+    draft.questions[0].insights[0].theme = load("persona.json")["jobs"][0]["text"]
+    draft.questions[0].insights[0].evidence_id = "e1"
+
+    assert context.client.post(DEBRIEF).status_code == 200
+    insight = context.client.get(INSIGHTS).json()["questions"][0]["insights"][0]
+    assert insight["label"] == "grounded" and insight["evidenceId"] == "e1"
 
 
 @pytest.mark.parametrize("method,suffix", [("post", "debrief"), ("get", "insights")])
