@@ -78,7 +78,7 @@ async function createPersona(page: Page) {
 }
 
 async function startCall(page: Page) {
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   await expect(page.getByRole("dialog").getByText("Live, speak now")).toBeVisible();
 }
 
@@ -164,7 +164,7 @@ test("the sample interview reaches a labelled debrief without a live call", asyn
   await transcript.locator("summary").click();
   await expect(transcript).toContainText("Sample participant: Wir haben seit einem Jahr das Abo");
   await expect(transcript).toContainText("Interviewer: Wie entsorgt ihr heute");
-  await expect(page.getByRole("button", { name: "Start voice interview" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start video interview" })).toBeVisible();
 
   // Nothing of a live call happened.
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -200,7 +200,7 @@ test("a call stuck connecting can be cancelled and the sample interview still ru
   const posted = page.waitForRequest("https://api.openai.com/v1/realtime/calls");
   await page.route("https://api.openai.com/v1/realtime/calls", () => {});
   const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   const abandoned: Session = await (await created).json();
   await posted;
   const dialog = page.getByRole("dialog");
@@ -241,7 +241,7 @@ test("a sample interview stuck on its first request can be cancelled", async ({ 
 test("the sample interview after a failed start shows only the sample status", async ({ page }) => {
   await createPersona(page);
   await page.route("https://api.openai.com/v1/realtime/calls", (route) => route.fulfill({ status: 500, body: "" }));
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   const room = page.getByTestId("interview-room");
   await expect(room).toContainText("Interview could not start.");
 

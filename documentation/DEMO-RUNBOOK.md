@@ -22,7 +22,7 @@ For the pitch of the Quartier-Börse demo. Fallbacks, best first: voice without 
 |---|---|---|
 | Face frozen, out of sync, or stuck on "Avatar is joining…" | **Turn avatar off** in the call popup. The call keeps going and the voice comes straight from the call. **Turn avatar on** tries again with a new avatar session. | Everything except the face. |
 | "Avatar unavailable, voice only." | Nothing. The call already continues by voice. | Everything except the face. |
-| You know Simli is down before the call | **Turn avatar off** on the persona card before **Start voice interview**. It stays off for this persona; building a new persona turns it on again. | Everything except the face. |
+| You know Simli is down before the call | **Turn avatar off** on the persona card before **Start video interview**. It stays off for this persona; building a new persona turns it on again. | Everything except the face. |
 | Room too loud | **Mute mic** and type the questions. | Everything. |
 | Popup stuck on "Connecting…" | **Cancel** in the popup, then **Use sample interview** on the persona card. Don't reload: that loses the persona on screen. Say out loud that this is a scripted sample. | Debrief, labelled as a sample. Needs the OpenAI API and the store, not Realtime or a microphone. |
 | Call fails to start, or drops ("Connection lost") | **Use sample interview** on the persona card. Say out loud that this is a scripted sample. | Same as above. |
