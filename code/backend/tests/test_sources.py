@@ -1,6 +1,10 @@
+import io
+
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from app.main import app
+from app.routers import sources
 from app.routers.sources import MAX_BYTES
 
 client = TestClient(app)
@@ -57,3 +61,24 @@ def test_pdf_without_text_is_422():
 def test_too_large_is_413():
     body = b"%PDF" + b"0" * MAX_BYTES
     assert client.post("/api/sources/pdf", content=body, headers=PDF).status_code == 413
+
+
+def test_password_protected_is_422():
+    writer = PdfWriter(clone_from=io.BytesIO(make_pdf("secret")))
+    writer.encrypt("pw", algorithm="RC4-128")
+    buf = io.BytesIO()
+    writer.write(buf)
+    res = client.post("/api/sources/pdf", content=buf.getvalue(), headers=PDF)
+    assert res.status_code == 422 and "password" in res.json()["detail"]
+
+
+def test_too_many_pages_is_413(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_PAGES", 0)
+    res = client.post("/api/sources/pdf", content=make_pdf("x"), headers=PDF)
+    assert res.status_code == 413 and "pages" in res.json()["detail"]
+
+
+def test_too_much_text_is_413_not_truncated(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_CHARS", 5)
+    res = client.post("/api/sources/pdf", content=make_pdf("longer than five"), headers=PDF)
+    assert res.status_code == 413 and "text" not in res.json()

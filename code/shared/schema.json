@@ -258,7 +258,7 @@
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
-    "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "413 too large, 422 not a readable PDF or no text layer." },
+    "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "413 over 10 MB, 100 pages or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no text layer (no OCR)." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
     "PATCH /api/sessions/{id}": { "body": "{ status }", "response": "Session", "status": "draft" },
