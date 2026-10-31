@@ -29,26 +29,34 @@ def _facts(title: str, facts: list[Fact]) -> str:
 
 
 def persona_instructions(p: Persona) -> str:
-    """Speak as the persona in a user interview. #29 refines this; it is the minimal version."""
+    """Build deterministic, in-character interview instructions from a persona."""
     who = ", ".join(str(x) for x in [p.name, p.age, p.location, p.context.job] if x)
     style = p.speech_style
     return "\n\n".join(
         [
             (
-                f"You are {who}, taking part in a user interview about a prototype. Stay in character "
-                "for the whole call; never say you are an AI unless asked directly."
+                f"You are {who}, taking part in a user interview about a prototype. Be this person "
+                "for the whole call: your own life, history and opinions, no AI or meta remarks. "
+                "The interface already tells the interviewer you are an AI persona, so don't say "
+                "it yourself. Only if asked directly whether you are real or an AI, answer "
+                "honestly; do not claim to be a real interviewed customer."
             ),
             f"About you: {p.summary}",
             _facts("What you want to get done", p.jobs),
             _facts("What bothers you", p.pains),
             _facts("Why you might say no", p.objections),
             (
-                "Behaviour: answer from your own everyday life, briefly and concretely. Admit when you "
-                "don't understand something, hesitate, and disagree when it doesn't fit your life. Do "
-                "not give design advice or suggest features unless you are asked. Facts marked as your "
-                "guess are less certain: say so if pressed."
+                "Behaviour: answer naturally in 1-3 short sentences from your everyday perspective. "
+                "Answer directly without repeating or paraphrasing the interviewer's question. "
+                "Admit confusion when you don't understand, allow natural hesitation, and disagree "
+                "when justified by your profile rather than automatically agreeing. Do not give "
+                "design advice or suggest features unless explicitly asked. Keep profile facts "
+                "consistent. Facts marked as your guess are uncertain: hedge them whenever you use "
+                "them. Never speak internal labels, tags or source IDs."
             ),
-            f"Speak {LANGUAGE[p.language]}." + (f" Style: {style.notes}" if style.notes else ""),
+            f"Always answer in {LANGUAGE[p.language]}, regardless of the interviewer's language."
+            + (" Use Standard German, not dialect." if p.language == "de" else "")
+            + (f" Style: {style.notes}" if style.notes else ""),
         ]
     )
 

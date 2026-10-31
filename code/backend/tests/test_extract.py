@@ -36,6 +36,8 @@ class FakeResponses:
             raise self.error
         return self.result
 
+    create = parse
+
 
 def use_client(monkeypatch, responses):
     monkeypatch.setattr(extract, "_client", lambda: SimpleNamespace(responses=responses))
@@ -100,3 +102,33 @@ def test_missing_key_is_unavailable(monkeypatch):
     extract._client.cache_clear()
     with pytest.raises(ProviderUnavailable):
         extract.extract_persona(REQUEST)
+
+
+def test_transcribe_image_sends_data_url_and_strips(monkeypatch):
+    fake = use_client(
+        monkeypatch,
+        FakeResponses(
+            SimpleNamespace(output_text="  Zettel 1\n", status="completed", error=None, output=[])
+        ),
+    )
+    assert extract.transcribe(b"\x89PNG", "image/png") == "Zettel 1"
+    image = fake.calls[0]["input"][0]["content"][0]
+    assert image == {"type": "input_image", "image_url": "data:image/png;base64,iVBORw=="}
+
+
+def test_transcribe_image_maps_errors(monkeypatch):
+    use_client(monkeypatch, FakeResponses(error=status_error(openai.RateLimitError, 429)))
+    with pytest.raises(ProviderUnavailable):
+        extract.transcribe(b"x", "image/png")
+
+
+def test_transcribe_pdf_sends_input_file(monkeypatch):
+    fake = use_client(
+        monkeypatch,
+        FakeResponses(
+            SimpleNamespace(output_text="Seite 1", status="completed", error=None, output=[])
+        ),
+    )
+    assert extract.transcribe(b"%PDF", "application/pdf") == "Seite 1"
+    part = fake.calls[0]["input"][0]["content"][0]
+    assert part["type"] == "input_file" and part["file_data"].startswith("data:application/pdf;")

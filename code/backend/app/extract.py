@@ -3,7 +3,10 @@
 The single place that talks to OpenAI. Tests replace `_client()`; nothing here logs source text.
 """
 
+import base64
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 
 import openai
@@ -52,6 +55,18 @@ You build one realistic interview persona for a design sprint from the sources t
 The persona must be someone the team could interview: a single person with a name, context, jobs,
 pains and objections, consistent with the sources.
 
+Make it one specific, believable human, not a segment or a participant code:
+- Give a real first and last name typical for the region in the sources (e.g. Swiss for Luzern).
+  Never use a participant code (P1, Teilnehmer A, User 3) or a role as the name.
+- Decide one gender and use it consistently; never write "sie oder er", "they/he" or similar.
+- Write the summary as a short personal story in the third person (4-6 sentences) that goes
+  beyond the sources: where they work, their kids' or partner's names and ages, a concrete weekly
+  routine, one specific memory that explains their attitude to the topic, a small quirk. It must
+  not contradict the sources; invented details belong here, because the summary is the
+  persona's backstory, not evidence.
+- Add at least two of these invented personal details as facts labelled "guess" (a routine or a
+  past experience behind a pain or objection), so the card shows which parts are invented.
+
 Evidence rules (they are checked by code, violations reject the whole persona):
 - Every evidence item quotes the sources VERBATIM: copy an exact contiguous passage, no edits,
   no translation, no ellipsis. Keep quotes short (one or two sentences).
@@ -88,14 +103,11 @@ def _client() -> openai.OpenAI:
     return openai.OpenAI(timeout=TIMEOUT_SECONDS, max_retries=1)
 
 
-def extract_persona(request: PersonaCreate) -> PersonaDraft:
+@contextmanager
+def _provider_errors() -> Iterator[None]:
+    """Map OpenAI errors to ProviderUnavailable (503) or ExtractionFailed (502)."""
     try:
-        response = _client().responses.parse(
-            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
-            instructions=INSTRUCTIONS.format(language_name=LANGUAGES[request.language]),
-            input=_format_sources(request),
-            text_format=PersonaDraft,
-        )
+        yield
     except (
         openai.APITimeoutError,
         openai.APIConnectionError,
@@ -120,8 +132,54 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
     except openai.OpenAIError as exc:
         raise ProviderUnavailable(type(exc).__name__) from None
 
+
+def extract_persona(request: PersonaCreate) -> PersonaDraft:
+    with _provider_errors():
+        response = _client().responses.parse(
+            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+            instructions=INSTRUCTIONS.format(language_name=LANGUAGES[request.language]),
+            input=_format_sources(request),
+            text_format=PersonaDraft,
+        )
+
     draft = response.output_parsed
     if draft is None:
         # No parsed output means a refusal or an incomplete answer.
         raise ExtractionFailed(f"no persona in response (status {response.status})")
     return draft
+
+
+TRANSCRIBE = """\
+Transcribe all text visible in this image or scanned document verbatim, in reading order, in its original language.
+One sticky note, card or speech bubble per line. Keep the exact wording and spelling; do not
+translate, summarize, correct or describe the image. Output only the transcribed text, or nothing
+if the image contains no readable text.
+"""
+
+
+def transcribe(data: bytes, mime: str) -> str:
+    """Return the text visible in an image or scanned PDF, so it can be quoted like any source."""
+    url = f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    part = (
+        {"type": "input_file", "filename": "scan.pdf", "file_data": url}
+        if mime == "application/pdf"
+        else {"type": "input_image", "image_url": url}
+    )
+    with _provider_errors():
+        response = _client().responses.create(
+            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+            instructions=TRANSCRIBE,
+            input=[{"role": "user", "content": [part]}],
+        )
+    if (
+        response.status != "completed"
+        or response.error is not None
+        or any(
+            content.type == "refusal"
+            for item in response.output
+            if item.type == "message"
+            for content in item.content
+        )
+    ):
+        raise ExtractionFailed("transcription failed")
+    return response.output_text.strip()
