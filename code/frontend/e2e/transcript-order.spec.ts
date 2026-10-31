@@ -32,7 +32,7 @@ async function emitAll(page: Page, events: Wire[]) {
 }
 
 async function start(page: Page): Promise<Session> {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-score")).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
@@ -299,7 +299,7 @@ test("the debrief and export of a delayed-transcript conversation use its stored
   const downloading = page.waitForEvent("download");
   await page.getByTestId("debrief").getByRole("button", { name: "Download .md", exact: true }).click();
   const exported = await readFile((await (await downloading).path())!, "utf8");
-  expect(exported).toBe(formatReportMarkdown(report, "Sandra"));
+  expect(exported).toBe(formatReportMarkdown(report, "Sandra", false, "Quartier-Börse"));
   expect(exported).toContain("Interview turn 2");
   expect(exported).toContain("Interview turn 4");
 });
