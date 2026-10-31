@@ -15,7 +15,7 @@ const typedQuestion = exampleEvents[1].data.text!;
 const spokenQuestion = exampleEvents[6].data.text!;
 const greeting = "Hello, I am Sandra.";
 const COMPLETE = "Ended. Microphone and camera are off, transcript saved.";
-const INCOMPLETE = "Ended without the last turn. This transcript is incomplete, so there is no debrief for it.";
+const GAPS = "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured.";
 
 const committed = (itemId: string, previous?: string | null): Wire => ({ type: "input_audio_buffer.committed", item_id: itemId, previous_item_id: previous ?? null });
 const stt = (itemId: string, transcript: string): Wire => ({ type: "conversation.item.input_audio_transcription.completed", item_id: itemId, transcript });
@@ -34,10 +34,11 @@ async function emitAll(page: Page, events: Wire[]) {
 async function start(page: Page): Promise<Session> {
   await page.goto("/");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card")).toBeVisible();
+  await expect(page.getByTestId("persona-score")).toBeVisible();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(exampleReport.questions.map((question) => question.question).join("\n"));
   const response = page.waitForResponse((res) => res.url().endsWith("/api/sessions") && res.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   await expect(page.getByText("Live, speak now")).toBeVisible();
   return (await response).json() as Promise<Session>;
 }
@@ -70,9 +71,11 @@ const saveState = (page: Page) => page.getByTestId("save-state");
 const liveRows = (page: Page) => page.getByTestId("transcript").locator("li");
 const finalRows = (page: Page) => page.getByTestId("interview-room").locator("details li");
 
-async function expectNoDebrief(page: Page, session: Session) {
-  await expect(page.getByTestId("debrief")).toHaveCount(0);
-  expect((await page.request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+// A call that lost a turn still ends and reaches its debrief, and states the loss in both places.
+async function expectGapsDebrief(page: Page, session: Session) {
+  await expect(page.getByText(GAPS, { exact: true })).toBeVisible();
+  expect((await stored(page, session)).at(-1)).toMatchObject({ type: "session.ended", data: { transcriptGaps: true } });
+  await expect(page.getByTestId("debrief").getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
 }
 
 test.beforeEach(async ({ page, context }) => {
@@ -152,53 +155,89 @@ test("stored text never moves, and text arriving after its place has passed is s
   await expect(liveRows(page).locator("span")).toHaveText(["You", "Sandra", "You", "Sandra"]);
 });
 
-test("a failed transcription is a hole: earlier turns save, later ones never skip past it", async ({ page }) => {
+test("a failed transcription holds back nothing after it, and the debrief says there are gaps", async ({ page, request }) => {
   const session = await start(page);
   await emitAll(page, [committed("u1"), created("r1"), said("r1", "a1", answers[0]), done("r1"), committed("u2", "a1"), sttFailed("u2"), sttFailed("u2")]);
   await ask(page, typedQuestion);
   await emitAll(page, [created("r2"), said("r2", "a2", answers[1]), done("r2")]);
-  // Before the failure a turn can still be saved; behind it, it never can.
+  // Only the transcript still on its way holds turns back. The failed one just shows its place.
   await expect(liveRows(page).nth(1)).toContainText("not saved yet");
   await expect(liveRows(page).nth(2)).toContainText("(no transcript)");
-  await expect(liveRows(page).nth(3)).toContainText("will not be saved");
-  await expect(liveRows(page).nth(4)).toContainText("will not be saved");
+  await expect(liveRows(page).nth(3)).toContainText("not saved yet");
+  await expect(liveRows(page).nth(4)).toContainText("not saved yet");
 
   await emit(page, stt("u1", spokenQuestion));
-  await expect(saveState(page)).toHaveText("Transcript saved 2/4");
+  await expect(saveState(page)).toHaveText("Transcript saved 4/4");
   await finishExpectedResponses(page, 1);
   await endInterview(page);
-  await expect(page.getByText("Ended with 2 turns not saved: nothing after the first missing turn is stored. This transcript is incomplete, so there is no debrief for it.", { exact: true })).toBeVisible();
-  await expect(saveState(page)).toHaveText("Transcript saved 2/4");
-  expect((await stored(page, session)).map((event) => event.data)).toEqual([you(spokenQuestion), sandra(answers[0])]);
-  // Visible without opening anything, and marked as not kept.
-  await expect(finalRows(page).last()).toBeVisible();
+  await expectGapsDebrief(page, session);
+  expect(await storedTurns(page, session)).toEqual([you(spokenQuestion), sandra(answers[0]), you(typedQuestion), sandra(answers[1])]);
   await expect(finalRows(page)).toHaveText([
-    `You: ${spokenQuestion}`, `Sandra: ${answers[0]}`, "You: (no transcript)", `You: ${typedQuestion} (not saved)`, `Sandra: ${answers[1]} (not saved)`,
+    `You: ${spokenQuestion}`, `Sandra: ${answers[0]}`, "You: (no transcript)", `You: ${typedQuestion}`, `Sandra: ${answers[1]}`,
   ]);
-  await expectNoDebrief(page, session);
+  // Quotes point at the stored turns, which the failed one never became.
+  const report: InsightReport = await (await request.get(`/api/sessions/${session.id}/insights`)).json();
+  expect(report.transcriptGaps).toBe(true);
+  expect(report.questions.map((question) => question.insights.map((insight) => ({ quote: insight.quote, turn: insight.turnSeq })))).toEqual([
+    [{ quote: answers[0], turn: 2 }], [{ quote: answers[1], turn: 4 }],
+  ]);
 });
 
-test("an earlier transcript still missing at Close keeps the later answer out and the session incomplete", async ({ page }) => {
+test("a transcript arriving after its failure is kept at the end, since stored text never moves", async ({ page }) => {
+  const session = await start(page);
+  await emitAll(page, [committed("u1"), sttFailed("u1"), created("r1"), said("r1", "a1", answers[0]), done("r1"), stt("u1", spokenQuestion)]);
+  await expect(saveState(page)).toHaveText("Transcript saved 2/2");
+  await endInterview(page);
+  await expectGapsDebrief(page, session);
+  expect(await storedTurns(page, session)).toEqual([sandra(answers[0]), you(spokenQuestion)]);
+  await expect(finalRows(page)).toHaveText([`Sandra: ${answers[0]}`, `You: ${spokenQuestion}`]);
+});
+
+test("Close without it saves the answer held behind a missing transcript, and the debrief says there are gaps", async ({ page }) => {
   const session = await start(page);
   await emitAll(page, [committed("u1"), created("r1"), said("r1", "a1", answers[0]), done("r1")]);
+  await expect(saveState(page)).toHaveText("Transcript saved 0/1");
   await endInterview(page);
   await expect(page.getByRole("button", { name: "Close without it", exact: true })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Close without it", exact: true }).click();
-  await expect(page.getByText(INCOMPLETE, { exact: true })).toBeVisible();
-  await expect(saveState(page)).toHaveText("Transcript saved 0/1");
-  await expect(finalRows(page)).toHaveText(["You: (no transcript)", `Sandra: ${answers[0]} (not saved)`]);
-  expect(await stored(page, session)).toEqual([]);
-  await expectNoDebrief(page, session);
+  await expectGapsDebrief(page, session);
+  await expect(saveState(page)).toHaveText("Transcript saved 2/2");
+  await expect(finalRows(page)).toHaveText(["You: (no transcript)", `Sandra: ${answers[0]}`]);
+  expect(await storedTurns(page, session)).toEqual([sandra(answers[0])]);
 });
 
-test("connection loss before an earlier transcript arrives saves only the contiguous prefix", async ({ page }) => {
+test("connection loss saves what was held behind a missing transcript, and the debrief says there are gaps", async ({ page }) => {
   const session = await start(page);
   await emitAll(page, [created("r0"), said("r0", "a0", greeting), done("r0"), committed("u1", "a0"), created("r1"), said("r1", "a1", answers[0]), done("r1")]);
   await page.evaluate(() => window.e2eRealtime.lose());
-  await expect(page.getByTestId("connection-lost")).toContainText("This transcript is incomplete");
-  await expect(saveState(page)).toHaveText("Transcript saved 1/2");
-  expect((await stored(page, session)).map((event) => event.data)).toEqual([sandra(greeting)]);
-  await expectNoDebrief(page, session);
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript may have gaps");
+  await expectGapsDebrief(page, session);
+  await expect(saveState(page)).toHaveText("Transcript saved 3/3");
+  expect(await storedTurns(page, session)).toEqual([sandra(greeting), sandra(answers[0])]);
+  await expect(finalRows(page)).toHaveText([`Sandra: ${greeting}`, "You: (no transcript)", `Sandra: ${answers[0]}`]);
+});
+
+test("a save that fails at close keeps the mark, and Save again stores the held answer unchanged", async ({ page }) => {
+  const session = await start(page);
+  const bodies: string[] = [];
+  let failing = true;
+  await page.route("**/api/sessions/*/events", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    bodies.push(route.request().postData()!);
+    if (failing) return route.abort("connectionrefused");
+    await route.fallback();
+  });
+  await emitAll(page, [committed("u1"), created("r1"), said("r1", "a1", answers[0]), done("r1")]);
+  await endInterview(page);
+  await page.getByRole("button", { name: "Close without it", exact: true }).click({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Save again", exact: true })).toBeVisible();
+  const refused = bodies.length;
+  failing = false;
+  await page.getByRole("button", { name: "Save again", exact: true }).click();
+  await expectGapsDebrief(page, session);
+  // The same answer event went out each time; the marker followed once it was stored.
+  expect(new Set(bodies.slice(0, refused + 1)).size).toBe(1);
+  expect((await stored(page, session)).map((event) => event.type)).toEqual(["utterance", "session.ended"]);
 });
 
 test("a rejected answer request and redelivered events cannot reorder or duplicate turns", async ({ page }) => {

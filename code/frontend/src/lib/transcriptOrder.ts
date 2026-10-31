@@ -1,7 +1,8 @@
 // Conversation order of an interview (#110). The provider finishes transcribing speech independently
 // of its responses, so the moment a text becomes final says nothing about where it belongs. A turn's
 // place is reserved when the provider announces it; text leaves for the immutable event stream only
-// once everything before it is final. A failed transcription is a hole: nothing is released past it.
+// once everything before it is final. A failed transcription settles its place without text, so it
+// holds nothing back; the transcriptGaps mark on the end marker states the loss (#156).
 
 export type Speaker = "interviewer" | "persona";
 
@@ -11,10 +12,8 @@ export type Turn = {
   text: string | null;
   pending?: boolean;
   cancelled?: boolean;
-  // Final, but behind an earlier turn, so not part of the stored transcript (yet).
+  // Final, but behind an earlier turn, so not part of the stored transcript yet.
   held?: boolean;
-  // Held behind a failed transcription: it can never be stored, whatever happens later in the call.
-  blocked?: boolean;
 };
 
 type Text = { text: string; cancelled?: boolean };
@@ -56,11 +55,15 @@ export class TranscriptOrder {
     if (!this.speech(itemId)) this.add({ who: "interviewer", items: [itemId], open: true }, previousItemId);
   }
 
-  /** An empty transcript settles the slot without a turn. Speech never announced can only go to the end. */
+  /**
+   * An empty transcript settles the slot without a turn. Speech never announced can only go to the
+   * end, and so can a transcript that follows its own failure once later turns moved past it.
+   */
   speechDone(itemId: string, text: string | undefined) {
-    const slot = this.speech(itemId) ?? this.add({ who: "interviewer", items: [itemId] });
-    slot.open = false;
-    slot.failed = false;
+    const known = this.speech(itemId);
+    if (known) known.open = known.failed = false;
+    const inPlace = known && this.slots.indexOf(known) >= this.next;
+    const slot = inPlace ? known : this.add({ who: "interviewer", items: known ? [] : [itemId] });
     if (text) slot.texts.push({ text });
   }
 
@@ -97,6 +100,19 @@ export class TranscriptOrder {
     target.texts.push({ text: "(interrupted)", cancelled: true });
   }
 
+  /**
+   * The call is over, so nothing still open can settle and everything held may be stored. True if a
+   * turn was given up. Speech given up shows like a failed transcription.
+   */
+  close() {
+    const open = this.slots.filter((slot) => slot.open);
+    for (const slot of open) {
+      slot.open = false;
+      slot.failed = slot.who === "interviewer";
+    }
+    return open.length > 0;
+  }
+
   /** Texts that may now be stored, in order. Each is returned exactly once. */
   release() {
     const released: { who: Speaker; text: string }[] = [];
@@ -104,24 +120,17 @@ export class TranscriptOrder {
       const slot = this.slots[this.next];
       for (const { text } of slot.texts.slice(slot.released)) released.push({ who: slot.who, text });
       slot.released = slot.texts.length;
-      if (slot.open || slot.failed) break;
+      if (slot.open) break;
       this.next += 1;
     }
     return released;
   }
 
   turns(): Turn[] {
-    let blocked = false;
     return this.slots.flatMap((slot) => {
-      const rows: Turn[] = slot.texts.map((text, i) => ({
-        who: slot.who,
-        ...text,
-        ...(i >= slot.released && { held: true, blocked }),
-      }));
-      if (slot.failed) {
-        blocked = true;
-        rows.push({ who: slot.who, text: null });
-      } else if (slot.open && slot.who === "interviewer") rows.push({ who: slot.who, text: null, pending: true });
+      const rows: Turn[] = slot.texts.map((text, i) => ({ who: slot.who, ...text, ...(i >= slot.released && { held: true }) }));
+      if (slot.failed) rows.push({ who: slot.who, text: null });
+      else if (slot.open && slot.who === "interviewer") rows.push({ who: slot.who, text: null, pending: true });
       return rows;
     });
   }

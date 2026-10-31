@@ -856,8 +856,10 @@ export function InterviewRoom({
 
   async function closeDrained() {
     if (finishing.current || draining.current) return;
-    // Held text never reached the event stream, so the stored transcript cannot claim to be complete.
-    if (work.current.missingTurns || work.current.unrecordedTurns || order.current.turns().some((t) => t.held)) lost.current = true;
+    // Nothing can settle any more: what is still held gets stored, and the mark states what was given up.
+    const gaveUp = order.current.close();
+    syncTranscript();
+    if (work.current.missingTurns || work.current.unrecordedTurns || gaveUp) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
@@ -916,7 +918,7 @@ export function InterviewRoom({
     }
   }
 
-  const turnText = (t: Turn) => t.text ?? (t.pending && inCall ? "Transcribing…" : "(no transcript)");
+  const turnText = (t: Turn) => t.text ?? (t.pending ? "Transcribing…" : "(no transcript)");
   const faded = (t: Turn) => t.cancelled || t.held || t.text === null;
   const unsaved = turns.filter((t) => t.held).length;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
@@ -1188,7 +1190,7 @@ export function InterviewRoom({
                 >
                   <span className="mb-0.5 block text-xs font-medium text-muted">
                     {t.who === "persona" ? persona.name : "You"}
-                    {t.held ? (t.blocked ? " · will not be saved" : " · not saved yet") : ""}
+                    {t.held ? " · not saved yet" : ""}
                   </span>
                   {turnText(t)}
                 </li>
@@ -1217,7 +1219,7 @@ export function InterviewRoom({
       </dialog>
 
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
-        <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved" || unsaved > 0}>
+        <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">
             {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", may have gaps" : ""})
           </summary>
@@ -1225,7 +1227,6 @@ export function InterviewRoom({
             {turns.map((t, i) => (
               <li key={i} className={faded(t) ? "opacity-50" : ""}>
                 <span className="font-medium">{speakerName(t.who)}:</span> {turnText(t)}
-                {t.held ? " (not saved)" : ""}
               </li>
             ))}
           </ol>
