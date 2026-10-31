@@ -2,20 +2,20 @@
 
 /* Design tokens. Components use them as Tailwind colors: bg-surface, text-muted, border-line, bg-accent, … */
 :root {
-  /* The Record: paper holds what is on record. Solid means grounded, hatched means guess. */
-  --background: #e7e8e2;
-  --foreground: #141414;
-  --surface: #f3f4ef;
-  --muted: #45463f;
-  --line: #bfc1b6;
-  --accent: #a62814;
-  --accent-soft: #f0d9d2;
-  /* The Room: the dark stage for the live interview. */
-  --room: #111211;
-  --room-raised: #232522;
-  --room-text: #e7e8e2;
-  --room-muted: #b9bbb2;
-  --ember: #ff7a5c;
+  /* OpenTwin brand, see assets/presentations/ci/. Emerald on paper, no red. */
+  --background: #f5f6f5;
+  --foreground: #121413;
+  --surface: #fdfdfc;
+  --muted: #5e6563;
+  --line: #d5dad8;
+  --accent: #0f7a5c;
+  --accent-soft: #e2f2eb;
+  --signal: #14a37f;
+  /* The dark ground, for the live interview. */
+  --room: #0b0f0e;
+  --room-raised: #121a18;
+  --room-text: #f4f6f5;
+  --room-muted: #b9c9c3;
 }
 
 @theme inline {
@@ -30,9 +30,8 @@
   --color-room-raised: var(--room-raised);
   --color-room-text: var(--room-text);
   --color-room-muted: var(--room-muted);
-  --color-ember: var(--ember);
-  --font-sans: var(--font-geist-sans);
-  --font-display: var(--font-zilla);
+  --color-signal: var(--signal);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -73,8 +72,8 @@
   }
   h1,
   h2 {
-    font-family: var(--font-display), Georgia, serif;
-    font-weight: 700;
+    font-weight: 800;
+    letter-spacing: -0.02em;
   }
 }
 
