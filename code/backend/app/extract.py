@@ -27,6 +27,7 @@ from app.contracts import (
     SessionEvent,
     SpeechStyle,
 )
+from app.faces import FaceName, catalog
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 TIMEOUT_SECONDS = 90
@@ -46,6 +47,8 @@ class PersonaDraft(Model):
     attitudes: Attitudes = Attitudes()
     speech_style: SpeechStyle = SpeechStyle()
     evidence: list[Evidence]
+    # Not part of Persona: the router turns it into faceId and voiceId.
+    face: FaceName
 
 
 class ProviderUnavailable(Exception):
@@ -101,6 +104,10 @@ Evidence rules (they are checked by code, violations reject the whole persona):
 - If the sources contain no user statements (only a guide or hypotheses), every fact is a guess.
 - Everything else (plausible but not stated) is "guess" with evidenceId null. Prefer honest
   guesses over stretching a quote. Synthetic details are always guesses.
+
+Pick `face`: the avatar photo that best fits this person. It must match the gender, be close to
+the age, and fit where they come from and what they do (clothing, setting). Faces:
+{faces}
 
 Write all persona text in {language_name}, except verbatim evidence quotes.
 Do not give design advice; describe the person.
@@ -158,7 +165,9 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
     with _provider_errors():
         response = _client().responses.parse(
             model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
-            instructions=INSTRUCTIONS.format(language_name=LANGUAGES[request.language]),
+            instructions=INSTRUCTIONS.format(
+                language_name=LANGUAGES[request.language], faces=catalog()
+            ),
             input=_format_sources(request),
             text_format=PersonaDraft,
         )

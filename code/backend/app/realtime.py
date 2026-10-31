@@ -12,6 +12,7 @@ import openai
 
 from app.contracts import Fact, Persona, SessionToken
 from app.extract import ProviderUnavailable, _client
+from app.faces import VOICES
 
 DEFAULT_MODEL = "gpt-realtime-2.1-mini"
 DEFAULT_VOICE = "marin"
@@ -98,6 +99,13 @@ def persona_instructions(p: Persona) -> str:
     )
 
 
+def voice_for(persona: Persona) -> str:
+    # The env var overrides for demos; older personas still carry a stock id.
+    if os.environ.get("OPENAI_REALTIME_VOICE"):
+        return os.environ["OPENAI_REALTIME_VOICE"]
+    return persona.voice_id if persona.voice_id in VOICES.values() else DEFAULT_VOICE
+
+
 def mint_client_secret(persona: Persona) -> SessionToken:
     try:
         secret = _client().realtime.client_secrets.create(
@@ -116,7 +124,7 @@ def mint_client_secret(persona: Persona) -> SessionToken:
                         # Low eagerness: wait for the interviewer to really finish, don't jump into pauses.
                         "turn_detection": {"type": "semantic_vad", "eagerness": "low"},
                     },
-                    "output": {"voice": os.environ.get("OPENAI_REALTIME_VOICE") or DEFAULT_VOICE},
+                    "output": {"voice": voice_for(persona)},
                 },
             },
         )

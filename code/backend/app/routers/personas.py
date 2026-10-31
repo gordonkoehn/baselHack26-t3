@@ -1,4 +1,3 @@
-import os
 import uuid
 from collections.abc import Callable
 from typing import Annotated
@@ -8,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import extract
 from app.contracts import Evidence, Fact, Persona, PersonaCreate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
+from app.faces import FACES, VOICES
 from app.store import Store, get_store
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
@@ -88,13 +88,14 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         # The reason names ids and rules only, never source text.
         raise HTTPException(502, f"persona extraction unusable: {exc}") from None
 
+    face_id, gender, _ = FACES[draft.face]
     persona = Persona(
-        **draft.model_dump(),
+        **draft.model_dump(exclude={"face"}),
         id=f"p_{uuid.uuid4().hex[:12]}",
         sprint_id=body.sprint_id,
         language=body.language,
-        voice_id=os.environ.get("PERSONA_VOICE_ID", "stock_f_01"),
-        face_id=os.environ.get("PERSONA_FACE_ID", "stock_f_01"),
+        voice_id=VOICES[gender],
+        face_id=face_id,
         cloned=False,
         readiness=None,
     )
