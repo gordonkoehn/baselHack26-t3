@@ -101,6 +101,7 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         readiness=None,
     )
     store.save_persona(persona)
+    store.save_persona_sources(persona.id, body)
     return persona
 
 

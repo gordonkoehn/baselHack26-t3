@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import avatar, realtime
-from app.contracts import Persona
+from app.contracts import Persona, PersonaCreate
 from app.main import app
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
@@ -117,6 +117,25 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
         "type": "semantic_vad",
         "eagerness": "low",
     }
+
+
+def test_token_instructions_carry_product_material_and_guide(client, secrets):
+    store = app.dependency_overrides[get_store]()
+    store.save_persona_sources(
+        PERSONA["id"],
+        PersonaCreate(
+            language="de",
+            sources=[
+                {"kind": "note", "text": "Prototype: Kilo-Shares slider screen"},
+                {"kind": "transcript", "text": "P1: secret interview words"},
+            ],
+        ),
+    )
+    client.post(f"/api/sessions/{new_session(client)['id']}/token")
+    text = secrets.calls[0]["session"]["instructions"]
+    assert "Kilo-Shares slider screen" in text and "- Q1" in text
+    # Transcripts are already distilled into the facts, so they stay out of the prompt.
+    assert "secret interview words" not in text
 
 
 def test_guesses_are_marked_in_instructions():
