@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, useMemo } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import exampleReport from "../../../shared/examples/coverage-report.json";
@@ -8,6 +8,8 @@ import type { CoverageReport, Persona, PersonaSource } from "@/lib/contracts";
 import { QUARTIER_BOERSE } from "@/lib/sample";
 import { OPEN_GOAL, SAMPLE_GOAL, hasLevels, localDiversity, sameTest, startingInput, useCoverage, type Coverage } from "@/lib/useCoverage";
 import { PersonaScore } from "./PersonaScore";
+import { CoverageCheck } from "./CoverageCheck";
+import { PersonaOverview } from "./PersonaOverview";
 
 const PERSONA = { ...examplePersona, id: "p_1", version: 1 } as unknown as Persona;
 const REPORT = exampleReport as unknown as CoverageReport;
@@ -27,6 +29,110 @@ function show(coverage: Coverage, sources: PersonaSource[] = [NOTE, CALL]) {
 
 const interview = () => screen.getByRole("button", { name: "Go to the interview" });
 const addMore = () => screen.getByRole("button", { name: "Add more" });
+
+const HIGH_SCORE: CoverageReport = {
+  ...REPORT,
+  score: 0.92,
+  recommendation: "ready",
+  overall: "add_more",
+  categories: REPORT.categories.map((c) => ({ ...c, level: "green", score: 0.92, recommendation: null })),
+  sourceDiversity: { count: 1, kinds: ["note"], minimum: 2, met: false },
+};
+
+function detailCoverage(report: CoverageReport | null, over: Partial<Coverage> = {}): Coverage {
+  return {
+    goal: REPORT.testGoal, setGoal: vi.fn(), criteria: [], setCriteria: vi.fn(),
+    report, current: report, answers: {}, setAnswers: vi.fn(), checking: false,
+    submitting: false, busy: false, error: null, stale: false, personaChanged: false,
+    check: vi.fn(), submit: vi.fn(), ...over,
+  };
+}
+
+function showDetails(coverage: Coverage) {
+  render(<CoverageCheck coverage={coverage} />);
+  render(<PersonaOverview persona={PERSONA} sources={[NOTE]} coverage={coverage.current}
+    onVerify={vi.fn()} onSave={vi.fn()} onEditProfile={vi.fn()} />);
+  return screen.getByRole("button", { name: /^Coverage/ });
+}
+
+describe("coverage verdict consistency", () => {
+  it.each([
+    ["one source", HIGH_SCORE],
+    ["a red category", {
+      ...HIGH_SCORE,
+      sourceDiversity: REPORT.sourceDiversity,
+      categories: [REPORT.categories[0], ...HIGH_SCORE.categories.slice(1)],
+    }],
+  ])("uses overall despite a ready recommendation and a high score with %s", (_reason, report) => {
+    show(idle({ current: report }));
+    const overview = showDetails(detailCoverage(report));
+    expect(screen.getByTestId("score-overall").textContent).toBe("Add more first.");
+    const verdict = screen.getByTestId("coverage-verdict");
+    expect(verdict.textContent).toBe("Add more first.");
+    expect(verdict.className).not.toContain("bg-accent-soft");
+    expect(verdict.className).not.toContain("text-accent");
+    expect(overview.textContent).toContain("Add more first.");
+    expect(overview.textContent).toContain("92%");
+    expect(screen.getByTestId("coverage-score").textContent).toBe("92%");
+    expect(screen.queryByText(/ready for this test|Covers this test/)).toBeNull();
+    expect((interview() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("uses a good-enough overall even when the numerical recommendation differs", () => {
+    const report: CoverageReport = { ...HIGH_SCORE, overall: "good_enough", recommendation: "needs_input",
+      sourceDiversity: REPORT.sourceDiversity };
+    show(idle({ current: report }));
+    const overview = showDetails(detailCoverage(report));
+    expect(screen.getByTestId("score-overall").textContent).toBe("Good enough to test.");
+    expect(screen.getByTestId("coverage-verdict").textContent).toBe("Good enough to test.");
+    expect(screen.getByTestId("coverage-verdict").className).toContain("bg-accent-soft");
+    expect(overview.textContent).toContain("Good enough to test.");
+    expect(screen.getByTestId("coverage-score").textContent).toBe("92%");
+  });
+
+  it.each([false, true])("does not present an invalidated report as current (persona changed: %s)", (personaChanged) => {
+    const coverage = detailCoverage({ ...HIGH_SCORE, overall: "good_enough" }, { current: null, stale: true, personaChanged });
+    show(coverage);
+    const overview = showDetails(coverage);
+    expect(screen.getByTestId("score-overall").textContent).toContain("Needs a new check.");
+    expect(screen.getByTestId("coverage-verdict").textContent).toBe("Needs a new check.");
+    expect(screen.getByTestId("coverage-verdict").className).not.toContain("bg-accent-soft");
+    expect(overview.textContent).toContain("not checked yet");
+    expect(within(overview).queryByText("92%")).toBeNull();
+    expect(screen.queryByText("Good enough to test.")).toBeNull();
+    expect((interview() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps unchecked details neutral when no report exists", () => {
+    const overview = showDetails(detailCoverage(null));
+    expect(overview.textContent).toContain("not checked yet");
+    expect(screen.queryByTestId("coverage-verdict")).toBeNull();
+    expect(screen.queryByTestId("coverage-score")).toBeNull();
+  });
+
+  it.each([undefined, null, "unknown"])("keeps Score and details neutral when overall is %s", (overall) => {
+    const report = { ...HIGH_SCORE, overall } as unknown as CoverageReport;
+    const coverage = detailCoverage(report);
+    const { onInterview, onAddMore } = show(coverage);
+    const overview = showDetails(coverage);
+    const score = screen.getByTestId("score-overall");
+    expect(score.textContent).toContain("Needs a new check.");
+    expect(screen.queryByText("Good enough to test.")).toBeNull();
+    expect(interview().className).not.toContain("bg-accent");
+    expect(addMore().className).not.toContain("bg-accent");
+    fireEvent.click(within(score).getByRole("button", { name: "Check now" }));
+    expect(coverage.check).toHaveBeenCalledOnce();
+    fireEvent.click(interview());
+    fireEvent.click(addMore());
+    expect(onInterview).toHaveBeenCalledOnce();
+    expect(onAddMore).toHaveBeenCalledOnce();
+    expect(overview.textContent).toContain("not checked yet");
+    expect(screen.getByTestId("coverage-verdict").textContent).toBe("Not checked");
+    expect(screen.getByTestId("coverage-verdict").className).not.toContain("bg-accent-soft");
+    expect(screen.getByTestId("coverage-verdict").className).not.toContain("text-accent");
+    expect(screen.getByTestId("coverage-score").textContent).toBe("92%");
+  });
+});
 
 describe("PersonaScore", () => {
   it("shows each category's percentage, level word, reason and recommendation", () => {

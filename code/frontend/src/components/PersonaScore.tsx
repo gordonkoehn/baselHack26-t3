@@ -40,8 +40,7 @@ export function PersonaScore({
   const { current, stale, personaChanged, checking, error, check } = coverage;
   const diversity = current?.sourceDiversity ?? localDiversity(sources);
   const addMore = current?.overall === "add_more";
-  // Emphasis follows the advice, so it waits for it instead of jumping when the check lands.
-  const undecided = checking && !current;
+  const goodEnough = current?.overall === "good_enough";
 
   return (
     <section aria-labelledby="persona-score" className="space-y-4" data-testid="persona-score">
@@ -77,7 +76,7 @@ export function PersonaScore({
 
       <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
         <div className="mr-auto min-w-0" data-testid="score-overall">
-          {current ? (
+          {addMore || goodEnough ? (
             <p className="text-xl font-extrabold tracking-tight">{addMore ? "Add more first." : "Good enough to test."}</p>
           ) : checking ? (
             <p role="status" className="text-xl font-extrabold tracking-tight">
@@ -85,14 +84,16 @@ export function PersonaScore({
             </p>
           ) : (
             <div role={error ? "alert" : undefined} className="text-sm">
-              <p className="text-xl font-extrabold tracking-tight">{stale ? "Needs a new check." : "No check has run yet."}</p>
+              <p className="text-xl font-extrabold tracking-tight">{current || stale ? "Needs a new check." : "No check has run yet."}</p>
               <p className="text-muted">
                 {error ??
-                  (personaChanged
-                    ? `${persona.name} changed since the last check.`
-                    : stale
-                      ? "The test changed since the last check."
-                      : "You can still go to the interview.")}{" "}
+                  (current
+                    ? "The overall result is unavailable. You can still go to the interview."
+                    : personaChanged
+                      ? `${persona.name} changed since the last check.`
+                      : stale
+                        ? "The test changed since the last check."
+                        : "You can still go to the interview.")}{" "}
                 <button type="button" className="font-bold text-accent underline" onClick={() => void check()}>
                   Check now
                 </button>
@@ -103,7 +104,7 @@ export function PersonaScore({
         <button type="button" className={addMore ? PRIMARY : SECONDARY} onClick={onAddMore}>
           Add more
         </button>
-        <button type="button" className={addMore || undecided ? SECONDARY : PRIMARY} onClick={onInterview}>
+        <button type="button" className={goodEnough ? PRIMARY : SECONDARY} onClick={onInterview}>
           Go to the interview
         </button>
       </div>
