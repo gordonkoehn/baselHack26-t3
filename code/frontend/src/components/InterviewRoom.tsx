@@ -2,20 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import type { Persona } from "@/lib/contracts";
+import type { Persona, SessionEvent } from "@/lib/contracts";
+import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 
 // Voice interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
 
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
-type Phase = "idle" | "connecting" | "live" | "ending" | "ended" | "error";
+type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
+type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
 
 // Realtime server events we act on (subset of the GA event list).
 type ServerEvent = {
   type: string;
+  item_id?: string;
+  content_index?: number;
   transcript?: string;
-  response?: { status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+  response?: { id?: string; status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
   error?: { message?: string };
 };
 
@@ -25,6 +29,26 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
+  const [guide, setGuide] = useState(QUARTIER_BOERSE_GUIDE.join("\n"));
+  // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
+  // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
+  const events = useRef<SessionEvent[]>([]);
+  const saved = useRef(0);
+  const sending = useRef<Promise<void> | null>(null);
+  const [saveState, setSaveState] = useState({ saved: 0, total: 0, failed: false });
+  const liveSince = useRef(0);
+  // Provider work still in flight: committed speech awaiting its transcript, and open responses.
+  // "End" waits for both, so the last turn isn't cut off by closing the call.
+  const pending = useRef(new Set<string>());
+  // A provider turn that failed (not cancelled) leaves a hole: the transcript then counts as incomplete.
+  const lost = useRef(false);
+  // Finalized provider items already recorded; the same item must never become two seqs.
+  const seen = useRef(new Set<string>());
+  // Bumped on every start: callbacks of an earlier call or save must not touch the new session.
+  const gen = useRef(0);
+  const asks = useRef(0);
+  const [lastTurnMissing, setLastTurnMissing] = useState(false);
+  const giveUp = useRef(false);
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
@@ -55,13 +79,34 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           askedAt.current = null;
         }
         break;
+      case "input_audio_buffer.speech_started":
+        pending.current.add("speech");
+        break;
+      case "input_audio_buffer.committed":
+        pending.current.delete("speech");
+        if (e.item_id) pending.current.add(`t:${e.item_id}`);
+        break;
+      case "conversation.item.input_audio_transcription.failed":
+        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
+        lost.current = true;
+        break;
+      case "response.created": {
+        // The oldest typed question waiting for its answer is now acknowledged by a real response.
+        const ask = [...pending.current].find((k) => k.startsWith("a:"));
+        if (ask) pending.current.delete(ask);
+        if (e.response?.id) pending.current.add(`r:${e.response.id}`);
+        break;
+      }
       case "conversation.item.input_audio_transcription.completed":
-        if (e.transcript?.trim()) setTurns((t) => [...t, { who: "interviewer", text: e.transcript!.trim() }]);
+        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
+        if (e.transcript?.trim() && once(`t:${e.item_id}`)) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
-        if (e.transcript?.trim()) setTurns((t) => [...t, { who: "persona", text: e.transcript!.trim() }]);
+        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
+        if (e.response?.id) pending.current.delete(`r:${e.response.id}`);
+        if (e.response?.status === "failed" || e.response?.status === "incomplete") lost.current = true;
         const usage = e.response?.usage;
         setMetrics((m) => ({
           ...m,
@@ -80,13 +125,88 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     }
   }
 
+  // True the first time a provider item is seen. Events without an id are always new.
+  function once(key: string) {
+    if (key.includes("undefined")) return true;
+    if (seen.current.has(key)) return false;
+    seen.current.add(key);
+    return true;
+  }
+
+  function addTurn(who: Speaker, text: string) {
+    setTurns((t) => [...t, { who, text }]);
+    record("utterance", { speaker: who, text });
+  }
+
+  function record(type: "utterance" | "session.ended", data: object) {
+    const sid = sessionId.current;
+    if (!sid) return;
+    // Built once and kept: a retry must resend the exact same event, or the backend answers 409.
+    events.current.push({
+      sessionId: sid,
+      seq: events.current.length + 1,
+      at: new Date().toISOString(),
+      type,
+      data,
+    } as SessionEvent);
+    setSaveState((st) => ({ ...st, total: events.current.length }));
+    void flush();
+  }
+
+  // Send everything not yet confirmed, one request at a time so seqs arrive in order.
+  // Resolves true once every recorded event is stored.
+  async function flush(): Promise<boolean> {
+    const sid = sessionId.current;
+    const g = gen.current;
+    while (sid && g === gen.current && saved.current < events.current.length) {
+      if (sending.current) {
+        await sending.current;
+        continue;
+      }
+      const batch = events.current.slice(saved.current);
+      let ok = false;
+      const request: Promise<void> = api
+        .postEvents(sid, batch)
+        .then(() => {
+          if (g !== gen.current) return; // an answer for an earlier session
+          saved.current += batch.length;
+          ok = true;
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (sending.current === request) sending.current = null;
+          if (g === gen.current) setSaveState({ saved: saved.current, total: events.current.length, failed: !ok });
+        });
+      sending.current = request;
+      await request;
+      // Keep the unsent rest for the next turn or the final save instead of hammering the API.
+      if (!ok) return false;
+    }
+    return true;
+  }
+
   async function start() {
     setPhase("connecting");
     setError(null);
     setTurns([]);
     setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    gen.current += 1;
+    const g = gen.current;
+    events.current = [];
+    saved.current = 0;
+    sending.current = null;
+    seen.current.clear();
+    lost.current = false;
+    pending.current.clear();
+    giveUp.current = false;
+    setLastTurnMissing(false);
+    setSaveState({ saved: 0, total: 0, failed: false });
     try {
-      const session = await api.createSession({ personaId: persona.id });
+      const interviewGuide = guide
+        .split("\n")
+        .map((q) => q.trim())
+        .filter(Boolean);
+      const session = await api.createSession({ personaId: persona.id, interviewGuide });
       sessionId.current = session.id;
       const token = await api.sessionToken(session.id);
       if (!token.token || !token.url) throw new Error("no realtime token");
@@ -100,7 +220,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       mic.current.getTracks().forEach((t) => conn.addTrack(t, mic.current!));
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
-      dc.onmessage = (m) => onEvent(JSON.parse(m.data));
+      dc.onmessage = (m) => g === gen.current && onEvent(JSON.parse(m.data));
 
       const offer = await conn.createOffer();
       await conn.setLocalDescription(offer);
@@ -111,7 +231,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       });
       if (!answer.ok) throw new Error(`OpenAI refused the call (${answer.status})`);
       await conn.setRemoteDescription({ type: "answer", sdp: await answer.text() });
+      // Only "live" once events can flow both ways, so an early typed question isn't dropped.
+      if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
       await api.updateSession(session.id, { status: "live" });
+      liveSince.current = Date.now();
       setPhase("live");
     } catch (e) {
       hangUp();
@@ -132,19 +255,53 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         item: { type: "message", role: "user", content: [{ type: "input_text", text: typed.trim() }] },
       }),
     );
+    // Registered before sending, so "End" waits for this answer even before the provider confirms it.
+    pending.current.add(`a:${++asks.current}`);
     dc.send(JSON.stringify({ type: "response.create" }));
-    setTurns((t) => [...t, { who: "interviewer", text: typed.trim() }]);
+    addTurn("interviewer", typed.trim());
     askedAt.current = performance.now();
     setTyped("");
   }
 
   async function end() {
     setPhase("ending");
+    // Mic off first, then wait until the provider has finished every transcript and answer it
+    // started; only then close the call, so the last turn can't be cut off.
+    mic.current?.getTracks().forEach((t) => t.stop());
+    for (let waited = 0; pending.current.size > 0 && waited < 10_000; waited += 200) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (pending.current.size > 0) {
+      // Still not done: keep the call open and let the interviewer decide, never guess "complete".
+      setPhase("waiting");
+      while (pending.current.size > 0 && !giveUp.current) await new Promise((r) => setTimeout(r, 500));
+    }
+    const incomplete = pending.current.size > 0 || lost.current;
+    setLastTurnMissing(incomplete);
     hangUp();
+    // No end marker for an incomplete transcript: the backend then refuses a debrief (409) on its own.
+    if (!incomplete) {
+      record("session.ended", { durationSeconds: Math.round((Date.now() - liveSince.current) / 1000) });
+    }
+    await finish();
+  }
+
+  // The session is only marked ended once the whole transcript, marker included, is stored.
+  async function finish() {
+    setPhase("ending");
+    setError(null);
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      ok = await flush();
+    }
     try {
+      if (!ok) throw new Error("transcript not saved");
       if (sessionId.current) await api.updateSession(sessionId.current, { status: "ended" });
-    } finally {
       setPhase("ended");
+    } catch {
+      setPhase("unsaved");
+      setError(`Transcript not fully saved (${saved.current}/${events.current.length} events). The call is closed.`);
     }
   }
 
@@ -174,11 +331,53 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             </button>
           </>
         )}
-        {phase === "ended" && <span className="text-sm opacity-70">Ended. Microphone is off.</span>}
+        {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
+        {phase === "waiting" && (
+          <>
+            <span className="text-sm opacity-70">Waiting for the last turn to finish…</span>
+            <button
+              type="button"
+              className="rounded border border-current/30 px-3 py-1.5 text-sm"
+              onClick={() => (giveUp.current = true)}
+            >
+              Close without it
+            </button>
+          </>
+        )}
+        {phase === "ended" && (
+          <span className="text-sm opacity-70">
+            {lastTurnMissing
+              ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
+              : "Ended. Microphone is off, transcript saved."}
+          </span>
+        )}
+        {phase === "unsaved" && (
+          <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={finish}>
+            Save again
+          </button>
+        )}
       </div>
       <p className="mt-1 text-xs opacity-60">
         You are talking to an AI persona ({persona.name}), not a real person.
       </p>
+      {(phase === "idle" || phase === "ended" || phase === "error") && (
+        <label className="mt-3 block text-sm">
+          <span className="opacity-70">Interview questions, one per line (the debrief answers these)</span>
+          <textarea
+            className="mt-1 h-20 w-full rounded border border-current/30 bg-transparent p-2 text-sm"
+            value={guide}
+            onChange={(e) => setGuide(e.target.value)}
+          />
+        </label>
+      )}
+      {saveState.total > 0 && (
+        <p className="mt-1 text-xs tabular-nums opacity-60" data-testid="save-state">
+          Transcript saved {saveState.saved}/{saveState.total}
+          {phase === "live" && saveState.failed && saveState.saved < saveState.total
+            ? " · not saved yet, retrying with the next turn"
+            : ""}
+        </p>
+      )}
       {/* Plays the persona's voice once; the microphone is never routed back to the speakers. */}
       <audio ref={audio} autoPlay />
 

@@ -79,3 +79,11 @@ P1: Mit dem Job und den Kindern habe ich kaum Zeit. Mitmachen ja, aber per Klick
 I: Was müsste die App zeigen, damit du dabeibleibst?
 P1: Einen Fortschrittsbalken, wie weit das Projekt ist. Und am Ende ein Foto vom fertigen Spielplatz. Dann wäre ich schon ein bisschen stolz.
 `;
+
+// The sprint questions of the Quartier-Börse test, one per line in the interview card.
+// The debrief answers exactly these, so it never invents its own guide.
+export const QUARTIER_BOERSE_GUIDE = [
+  "Erleben Nutzer:innen das Teilen ihrer Kilo-Shares fürs Quartier als Mehrwert oder als Verlust?",
+  "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
+  "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
+];

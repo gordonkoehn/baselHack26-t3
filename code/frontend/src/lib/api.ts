@@ -4,6 +4,7 @@ import type {
   PersonaCreate,
   Session,
   SessionCreate,
+  SessionEvent,
   SessionToken,
   SessionUpdate,
 } from "@/lib/contracts";
@@ -71,6 +72,13 @@ export const api = {
     fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store" }).then(
       json<SessionToken>,
     ),
+  // Idempotent per seq: resending the same events is safe, a changed event under an old seq is 409.
+  postEvents: (id: string, events: SessionEvent[]) =>
+    fetch(`/api/sessions/${encodeURIComponent(id)}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(events),
+    }).then(json<{ accepted: number }>),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
 };
