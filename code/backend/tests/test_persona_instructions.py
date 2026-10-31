@@ -57,9 +57,10 @@ def test_answers_follow_persona_language(
     persona.language = language
     persona.speech_style.notes = None
     text = persona_instructions(persona)
-    assert f"Always answer in {guidance}" in text
-    assert "regardless of the interviewer's language" in text
-    assert "If asked to switch language" in text
+    assert f"Your language is {guidance}" in text
+    # Johan: switching depends on the persona's background, at a realistic level.
+    assert "switch only to a language your background makes plausible" in text
+    assert "Otherwise decline in one short, natural sentence" in text
     if language == "de":
         assert "Swiss Standard German" in text
         assert "not dialect" in text
