@@ -9,6 +9,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
+from typing import Literal
 
 import openai
 from pydantic import ConfigDict, ValidationError
@@ -32,6 +33,7 @@ from app.provider_log import provider_call
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 TIMEOUT_SECONDS = 90
+PROBE_TIMEOUT_SECONDS = 30
 
 
 class PersonaDraft(Model):
@@ -180,6 +182,32 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
             # No parsed output means a refusal or an incomplete answer.
             raise ExtractionFailed(f"no persona in response (status {response.status})")
     return draft
+
+
+class ProbeAnswer(Model):
+    """One in-character answer to a readiness probe. The text is written first and never kept."""
+
+    answer: str
+    position: Literal["yes", "no", "unsure"]
+    fact_ids: list[str]
+
+
+def answer_probe(instructions: str, question: str) -> ProbeAnswer:
+    with _provider_errors(), provider_call("openai", "readiness_probe"):
+        response = (
+            _client()
+            .with_options(timeout=PROBE_TIMEOUT_SECONDS)
+            .responses.parse(
+                model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+                instructions=instructions,
+                input=question,
+                text_format=ProbeAnswer,
+            )
+        )
+        answer = response.output_parsed
+        if answer is None:
+            raise ExtractionFailed(f"no probe answer in response (status {response.status})")
+    return answer
 
 
 TRANSCRIBE = """\

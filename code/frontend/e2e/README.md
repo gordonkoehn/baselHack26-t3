@@ -19,7 +19,7 @@ end marker and a real 409 debrief response.
 
 Real: Next UI/handlers/proxy, FastAPI routes/contracts, persona evidence checks, Store
 serialization/event sequencing, session transitions, debrief input/quote checks and saved
-report. Fake: deterministic extraction outputs from shared examples, token provider client,
+report. Fake: deterministic extraction outputs from shared examples, readiness probe answers, token provider client,
 existing FakeRedis transport, SDP/WebRTC data channel and a silent synthetic microphone track.
 Camera requests are explicitly rejected and the visible voice-only fallback is checked. Every
 original microphone track is retained for cleanup assertions; closing the fake peer does not

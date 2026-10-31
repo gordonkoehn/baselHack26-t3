@@ -1,3 +1,4 @@
+import time
 import uuid
 from collections.abc import Callable
 from typing import Annotated
@@ -7,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import extract
 from app.auth import require_passcode
 from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaUpdate
-from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
+from app.extract import ExtractionFailed, PersonaDraft, ProbeAnswer, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
+from app.readiness import score_readiness
 from app.store import Store, get_store
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
@@ -21,6 +23,13 @@ def get_extractor() -> Callable[[PersonaCreate], PersonaDraft]:
 
 
 ExtractorDep = Annotated[Callable[[PersonaCreate], PersonaDraft], Depends(get_extractor)]
+
+
+def get_prober() -> Callable[[str, str], ProbeAnswer]:
+    return extract.answer_probe
+
+
+ProberDep = Annotated[Callable[[str, str], ProbeAnswer], Depends(get_prober)]
 
 
 def _norm(text: str) -> str:
@@ -79,7 +88,10 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
 @router.post(
     "", status_code=201, response_model_by_alias=True, dependencies=[Depends(require_passcode)]
 )
-def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep) -> Persona:
+def create_persona(
+    body: PersonaCreate, store: StoreDep, extractor: ExtractorDep, prober: ProberDep
+) -> Persona:
+    started = time.monotonic()
     if any(not s.text.strip() for s in body.sources):
         raise HTTPException(422, "every source needs text")
     try:
@@ -103,6 +115,8 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         cloned=False,
         readiness=None,
     )
+    readiness = score_readiness(persona, body.sources, prober, time.monotonic() - started)
+    persona = persona.model_copy(update={"readiness": readiness})
     store.save_persona(persona)
     store.save_persona_sources(persona.id, body)
     return persona
@@ -134,7 +148,9 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             for f in new
         ]
 
-    changes: dict = {"version": persona.version + 1}
+    # The score described the persona before this edit. Re-probing every edit would cost ten more
+    # provider calls, so the persona simply has no score from here on.
+    changes: dict = {"version": persona.version + 1, "readiness": None}
     for name in ("jobs", "pains", "objections"):
         new = getattr(body, name)
         if new is not None:

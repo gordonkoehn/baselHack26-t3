@@ -11,10 +11,10 @@ from pydantic import Field, create_model
 
 from app import avatar, realtime
 from app.contracts import InsightReport, Persona, Session, SessionEvent, SessionToken
-from app.extract import DebriefDraft, PersonaDraft
+from app.extract import DebriefDraft, PersonaDraft, ProbeAnswer
 from app.main import app
 from app.routers.insights import get_debriefer
-from app.routers.personas import get_extractor
+from app.routers.personas import get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
 
@@ -100,6 +100,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
             }
         )
     monkeypatch.setitem(app.dependency_overrides, get_extractor, lambda: lambda _request: draft)
+    answer = ProbeAnswer(answer="Ja.", position="yes", fact_ids=["F1"])
+    monkeypatch.setitem(app.dependency_overrides, get_prober, lambda: lambda *_args: answer)
     created = response(
         client.post(
             "/api/personas",

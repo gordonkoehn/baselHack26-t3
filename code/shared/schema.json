@@ -78,6 +78,7 @@
         "cloned": { "type": "boolean", "description": "true only with written consent of the real person." },
         "readiness": {
           "type": ["object", "null"],
+          "description": "Measured once at creation: consistency is the share of probe questions both runs answered alike, grounding the share of answers relying mainly on grounded facts, score their product. null if the check failed or the persona was edited since.",
           "required": ["score", "consistency", "grounding"],
           "properties": {
             "score": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -90,7 +91,7 @@
     },
     "PersonaUpdate": {
       "type": "object",
-      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. Bumps version.",
+      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. Bumps version and clears readiness.",
       "properties": {
         "jobs": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
         "pains": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },

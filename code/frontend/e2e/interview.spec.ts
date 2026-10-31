@@ -197,6 +197,25 @@ test("backend unavailable is announced and the same sources can be retried", asy
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
+test("the card shows the readiness score and explains when there is none", async ({ page }) => {
+  await createPersona(page);
+  const readiness = page.getByTestId("readiness");
+  // The fake always cites F1, but the example's quotes aren't in the sample sources, so the real
+  // evidence check has already made it a guess: citing it can't earn any grounding.
+  await expect(readiness).toContainText("Readiness 0.00: consistency 1.00 · grounding 0.00");
+  await page.getByRole("button", { name: /^Remove: / }).first().click();
+  await expect(readiness).toHaveText("No readiness score: this persona was edited after creation and is not re-checked.");
+
+  // A failed check still gives a usable persona.
+  await page.route("**/api/personas", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), readiness: null } });
+  });
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  await page.getByRole("button", { name: "Rebuild persona", exact: true }).click();
+  await expect(readiness).toHaveText("No readiness score: the check did not finish.");
+});
+
 test("failed last transcription cannot claim a complete transcript or show debrief", async ({ page, request }) => {
   const session = await startInterview(page);
   await page.getByLabel("Type a question").fill(typedQuestion);
