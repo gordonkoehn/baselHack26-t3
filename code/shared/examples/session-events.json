@@ -7,5 +7,5 @@
   { "sessionId": "s_1", "seq": 6, "at": "2026-10-31T14:13:07Z", "type": "utterance", "data": { "speaker": "persona", "text": "Moment, ich hab doch alles ins Projekt gegeben? Da steht sechs und sechs.", "tStart": 777.0, "tEnd": 781.0 } },
   { "sessionId": "s_1", "seq": 7, "at": "2026-10-31T14:13:15Z", "type": "utterance", "data": { "speaker": "interviewer", "text": "Ist das nicht ein tolles Gefühl, dem Quartier zu helfen?", "tStart": 785.0, "tEnd": 788.1 } },
   { "sessionId": "s_1", "seq": 8, "at": "2026-10-31T14:13:16Z", "type": "copilot.suggestion", "data": { "kind": "leading_question", "text": "Leading question. Try: 'Wie fühlt sich diese Aufteilung für Sie an?'", "turnSeq": 7 } },
-  { "sessionId": "s_1", "seq": 9, "at": "2026-10-31T14:30:00Z", "type": "session.ended", "data": { "durationSeconds": 1800 } }
+  { "sessionId": "s_1", "seq": 9, "at": "2026-10-31T14:30:00Z", "type": "session.ended", "data": { "durationSeconds": 1800, "transcriptGaps": false } }
 ]
