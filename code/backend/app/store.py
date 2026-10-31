@@ -78,6 +78,15 @@ return {'ok', ARGV[2]}
 """
 SESSION_TRANSITION_ATTEMPTS = 16
 
+# KEYS[1] = persona JSON, KEYS[2] = coverage; ARGV = persona version the report judged, report, TTL.
+# Saves only while the persona still has that version, atomically with any edit in between.
+SAVE_COVERAGE = """
+local raw = redis.call('GET', KEYS[1])
+if not raw or cjson.decode(raw)['version'] ~= tonumber(ARGV[1]) then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
 
 class SessionConflict(Exception):
     """The requested status would move a session backwards."""
@@ -171,12 +180,23 @@ class Store:
         value = json.loads(raw)
         return value["mime"], base64.b64decode(value["data"])
 
-    # Only the last check per persona: a re-check compares against it so the score stays stable.
-    def save_coverage(self, report: CoverageReport) -> None:
-        self._put(f"{PREFIX}:coverage:{report.persona_id}", report)
+    # Only the last check per persona: a re-check after answers compares against it.
+    def save_coverage(self, report: CoverageReport) -> bool:
+        """False, and nothing saved, if the persona is no longer the version the report judged."""
+        keys = [f"{PREFIX}:persona:{report.persona_id}", f"{PREFIX}:coverage:{report.persona_id}"]
+        args = [str(report.persona_version), _dump(report), str(TTL_SECONDS)]
+        return bool(self._call("eval", SAVE_COVERAGE, keys=keys, args=args))
 
     def get_coverage(self, persona_id: str) -> CoverageReport | None:
-        return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        try:
+            return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        except ValidationError:
+            # Saved before the report had categories. It only keeps a re-check from losing
+            # ground, and its criteria differ anyway, so it is as good as no report.
+            return None
+
+    def delete_coverage(self, persona_id: str) -> None:
+        self._call("delete", f"{PREFIX}:coverage:{persona_id}")
 
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:

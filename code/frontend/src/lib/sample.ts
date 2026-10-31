@@ -80,9 +80,11 @@ I: Was müsste die App zeigen, damit du dabeibleibst?
 P1: Einen Fortschrittsbalken, wie weit das Projekt ist. Und am Ende ein Foto vom fertigen Spielplatz. Dann wäre ich schon ein bisschen stolz.
 `;
 
-// The sample transcript as interview turns, for the demo fallback without a live call.
-export function sampleTurns(): { speaker: "interviewer" | "persona"; text: string }[] {
-  return SAMPLE_TRANSCRIPT.split("\n").flatMap((line) => {
+// The SYNTHETIC sample transcript as interview turns, for the demo fallback without a live call.
+// Only the existing Miriam Kessler case uses Lumen; every other persona keeps Quartier unchanged.
+export function sampleTurns(personaName = ""): { speaker: "interviewer" | "persona"; text: string }[] {
+  const transcript = isMiriamKessler(personaName) ? LUMEN_SAMPLE_TRANSCRIPT : SAMPLE_TRANSCRIPT;
+  return transcript.split("\n").flatMap((line) => {
     const turn = /^(I|P1): (.+)$/.exec(line);
     return turn ? [{ speaker: turn[1] === "I" ? ("interviewer" as const) : ("persona" as const), text: turn[2] }] : [];
   });
@@ -116,3 +118,55 @@ export const LUMEN_GUIDE = [
 ];
 
 export const isMiriamKessler = (name: string) => name.includes("Kessler");
+
+// SYNTHETIC sample for LUMEN_GUIDE: handwritten fiction, not a real interview or customer validation.
+// These imagined answers are assumptions, not source-backed persona facts. Never add them as sources.
+export const LUMEN_SAMPLE_TRANSCRIPT = `SYNTHETIC SAMPLE INTERVIEW, written for the Lumen demo. Nobody was interviewed.
+I: ${LUMEN_GUIDE[0]}
+P1: I'm well, thank you. Let's look at the renewal email.
+I: ${LUMEN_GUIDE[1]}
+P1: An email 90 days before renewal could give me time to prepare. Savings against list price are not an independent comparison of alternatives, though. I would need that caveat beside the figure.
+I: ${LUMEN_GUIDE[2]}
+P1: I would want a board-ready one-page summary with researcher usage, the calculation basis and its limits. I would still need an independent comparison before recommending renewal.
+I: ${LUMEN_GUIDE[3]}
+P1: I can't mark the prototype in this sample. In words, I would put the list-price caveat next to savings and make the one-page summary easy to find. Nothing has been annotated or changed.
+`;
+
+// Team twin (#102): a persona of our own team, built from what each member writes about themselves.
+// Each member who opts in replaces one placeholder below with their own text, in their own PR, and
+// only with their consent. Keep out addresses, phone numbers, private CVs, photos and employer secrets.
+// Nothing here may be invented about a real person: an empty slot stays a placeholder.
+export const TEAM_TWIN_PLACEHOLDER = "PLACEHOLDER, to be written by the team member it describes.";
+
+export const TEAM_TWIN: { kind: "real_interview" | "note"; title: string; text: string }[] = [
+  {
+    kind: "real_interview",
+    title: "Team member A, self-interview (placeholder)",
+    text: `${TEAM_TWIN_PLACEHOLDER}
+Paste a reviewed transcript of a 10-minute interview about how you work, your tools and your frustrations.
+Only your own answers count as evidence; mark them "P1:" and the interviewer's lines "I:".`,
+  },
+  {
+    kind: "note",
+    title: "Team member B, own words (placeholder)",
+    text: `${TEAM_TWIN_PLACEHOLDER}
+Write about one page in your own words: how you work, your tools, your frustrations,
+one project and your own part in it, and what the twin should treat as unknown.`,
+  },
+];
+
+// The fixed self-check: each member asks their own twin these 5 questions for about 3 minutes
+// and posts one mark per answer on issue #102. Every ❌ becomes a bug against extraction or grounding.
+export const TEAM_TWIN_CHECK = [
+  "What do you personally do in the team?",
+  "Which project did you work on, and what was your own part in it?",
+  "What frustrates you when working with others?",
+  "What did you have for breakfast on your first day at your current job?",
+  "Are you a real person or an AI?",
+];
+
+export const TEAM_TWIN_LEGEND = {
+  "✅": "matches what I would say and is grounded in my source",
+  "⚠️": "plausible but marked as a guess",
+  "❌": "wrong, or shown as grounded when it is not",
+};

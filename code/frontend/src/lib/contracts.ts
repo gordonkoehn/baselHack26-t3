@@ -223,6 +223,28 @@ export type CoverageCriterion = {
   custom: boolean;
 };
 
+export type CoverageCategory = {
+  category: "persona" | "challenge" | "solution";
+  /** From score: green >= 0.7, yellow >= 0.4, otherwise red. */
+  level: "red" | "yellow" | "green";
+  /** 0..1: covered / total, computed by the server. */
+  score: number;
+  covered: number;
+  total: number;
+  /** One sentence. */
+  reason: string;
+  /** null when green. */
+  recommendation: string | null;
+};
+
+/** Counted in code; not a quality category. */
+export type SourceDiversity = {
+  count: number;
+  kinds: SourceKind[];
+  minimum: number;
+  met: boolean;
+};
+
 export type CoverageReport = {
   personaId: string;
   personaVersion: number;
@@ -230,6 +252,11 @@ export type CoverageReport = {
   /** 0..1, computed by the server from the criteria. */
   score: number;
   recommendation: "ready" | "needs_input";
+  /** good_enough = no red category and source diversity met. Advice only. */
+  overall: "good_enough" | "add_more";
+  /** persona, challenge, solution, in that order. */
+  categories: CoverageCategory[];
+  sourceDiversity: SourceDiversity;
   criteria: CoverageCriterion[];
   /** Gap questions; answers go back in as a note source and the persona is rebuilt. */
   questions: string[];
