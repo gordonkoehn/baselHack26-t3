@@ -116,7 +116,7 @@
       }
     },
 
-    "Provider": { "enum": ["tavus", "anam", "livekit", "openai-realtime"], "description": "Which realtime vendor the browser joins." },
+    "Provider": { "enum": ["tavus", "anam", "livekit", "openai-realtime", "simli"], "description": "Which realtime vendor the browser joins." },
     "Session": {
       "type": "object",
       "required": ["id", "personaId", "status", "provider"],
@@ -271,6 +271,7 @@
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
     "PATCH /api/sessions/{id}": { "body": "SessionUpdate", "response": "Session", "status": "draft" },
     "POST /api/sessions/{id}/token": { "response": "SessionToken", "status": "draft" },
+    "POST /api/sessions/{id}/avatar-token": { "response": "SessionToken", "status": "draft", "note": "provider simli: short-lived Simli session token for the persona's face (SIMLI_API_KEY stays server-side), url null. 404 unknown session/persona, 409 after ended, 503 Simli unavailable or not configured." },
     "POST /api/sessions/{id}/events": { "body": "SessionEvent[]", "response": { "accepted": "integer" }, "status": "draft" },
     "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },
     "POST /api/sessions/{id}/coach": { "body": "{ turnSeq }", "response": "SessionEvent (copilot.suggestion)", "status": "draft" },

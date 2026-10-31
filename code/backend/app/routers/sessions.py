@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from app import realtime
+from app import avatar, realtime
 from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
 from app.extract import ProviderUnavailable
 from app.store import Store, get_store
@@ -81,5 +81,22 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     except ProviderUnavailable:
         raise HTTPException(503, "voice provider unavailable") from None
     # A bearer token: never cache it anywhere between the backend and the browser.
+    response.headers["Cache-Control"] = "no-store"
+    return token
+
+
+@router.post("/{session_id}/avatar-token", response_model_by_alias=True)
+def avatar_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
+    """Short-lived Simli token for the persona's face; the browser opens the avatar stream itself."""
+    session = _load(store, session_id)
+    if session.status == "ended":
+        raise HTTPException(409, "session has ended")
+    persona = store.get_persona(session.persona_id)
+    if persona is None:
+        raise HTTPException(404, "persona not found")
+    try:
+        token = avatar.mint_session_token(persona)
+    except ProviderUnavailable:
+        raise HTTPException(503, "avatar provider unavailable") from None
     response.headers["Cache-Control"] = "no-store"
     return token

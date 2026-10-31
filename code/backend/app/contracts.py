@@ -103,7 +103,7 @@ class PersonaCreate(Model):
     sources: list[PersonaSource] = Field(min_length=1)
 
 
-Provider = Literal["tavus", "anam", "livekit", "openai-realtime"]
+Provider = Literal["tavus", "anam", "livekit", "openai-realtime", "simli"]
 
 
 class Session(Model):

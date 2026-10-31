@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
@@ -58,6 +59,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
+  // The persona's voice track; the avatar lip-syncs it and then plays it instead of <audio>.
+  const [voice, setVoice] = useState<MediaStreamTrack | null>(null);
+  const [avatarOn, setAvatarOn] = useState(false);
+  const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
@@ -85,6 +90,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         }
         break;
       case "input_audio_buffer.speech_started":
+        // The interviewer talks over the persona: stop the avatar's queued mouth movement too.
+        avatar.current?.clear();
         pending.current.add("speech");
         break;
       case "input_audio_buffer.committed":
@@ -197,6 +204,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     setPhase("connecting");
     setError(null);
     setTurns([]);
+    setVoice(null);
     setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
     gen.current += 1;
     const g = gen.current;
@@ -225,6 +233,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       pc.current = conn;
       conn.ontrack = (ev) => {
         if (audio.current) audio.current.srcObject = ev.streams[0];
+        setVoice(ev.track);
       };
       mic.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       mic.current.getTracks().forEach((t) => conn.addTrack(t, mic.current!));
@@ -401,7 +410,18 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         </p>
       )}
       {/* Plays the persona's voice once; the microphone is never routed back to the speakers. */}
-      <audio ref={audio} autoPlay />
+      {/* Stays attached even while muted: Chrome only feeds remote audio to the avatar then. */}
+      <audio ref={audio} autoPlay muted={avatarOn} />
+      {voice && sessionId.current && (phase === "live" || phase === "ending" || phase === "waiting") && (
+        <Avatar
+          sessionId={sessionId.current}
+          track={voice}
+          onActive={(control) => {
+            avatar.current = control;
+            setAvatarOn(control !== null);
+          }}
+        />
+      )}
 
       {phase === "live" && (
         <div className="mt-3 flex gap-2">

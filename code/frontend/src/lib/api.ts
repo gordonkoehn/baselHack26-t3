@@ -73,6 +73,11 @@ export const api = {
     fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store" }).then(
       json<SessionToken>,
     ),
+  // Short-lived Simli token for the persona's face; the browser opens the avatar stream itself.
+  avatarToken: (id: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(id)}/avatar-token`, { method: "POST", cache: "no-store" }).then(
+      json<SessionToken>,
+    ),
   // Idempotent per seq: resending the same events is safe, a changed event under an old seq is 409.
   postEvents: (id: string, events: SessionEvent[]) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}/events`, {
