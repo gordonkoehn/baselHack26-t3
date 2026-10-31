@@ -26,8 +26,9 @@ describe("watchConnection", () => {
     const { dc, onLoss, setState } = fakeCall();
 
     setState(state);
-    dc.dispatchEvent(new Event("close"));
+    expect(onLoss).toHaveBeenCalledOnce();
 
+    dc.dispatchEvent(new Event("close"));
     expect(onLoss).toHaveBeenCalledOnce();
   });
 
