@@ -329,7 +329,10 @@
           "if": { "properties": { "type": { "const": "session.ended" } } },
           "then": { "properties": { "data": {
             "type": "object",
-            "properties": { "durationSeconds": { "type": "number" } }
+            "properties": {
+              "durationSeconds": { "type": "number" },
+              "transcriptGaps": { "type": "boolean", "description": "True when part of a live call may not have been captured: failed transcription or response, rejected question or provider error tied to no request, connection trouble (a drop, a disconnect even if it recovered, or not healthy at End or close), closed before it arrived, heard audio with no saved words, or saved words answering speech that transcribed blank. Some of these can warn falsely. Absent means no gap is known." }
+            }
           } } }
         }
       ]
@@ -353,6 +356,7 @@
       "properties": {
         "sessionId": { "type": "string" },
         "generatedAt": { "type": "string", "format": "date-time" },
+        "transcriptGaps": { "type": "boolean", "description": "Set by the server from the session.ended marker, never by the model. True: the debrief rests on a transcript with lost turns and must say so." },
         "questions": {
           "type": "array",
           "items": {

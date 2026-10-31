@@ -225,6 +225,8 @@ class InsightQuestion(Model):
 class InsightReport(Model):
     session_id: str
     generated_at: str
+    # From the session.ended marker, never from the model. Reports saved before this field read False.
+    transcript_gaps: bool = False
     questions: list[InsightQuestion]
 
 

@@ -5,12 +5,13 @@ function fakeCall(connectionState = "connected", readyState = "open") {
   const pc = Object.assign(new EventTarget(), { connectionState });
   const dc = Object.assign(new EventTarget(), { readyState });
   const onLoss = vi.fn();
-  const dispose = watchConnection(pc as unknown as RTCPeerConnection, dc as unknown as RTCDataChannel, onLoss);
+  const onDisconnected = vi.fn();
+  const dispose = watchConnection(pc as unknown as RTCPeerConnection, dc as unknown as RTCDataChannel, onLoss, onDisconnected);
   const setState = (state: string) => {
     pc.connectionState = state;
     pc.dispatchEvent(new Event("connectionstatechange"));
   };
-  return { dc, onLoss, dispose, setState };
+  return { dc, onLoss, onDisconnected, dispose, setState };
 }
 
 beforeEach(() => {
@@ -84,11 +85,34 @@ describe("watchConnection", () => {
     expect(onLoss).not.toHaveBeenCalled();
   });
 
+  it("reports a disconnect straight away, even one that recovers within the grace", () => {
+    const { onLoss, onDisconnected, setState } = fakeCall();
+
+    setState("disconnected");
+    expect(onDisconnected).toHaveBeenCalled();
+    vi.advanceTimersByTime(4_900);
+    setState("connected");
+    vi.advanceTimersByTime(10_000);
+
+    expect(onLoss).not.toHaveBeenCalled();
+  });
+
+  it.each(["new", "connecting", "connected"])("does not count %s as a disconnect", (state) => {
+    const { onDisconnected, setState } = fakeCall();
+
+    setState(state);
+
+    expect(onDisconnected).not.toHaveBeenCalled();
+  });
+
   it("stays quiet after disposal: intentional closes and pending timers are not a loss", () => {
-    const { dc, onLoss, dispose, setState } = fakeCall();
+    const { dc, onLoss, onDisconnected, dispose, setState } = fakeCall();
 
     setState("disconnected");
     dispose();
+    onDisconnected.mockClear();
+    setState("disconnected");
+    expect(onDisconnected).not.toHaveBeenCalled();
     dc.dispatchEvent(new Event("close"));
     setState("failed");
     vi.advanceTimersByTime(10_000);
