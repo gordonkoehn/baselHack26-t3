@@ -37,7 +37,7 @@ export function ProductBrief({
   nextLabel = "Next: add sources",
 }: {
   product: Product;
-  onProduct: (product: Product) => void;
+  onProduct: (patch: Partial<Product>) => void;
   guide: string;
   onGuide: (guide: string) => void;
   onNext: () => void;
@@ -68,7 +68,7 @@ export function ProductBrief({
             className={input}
             value={product.name}
             maxLength={NAME_MAX}
-            onChange={(e) => onProduct({ ...product, name: e.target.value })}
+            onChange={(e) => onProduct({ name: e.target.value })}
             placeholder="For example: GlowPot"
           />
         </label>
@@ -81,7 +81,7 @@ export function ProductBrief({
             className={`${input} h-36 leading-relaxed`}
             value={product.description}
             maxLength={DESCRIPTION_MAX}
-            onChange={(e) => onProduct({ ...product, description: e.target.value })}
+            onChange={(e) => onProduct({ description: e.target.value })}
           />
         </label>
         <label className="block text-sm">
@@ -95,7 +95,7 @@ export function ProductBrief({
             inputMode="url"
             value={product.prototypeUrl ?? ""}
             maxLength={URL_MAX}
-            onChange={(e) => onProduct({ ...product, prototypeUrl: e.target.value })}
+            onChange={(e) => onProduct({ prototypeUrl: e.target.value })}
             placeholder="https://"
           />
         </label>

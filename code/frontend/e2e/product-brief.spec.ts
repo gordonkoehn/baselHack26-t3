@@ -87,6 +87,74 @@ for (const mode of ["interview", "test call"] as const) {
     // The independent export suite checks debrief metadata with a matching provider fixture.
     // This fixed-provider harness deliberately cannot debrief arbitrary questions or no speech.
   });
+
+  for (const field of ["name", "prototypeUrl"] as const) {
+    test(`${field}-only draft edits never send sample siblings to a custom-source ${mode}`, async ({ page, request }) => {
+      await page.goto("/studio");
+      await page.getByRole("button", { name: "Product", exact: true }).click();
+      await expect(page.getByLabel("Product name", { exact: true })).toHaveValue("Quartier-Börse");
+      await expect(page.getByLabel("What it is")).toHaveValue(/Kilo-Shares/);
+      await page.getByLabel(field === "name" ? "Product name" : "Prototype link (optional)", { exact: field === "name" }).fill(product[field]!);
+      await page.getByRole("button", { name: "Sources", exact: true }).click();
+      await page.getByLabel("Source 1 text").fill("SYNTHETIC own research about apartment plant care.");
+      await page.getByLabel("Source 2 text").fill("SYNTHETIC resident forgets when their plants need watering.");
+      const persona = await build(page);
+      await page.getByRole("button", { name: "Product", exact: true }).click();
+      await expect(page.getByLabel("Product name", { exact: true })).toHaveValue(field === "name" ? product.name : "");
+      await expect(page.getByLabel("What it is")).toHaveValue("");
+      await expect(page.getByLabel("Prototype link (optional)")).toHaveValue(field === "prototypeUrl" ? product.prototypeUrl! : "");
+      await expect(page.getByLabel("Sprint questions, one per line")).toHaveValue("");
+      // Give the normal interview explicit own questions after building. The short test call
+      // intentionally has no interview guide and must still get the same scoped Product.
+      await page.getByRole("button", { name: "Interview", exact: true }).click();
+      await page.getByLabel(questionsLabel).fill(guide);
+      if (mode === "test call") await page.getByRole("button", { name: "Add more", exact: true }).first().click();
+      const room = page.getByTestId("interview-room").filter({ visible: true });
+      await expect(room.getByTestId("product-under-test")).toContainText("No product described");
+
+      async function startAndCheck(expectedProduct: Product | null): Promise<Session> {
+        const created = sessionCreated(page);
+        await room.getByRole("button", { name: /^(Start video interview|Start again)$/ }).click();
+        const response = await created;
+        expect(response.status()).toBe(201);
+        const expected = {
+          personaId: persona.id,
+          product: expectedProduct,
+          interviewGuide: mode === "interview" ? [guide] : [],
+        };
+        const payload: unknown = response.request().postDataJSON();
+        expect(payload).toMatchObject(expected);
+        expect(JSON.stringify(payload)).not.toMatch(/Quartier|Kilo-Shares|A recycling pickup service/);
+        const session: Session = await response.json();
+        expect(session).toMatchObject(expected);
+        const saved = await request.get(`/api/sessions/${session.id}`);
+        expect(saved.ok()).toBe(true);
+        const stored: Session = await saved.json();
+        expect(stored).toMatchObject(expected);
+        expect(JSON.stringify(stored.product)).not.toMatch(/Quartier|Kilo-Shares|A recycling pickup service/);
+        await expect(page.getByRole("dialog")).toContainText("Live, speak now");
+        await page.getByRole("button", { name: "End interview", exact: true }).click();
+        await expect(room.getByTestId("product-under-test")).toBeVisible();
+        return session;
+      }
+
+      const incomplete = await startAndCheck(null);
+      // Complete only the missing fields on the selected persona. Earlier explicit fields
+      // survive; an optional link can also be explicitly cleared without restoring defaults.
+      await page.getByRole("button", { name: "Product", exact: true }).click();
+      if (field === "prototypeUrl") await page.getByLabel("Product name", { exact: true }).fill(product.name);
+      await page.getByLabel("What it is").fill(product.description);
+      if (field === "name") {
+        await page.getByLabel("Prototype link (optional)").fill(product.prototypeUrl!);
+        await page.getByLabel("Prototype link (optional)").fill("");
+      }
+      await page.getByRole("button", { name: mode === "interview" ? "Interview" : "Add more", exact: true }).first().click();
+      await startAndCheck({ ...product, prototypeUrl: field === "name" ? null : product.prototypeUrl });
+      const original = await request.get(`/api/sessions/${incomplete.id}`);
+      expect(original.ok()).toBe(true);
+      expect(await original.json()).toMatchObject({ personaId: persona.id, product: null });
+    });
+  }
 }
 
 test("draft edits, selected personas and existing sessions keep their own product", async ({ page, request }) => {
@@ -131,6 +199,11 @@ test("draft edits, selected personas and existing sessions keep their own produc
   await rows.nth(summaries.findIndex((p) => p.id === second.id)).click();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await expect(page.getByTestId("product-under-test")).toContainText("Synthetic bicycle service");
+  await page.getByRole("button", { name: "Product", exact: true }).click();
+  await expect(page.getByLabel("Product name", { exact: true })).toHaveValue("Synthetic bicycle service");
+  await expect(page.getByLabel("What it is")).toHaveValue(product.description);
+  await expect(page.getByLabel("Prototype link (optional)")).toHaveValue(product.prototypeUrl!);
+  await expect(page.getByLabel("Sprint questions, one per line")).toHaveValue(guide);
   const stored = await request.get(`/api/sessions/${original.id}`);
   expect(await stored.json()).toMatchObject({ product, personaId: first.id });
 });

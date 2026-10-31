@@ -77,7 +77,12 @@ const guideForPersona = (persona: Persona, fallback: string) =>
   isMiriamKessler(persona.name) ? LUMEN_GUIDE.join("\n") : fallback;
 
 type Brief = { product: Product; guide: string };
+type BriefOverrides = { product?: Partial<Product>; guide?: string };
 const EMPTY_PRODUCT: Product = { name: "", description: "", prototypeUrl: null };
+
+function mergeBrief(base: Brief, overrides: BriefOverrides): Brief {
+  return { ...base, ...overrides, product: { ...base.product, ...overrides.product } };
+}
 
 function briefForSources(sources: PersonaSource[]): Brief {
   const guide = guideFor(sources);
@@ -125,7 +130,7 @@ async function onWhite(file: File): Promise<Blob> {
 export default function Home() {
   const [drafts, setDrafts] = useState<Draft[]>(SAMPLES);
   // Explicit draft edits belong to the sources being built. Selected personas keep their own brief.
-  const [draftBrief, setDraftBrief] = useState<Partial<Brief>>({});
+  const [draftBrief, setDraftBrief] = useState<BriefOverrides>({});
   const [editingDraft, setEditingDraft] = useState(true);
   const [personaBriefs, setPersonaBriefs] = useState(() => new Map<string, Brief>());
   const [language, setLanguage] = useState<Language>("en");
@@ -147,13 +152,15 @@ export default function Home() {
   const busy = loading || reading || opening;
   const personaId = result?.persona.id;
   const picked = result?.seconds === null;
-  const sourceBrief = { ...briefForSources(filled), ...draftBrief };
+  const sourceBrief = mergeBrief(briefForSources(filled), draftBrief);
   const brief = editingDraft || !result ? sourceBrief : result.brief;
 
-  function updateBrief(patch: Partial<Brief>) {
-    if (editingDraft || !result) setDraftBrief((current) => ({ ...current, ...patch }));
+  function updateBrief(patch: BriefOverrides) {
+    if (editingDraft || !result) setDraftBrief((current) => ({
+      ...current, ...patch, product: { ...current.product, ...patch.product },
+    }));
     else {
-      const next = { ...result.brief, ...patch };
+      const next = mergeBrief(result.brief, patch);
       setPersonaBriefs((current) => new Map(current).set(result.persona.id, next));
       setResult({ ...result, brief: next });
     }
@@ -230,7 +237,7 @@ export default function Home() {
     setError(null);
     try {
       const persona = await api.createPersona({ language, sources });
-      const createdBrief = { ...briefForPersona(persona, briefForSources(sources)), ...draftBrief };
+      const createdBrief = mergeBrief(briefForPersona(persona, briefForSources(sources)), draftBrief);
       setPersonaBriefs((current) => new Map(current).set(persona.id, createdBrief));
       setResult({
         persona,
