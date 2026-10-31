@@ -1,0 +1,95 @@
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+import openai
+import pytest
+
+from app import extract
+from app.contracts import PersonaCreate
+from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
+
+EXAMPLE = json.loads(
+    (Path(__file__).parents[2] / "shared" / "examples" / "persona.json").read_text()
+)
+DRAFT = PersonaDraft.model_validate(
+    {k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"}
+)
+REQUEST = PersonaCreate.model_validate(
+    {"language": "de", "sources": [{"kind": "miro", "title": "Leitfaden", "text": "Quelle eins."}]}
+)
+HTTP_REQ = httpx.Request("POST", "https://api.openai.com/v1/responses")
+
+
+class FakeResponses:
+    def __init__(self, result=None, error=None):
+        self.result, self.error, self.calls = result, error, []
+
+    def parse(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def use_client(monkeypatch, responses):
+    monkeypatch.setattr(extract, "_client", lambda: SimpleNamespace(responses=responses))
+    return responses
+
+
+def test_returns_parsed_draft_and_sends_sources(monkeypatch):
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-test")
+    fake = use_client(monkeypatch, FakeResponses(SimpleNamespace(output_parsed=DRAFT)))
+    assert extract.extract_persona(REQUEST) == DRAFT
+    call = fake.calls[0]
+    assert call["model"] == "gpt-test"
+    assert call["text_format"] is PersonaDraft
+    assert "<source n=1 kind=miro — Leitfaden>" in call["input"] and "Quelle eins." in call["input"]
+    assert "German" in call["instructions"] and "VERBATIM" in call["instructions"]
+
+
+def test_default_model_when_unset(monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    fake = use_client(monkeypatch, FakeResponses(SimpleNamespace(output_parsed=DRAFT)))
+    extract.extract_persona(REQUEST)
+    assert fake.calls[0]["model"] == extract.DEFAULT_MODEL
+
+
+def test_refusal_or_incomplete_fails(monkeypatch):
+    use_client(monkeypatch, FakeResponses(SimpleNamespace(output_parsed=None, status="incomplete")))
+    with pytest.raises(ExtractionFailed):
+        extract.extract_persona(REQUEST)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (openai.APITimeoutError(request=HTTP_REQ), ProviderUnavailable),
+        (openai.APIConnectionError(request=HTTP_REQ), ProviderUnavailable),
+        (
+            openai.RateLimitError(
+                "slow down", response=httpx.Response(429, request=HTTP_REQ), body=None
+            ),
+            ProviderUnavailable,
+        ),
+        (
+            openai.BadRequestError(
+                "bad schema", response=httpx.Response(400, request=HTTP_REQ), body=None
+            ),
+            ExtractionFailed,
+        ),
+    ],
+)
+def test_provider_errors_are_mapped(monkeypatch, error, expected):
+    use_client(monkeypatch, FakeResponses(error=error))
+    with pytest.raises(expected) as err:
+        extract.extract_persona(REQUEST)
+    assert "Quelle" not in str(err.value)
+
+
+def test_missing_key_is_unavailable(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    extract._client.cache_clear()
+    with pytest.raises(ProviderUnavailable):
+        extract.extract_persona(REQUEST)

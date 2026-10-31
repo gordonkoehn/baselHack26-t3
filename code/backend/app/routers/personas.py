@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
-from app.contracts import Persona, PersonaCreate
+from app.contracts import Fact, Persona, PersonaCreate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.store import Store, get_store
 
@@ -26,22 +26,46 @@ def _norm(text: str) -> str:
     return " ".join(text.split())
 
 
-def check_draft(draft: PersonaDraft, request: PersonaCreate) -> None:
-    """Reject provider output whose evidence isn't backed by the pasted sources."""
+def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
+    """Keep only evidence backed by the pasted sources; facts citing dropped evidence become guesses.
+
+    Models sometimes paraphrase a quote. Downgrading keeps the persona usable without ever
+    showing an unverified fact as grounded. Structural mistakes still reject the draft.
+    """
     sources = [_norm(s.text) for s in request.sources]
     ids = [e.id for e in draft.evidence]
     if len(ids) != len(set(ids)):
         raise ExtractionFailed("duplicate evidence ids")
-    for e in draft.evidence:
-        quote = _norm(e.quote or "")
-        # An empty quote would match every source, so it counts as missing.
-        if not quote or not any(quote in s for s in sources):
-            raise ExtractionFailed(f"evidence {e.id}: quote not found verbatim in the sources")
     for fact in draft.jobs + draft.pains + draft.objections:
         if fact.label == "grounded" and fact.evidence_id not in ids:
             raise ExtractionFailed("grounded fact without existing evidence")
         if fact.label == "guess" and fact.evidence_id is not None:
             raise ExtractionFailed("guess must not cite evidence")
+
+    def verified(quote: str | None) -> bool:
+        q = _norm(quote or "")
+        # An empty quote would match every source, so it counts as missing.
+        return bool(q) and any(q in s for s in sources)
+
+    kept = [e for e in draft.evidence if verified(e.quote)]
+    kept_ids = {e.id for e in kept}
+
+    def relabel(facts: list[Fact]) -> list[Fact]:
+        return [
+            f
+            if f.evidence_id is None or f.evidence_id in kept_ids
+            else f.model_copy(update={"label": "guess", "evidence_id": None})
+            for f in facts
+        ]
+
+    return draft.model_copy(
+        update={
+            "evidence": kept,
+            "jobs": relabel(draft.jobs),
+            "pains": relabel(draft.pains),
+            "objections": relabel(draft.objections),
+        }
+    )
 
 
 @router.post("", status_code=201, response_model_by_alias=True)
@@ -50,7 +74,7 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         raise HTTPException(422, "every source needs text")
     try:
         draft = extractor(body)
-        check_draft(draft, body)
+        draft = ground_draft(draft, body)
     except ProviderUnavailable:
         raise HTTPException(503, "persona provider unavailable") from None
     except ExtractionFailed as exc:
