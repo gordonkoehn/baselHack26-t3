@@ -23,6 +23,28 @@ const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
 const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
+// The Lumen case's persona stack (documentation/usecases/lumen-ipp). Once one of them has been built,
+// the library shows the Lumen case: built ones open, the rest are listed as examples.
+const LUMEN_PERSONAS = [
+  { surname: "Kessler", name: "Dr. Miriam Kessler", role: "Open Access Coordinator, University of Rheinfeld" },
+  { surname: "Hollmann", name: "Dr. Rainer Hollmann", role: "Director, University Library, Rheinfeld" },
+  { surname: "Aigner", name: "Prof. Dr. Sabine Aigner", role: "Vice-President for Research, Rheinfeld" },
+  { surname: "Ferreira", name: "Dr. Ana Ferreira", role: "Junior Group Leader and guest editor, Rheinfeld" },
+  { surname: "Brändli", name: "Jonas Brändli", role: "Data Steward, Aaretal University of Applied Sciences" },
+  { surname: "Sandmann", name: "Ulrike Sandmann", role: "Head of Licensing, Southern Library Consortium" },
+];
+
+function library(recent: PersonaSummary[]) {
+  const built = LUMEN_PERSONAS.map((l) => recent.find((p) => p.name.includes(l.surname))).filter(
+    (p): p is PersonaSummary => p !== undefined,
+  );
+  if (built.length === 0) return { personas: recent, examples: [] };
+  return {
+    personas: built,
+    examples: LUMEN_PERSONAS.filter((l) => !built.some((p) => p.name.includes(l.surname))),
+  };
+}
+
 type Draft = PersonaSource & { id: number };
 // seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
 type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
@@ -59,7 +81,7 @@ async function onWhite(file: File): Promise<Blob> {
 
 export default function Home() {
   const [drafts, setDrafts] = useState<Draft[]>(SAMPLES);
-  const [language, setLanguage] = useState<Language>("de");
+  const [language, setLanguage] = useState<Language>("en");
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +239,7 @@ export default function Home() {
             Recent personas
           </h2>
           <ul className="mt-2 divide-y divide-line">
-            {recent.map((p) => (
+            {library(recent).personas.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
@@ -232,6 +254,13 @@ export default function Home() {
                     {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </span>
                 </button>
+              </li>
+            ))}
+            {library(recent).examples.map((l) => (
+              <li key={l.surname} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm text-muted">
+                <span className="font-medium text-foreground">{l.name}</span>
+                <span className="min-w-0 truncate">{l.role}</span>
+                <span className="ml-auto text-xs">example</span>
               </li>
             ))}
           </ul>
