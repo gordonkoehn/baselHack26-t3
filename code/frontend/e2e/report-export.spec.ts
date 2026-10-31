@@ -112,6 +112,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
     }
     if (url.origin === "http://127.0.0.1:3165") {
       if (!url.pathname.startsWith("/api/")) return route.continue();
+      if (url.pathname === "/api/faces") return fulfill([]);
       if (url.pathname === "/api/personas") return fulfill({ ...examplePersona, name: personaName });
       if (url.pathname === "/api/sessions") return fulfill({ id: report.sessionId, personaId: examplePersona.id, status: "created", provider: "openai-realtime" }, 201);
       if (url.pathname === `/api/sessions/${report.sessionId}/token`) {
@@ -139,7 +140,8 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await page.getByRole("button", { name: "Start voice interview", exact: true }).click();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: `Interview with ${personaName}`, exact: true });
   await expect(dialog.getByText("Live, speak now")).toBeVisible();
   await page.getByRole("button", { name: "End interview", exact: true }).click();
@@ -201,6 +203,23 @@ test("clipboard denial is announced, retry succeeds, and unavailable clipboard p
   await page.getByRole("button", { name: "Start again", exact: true }).click();
   await expect(debrief).toHaveCount(0);
   expect(await page.evaluate(() => window.e2eReportExport.activeUrls)).toEqual([]);
+  expect(state.calls()).toBe(1);
+  expect(state.unexpected).toEqual([]);
+});
+
+test("copy link falls back to showing the address when the clipboard is denied", async ({ page }) => {
+  const state = await openDebrief(page);
+  const debrief = page.getByTestId("debrief");
+  const copyLink = debrief.getByRole("button", { name: "Copy link", exact: true });
+  const link = `http://127.0.0.1:3165/report/${report.sessionId}`;
+  await page.evaluate(() => { window.e2eReportExport.failCopy = true; });
+  await copyLink.click();
+  await expect(debrief.getByRole("alert")).toHaveText(`Could not copy the link. Copy it from here: ${link}`);
+  await page.evaluate(() => { window.e2eReportExport.failCopy = false; });
+  await copyLink.click();
+  await expect(debrief.getByRole("status")).toContainText("Link copied");
+  await expect(debrief.getByRole("alert")).toHaveCount(0);
+  expect(await page.evaluate(() => window.e2eReportExport.copied)).toEqual([link]);
   expect(state.calls()).toBe(1);
   expect(state.unexpected).toEqual([]);
 });

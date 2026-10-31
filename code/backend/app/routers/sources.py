@@ -7,6 +7,7 @@ from pypdf.errors import PyPdfError
 from app import extract
 from app.auth import require_passcode
 from app.contracts import ExtractedText
+from app.rate_limit import rate_limit
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -27,7 +28,11 @@ def _transcribe(body: bytes, mime: str) -> str:
         raise HTTPException(502, f"file could not be transcribed: {exc}") from None
 
 
-@router.post("/pdf", response_model_by_alias=True, dependencies=[Depends(require_passcode)])
+@router.post(
+    "/pdf",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("sources"))],
+)
 async def extract_pdf(request: Request) -> ExtractedText:
     """Pull the text layer out of a PDF so it can be sent (and quoted verbatim) as a source.
 
@@ -75,7 +80,11 @@ def _image_type(body: bytes) -> str | None:
     return None
 
 
-@router.post("/image", response_model_by_alias=True, dependencies=[Depends(require_passcode)])
+@router.post(
+    "/image",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("sources"))],
+)
 async def extract_image(request: Request) -> ExtractedText:
     """Transcribe the text in an image (board screenshot, photo of sticky notes) into a source.
 

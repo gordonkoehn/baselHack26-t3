@@ -2,25 +2,20 @@
 
 /* Design tokens. Components use them as Tailwind colors: bg-surface, text-muted, border-line, bg-accent, … */
 :root {
-  --background: #f6f5f1;
-  --foreground: #1c1b18;
-  --surface: #ffffff;
-  --muted: #6b6860;
-  --line: #e3e0d8;
-  --accent: #2f5d50;
-  --accent-soft: #e4eee9;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #121311;
-    --foreground: #ecebe6;
-    --surface: #1b1c1a;
-    --muted: #9c9a92;
-    --line: #2e2f2b;
-    --accent: #7fb8a4;
-    --accent-soft: #1f2e29;
-  }
+  /* OpenTwin brand, see assets/presentations/ci/. Emerald on paper, no red. */
+  --background: #f5f6f5;
+  --foreground: #121413;
+  --surface: #fdfdfc;
+  --muted: #5e6563;
+  --line: #d5dad8;
+  --accent: #0f7a5c;
+  --accent-soft: #e2f2eb;
+  --signal: #14a37f;
+  /* The dark ground, for the live interview. */
+  --room: #0b0f0e;
+  --room-raised: #121a18;
+  --room-text: #f4f6f5;
+  --room-muted: #b9c9c3;
 }
 
 @theme inline {
@@ -31,7 +26,12 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
-  --font-sans: var(--font-geist-sans);
+  --color-room: var(--room);
+  --color-room-raised: var(--room-raised);
+  --color-room-text: var(--room-text);
+  --color-room-muted: var(--room-muted);
+  --color-signal: var(--signal);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -69,5 +69,31 @@
   }
   ::selection {
     background: var(--accent-soft);
+  }
+  h1,
+  h2 {
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* The signature mark, readable without colour: solid is on record, hatched is a guess. */
+@layer components {
+  .evidence-bar {
+    display: inline-block;
+    width: 2rem;
+    height: 0.5rem;
+    border: 1px solid var(--foreground);
+    vertical-align: middle;
+  }
+  .evidence-bar[data-grounded="true"] {
+    background: var(--foreground);
+  }
+  .evidence-bar[data-grounded="false"] {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--foreground) 0 1.5px,
+      transparent 1.5px 5px
+    );
   }
 }

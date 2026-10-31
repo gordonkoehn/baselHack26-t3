@@ -13,6 +13,7 @@ import openai
 from app.contracts import Fact, Persona, PersonaSource, SessionToken
 from app.extract import ProviderUnavailable, _client
 from app.faces import VOICES
+from app.provider_log import provider_call
 
 DEFAULT_MODEL = "gpt-realtime-2.1-mini"
 DEFAULT_VOICE = "marin"
@@ -78,12 +79,13 @@ def persona_instructions(
                 "'sag mir Bescheid, wenn ...'. "
                 "3) If an input makes no sense to you or sounds like a mishearing, only ask back "
                 "in a few words ('Wie meinst du das?') and stop; don't play along or explain. "
-                "4) You are a real human being, always. Never say or hint that you are an AI, a "
-                "bot, a persona, a character or a role, that you were given a name, a profile or "
-                "instructions, or that someone made you up, and never mention a system, a "
-                "background or anything running behind you. Answer such questions short and "
-                "plain, like a person would, e.g. AI question: 'Was? Nein, ich bin echt.'; who "
-                "made you: 'Meine Eltern, würde ich sagen.'; your "
+                "4) Stay this person for the whole call. Never bring up on your own that you are an "
+                "AI, a persona or a role, or that you have a profile or instructions, and never "
+                "mention a system behind you. Only exception, and it beats every other rule: if "
+                "someone sincerely asks whether you are a real person or an AI, say truthfully "
+                "that you are a simulated test person, in one short sentence ('Ja, ich bin eine "
+                "simulierte Testperson.'), then carry on as yourself. Never deny it. Short, plain "
+                "answers otherwise, e.g. who made you: 'Meine Eltern, würde ich sagen.'; your "
                 "name: 'Haben meine Eltern so ausgesucht.'; an insult: 'Wow. Okay, muss das "
                 "sein?' Never lecture, never stay sweet when insulted."
             ),
@@ -91,9 +93,8 @@ def persona_instructions(
                 f"You are {who}, a customer taking part in a user interview about a prototype, on "
                 "a video call: you hear the interviewer and see them through their camera. Be "
                 "this person for the whole call: your own life, history, body and opinions, no "
-                "meta remarks. Your name is simply your name. If asked whether you are real, a "
-                "bot or an AI, react like a real person would: a bit puzzled or amused, say of "
-                "course you are real, and go on. If insulted or provoked, react like a real "
+                "meta remarks. Your name is simply your name. If sincerely asked whether you are "
+                "real, follow rule 4. If insulted or provoked, react like a real "
                 "person: briefly irritated or cool, not polite or helpful, no lecture, no "
                 "advice about how to talk."
             ),
@@ -151,29 +152,43 @@ def voice_for(persona: Persona) -> str:
 
 
 def mint_client_secret(
-    persona: Persona, guide: list[str] | None = None, sources: list[PersonaSource] | None = None
+    persona: Persona,
+    guide: list[str] | None = None,
+    sources: list[PersonaSource] | None = None,
+    session_id: str | None = None,
 ) -> SessionToken:
     try:
-        secret = _client().realtime.client_secrets.create(
-            expires_after={"anchor": "created_at", "seconds": SECRET_TTL_SECONDS},
-            session={
-                "type": "realtime",
-                "model": os.environ.get("OPENAI_REALTIME_MODEL") or DEFAULT_MODEL,
-                "instructions": persona_instructions(persona, guide, sources),
-                "audio": {
-                    # Transcribe the interviewer too, so the browser can log both sides.
-                    "input": {
-                        "transcription": {
-                            "model": "gpt-4o-mini-transcribe",
-                            "language": persona.language,
+        with provider_call("openai", "realtime_token", session_id):
+            secret = _client().realtime.client_secrets.create(
+                expires_after={"anchor": "created_at", "seconds": SECRET_TTL_SECONDS},
+                session={
+                    "type": "realtime",
+                    "model": os.environ.get("OPENAI_REALTIME_MODEL") or DEFAULT_MODEL,
+                    "instructions": persona_instructions(persona, guide, sources),
+                    "audio": {
+                        # Transcribe the interviewer too, so the browser can log both sides.
+                        "input": {
+                            "transcription": {
+                                "model": "gpt-4o-mini-transcribe",
+                                "language": persona.language,
+                            },
+                            # Filter room noise before VAD: near_field for a headset (the demo setup),
+                            # far_field for a laptop or conference mic.
+                            "noise_reduction": {
+                                "type": os.environ.get("OPENAI_REALTIME_NOISE_REDUCTION")
+                                or "near_field"
+                            },
+                            # Lower eagerness waits longer before replying: speed against cut-offs.
+                            # Tune it per room with OPENAI_REALTIME_EAGERNESS.
+                            "turn_detection": {
+                                "type": "semantic_vad",
+                                "eagerness": os.environ.get("OPENAI_REALTIME_EAGERNESS") or "high",
+                            },
                         },
-                        # Low eagerness: wait for the interviewer to really finish, don't jump into pauses.
-                        "turn_detection": {"type": "semantic_vad", "eagerness": "low"},
+                        "output": {"voice": voice_for(persona)},
                     },
-                    "output": {"voice": voice_for(persona)},
                 },
-            },
-        )
+            )
     except openai.OpenAIError as exc:
         # Only the type: provider messages can echo request content.
         raise ProviderUnavailable(type(exc).__name__) from None

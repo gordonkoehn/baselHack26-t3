@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
+import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
@@ -11,11 +12,54 @@ const SIGNAL = {
   unclear: { text: "unclear", className: "bg-line text-foreground" },
 } as const;
 
+function SummaryGroup({ title, items }: { title: string; items: SummaryItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h4 className="text-lg font-bold tracking-tight">{title}</h4>
+      <ul className="mt-2 space-y-3">
+        {items.map((item) => (
+          <li key={item.question}>
+            <p className="font-medium">
+              <span className="evidence-bar mr-2 !w-6" data-grounded={item.grounded} aria-hidden />
+              {item.theme}
+            </p>
+            <p className="mt-1 text-sm text-muted">{item.grounded ? "Also in the sources" : "Persona's guess"}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// The short version, first thing after a call. Details and quotes stay below.
+function DebriefSummaryPanel({ report }: { report: InsightReport }) {
+  const { heldUp, didNot, open } = summarizeDebrief(report);
+  return (
+    <div data-testid="debrief-summary" className="mt-3 space-y-5 rounded-lg border border-line bg-surface p-5">
+      <SummaryGroup title="What held up" items={heldUp} />
+      <SummaryGroup title="What didn't" items={didNot} />
+      <SummaryGroup title="Still open" items={open} />
+    </div>
+  );
+}
+
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
 // Quotes are verbatim from the synthetic interview; "grounded" means the persona's sources say it
 // too. Neither means "validated with real users".
-export function DebriefView({ sessionId, personaName }: { sessionId: string; personaName: string }) {
-  const [report, setReport] = useState<InsightReport | null>(null);
+// With savedReport it is read-only: it shows that report and never asks the backend to write one.
+export function DebriefView({
+  sessionId,
+  personaName,
+  savedReport,
+  sample,
+}: {
+  sessionId: string;
+  personaName: string;
+  savedReport?: InsightReport;
+  sample?: boolean;
+}) {
+  const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
@@ -38,15 +82,15 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
   // Once per session: React dev mode runs effects twice, and two parallel POSTs would both call the model.
   const started = useRef<string | null>(null);
   useEffect(() => {
-    if (started.current === sessionId) return;
+    if (savedReport || started.current === sessionId) return;
     started.current = sessionId;
     void create();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
-    if (report) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [report]);
+    if (report && !savedReport) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [report, savedReport]);
 
   async function create() {
     setLoading(true);
@@ -64,12 +108,23 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
     }
   }
 
+  async function copyLink() {
+    const link = `${window.location.origin}/report/${encodeURIComponent(sessionId)}`;
+    setExportStatus(null);
+    try {
+      await navigator.clipboard.writeText(link);
+      setExportStatus({ error: false, text: "Link copied. Anyone with it can read this debrief." });
+    } catch {
+      setExportStatus({ error: true, text: `Could not copy the link. Copy it from here: ${link}` });
+    }
+  }
+
   async function copyMarkdown() {
     if (!report || copying) return;
     setCopying(true);
     setExportStatus(null);
     try {
-      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName));
+      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample));
       setExportStatus({ error: false, text: "Markdown copied to clipboard." });
     } catch {
       setExportStatus({ error: true, text: "Could not copy Markdown. Try again or use Download .md." });
@@ -83,7 +138,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
     const link = document.createElement("a");
     let url: string | null = null;
     try {
-      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName)], { type: "text/markdown;charset=utf-8" }));
+      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample)], { type: "text/markdown;charset=utf-8" }));
       link.href = url;
       link.download = reportMarkdownFilename(report, personaName);
       document.body.append(link);
@@ -103,98 +158,118 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
     }
   }
 
-  if (!report) {
-    return (
-      <div className="mt-4">
-        <button
-          type="button"
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
-          onClick={create}
-          disabled={loading}
-        >
-          {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
-        </button>
-        {error && (
-          <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-            {error}
-          </p>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
-      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
-      <p className="mt-1 text-xs leading-relaxed text-muted">
-        Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-        findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+    <>
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="debrief-generation-status">
+        {loading ? "Writing debrief…" : error ? "Debrief generation failed." : report ? "Debrief ready." : "Preparing debrief…"}
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={copyMarkdown}
-          disabled={copying}
-          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line disabled:opacity-50"
-        >
-          {copying ? "Copying…" : "Copy as Markdown"}
-        </button>
-        <button
-          type="button"
-          onClick={downloadMarkdown}
-          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
-        >
-          Download .md
-        </button>
-      </div>
-      <p role="status" className="mt-2 text-sm text-muted">
-        {exportStatus && !exportStatus.error ? exportStatus.text : ""}
-      </p>
-      {exportStatus?.error && (
-        <p role="alert" className="mt-2 text-sm text-red-800 dark:text-red-200">{exportStatus.text}</p>
-      )}
-      <ol className="mt-4 space-y-4">
-        {report.questions.map((q) => (
-          <li key={q.question} className="rounded-lg border border-line bg-surface p-4">
-            <p className="text-sm font-medium">
-              <span className={`mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${SIGNAL[q.signal].className}`}>
-                {SIGNAL[q.signal].text}
-              </span>
-              {q.question}
+      {!report ? (
+        <div className="mt-4">
+          <button
+            type="button"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
+            onClick={create}
+            disabled={loading}
+          >
+            {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
+          </button>
+          {error && (
+            <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {error}
             </p>
-            <ul className="mt-3 space-y-3">
-              {q.insights.map((i) => (
-                <li key={i.id} className="text-sm leading-relaxed">
-                  <span
-                    className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-                      i.label === "grounded" ? "bg-accent-soft text-accent" : "bg-line text-foreground"
-                    }`}
-                  >
-                    {i.label === "grounded" ? "grounded" : "guess"}
-                  </span>
-                  {i.theme}
-                  {/* The quote is always verbatim from the interview; the label says whether the
-                      persona's real sources back it too. */}
-                  <blockquote
-                    className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
-                      i.label === "grounded" ? "border-accent/40" : "border-line"
-                    }`}
-                  >
-                    “{i.quote}”
-                    <span className="mt-0.5 block text-xs text-muted">
-                      {personaName} · interview turn {i.turnSeq}
-                      {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
-                    </span>
-                  </blockquote>
-                </li>
-              ))}
-            </ul>
-            {q.followUps && q.followUps.length > 0 && (
-              <p className="mt-3 border-t border-line pt-2 text-xs text-muted">Ask real users next: {q.followUps.join(" · ")}</p>
+          )}
+        </div>
+      ) : (
+        <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          <DebriefSummaryPanel report={report} />
+          {sample ? (
+            <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
+              Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
+              say these lines. If this persona uses the prefilled example sources, they contain the same script, so
+              &ldquo;also in the sources&rdquo; proves nothing here.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
+              findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={copyMarkdown}
+              disabled={copying}
+              className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line disabled:opacity-50"
+            >
+              {copying ? "Copying…" : "Copy as Markdown"}
+            </button>
+            <button
+              type="button"
+              onClick={downloadMarkdown}
+              className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+            >
+              Download .md
+            </button>
+            {!savedReport && (
+              <button
+                type="button"
+                onClick={copyLink}
+                className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+              >
+                Copy link
+              </button>
             )}
-          </li>
-        ))}
-      </ol>
-    </div>
+          </div>
+          <p role="status" className="mt-2 text-sm text-muted">
+            {exportStatus && !exportStatus.error ? exportStatus.text : ""}
+          </p>
+          {exportStatus?.error && (
+            <p role="alert" className="mt-2 text-sm wrap-anywhere text-red-800 dark:text-red-200">{exportStatus.text}</p>
+          )}
+          <ol className="mt-4 space-y-4">
+            {report.questions.map((q) => (
+              <li key={q.question} className="rounded-lg border border-line bg-surface p-4">
+                <p className="text-sm font-medium">
+                  <span className={`mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${SIGNAL[q.signal].className}`}>
+                    {SIGNAL[q.signal].text}
+                  </span>
+                  {q.question}
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {q.insights.map((i) => (
+                    <li key={i.id} className="text-sm leading-relaxed">
+                      <span
+                        className="mr-2 inline-flex items-center gap-1.5 font-mono text-xs font-medium"
+                      >
+                        <span className="evidence-bar !w-6" data-grounded={i.label === "grounded"} aria-hidden />
+                        {i.label === "grounded" ? "grounded" : "guess"}
+                      </span>
+                      {i.theme}
+                      {/* The quote is always verbatim from the interview; the label says whether the
+                          persona's real sources back it too. */}
+                      <blockquote
+                        className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
+                          i.label === "grounded" ? "border-accent/40" : "border-line"
+                        }`}
+                      >
+                        “{i.quote}”
+                        <span className="mt-0.5 block text-xs text-muted">
+                          {sample ? "Sample script" : personaName} · {sample ? "turn" : "interview turn"} {i.turnSeq}
+                          {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
+                        </span>
+                      </blockquote>
+                    </li>
+                  ))}
+                </ul>
+                {q.followUps && q.followUps.length > 0 && (
+                  <p className="mt-3 border-t border-line pt-2 text-xs text-muted">Ask real users next: {q.followUps.join(" · ")}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </>
   );
 }

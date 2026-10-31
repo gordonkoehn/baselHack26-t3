@@ -2,6 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.store import Store, get_store
+from tests.fakes import FakeRedis
 
 client = TestClient(app)
 
@@ -9,6 +11,7 @@ PAID_ROUTES = [
     "/api/personas",
     "/api/sources/pdf",
     "/api/sources/image",
+    "/api/guides/review",
     "/api/sessions/s_1/token",
     "/api/sessions/s_1/avatar-token",
     "/api/sessions/s_1/debrief",
@@ -48,6 +51,19 @@ def test_local_dev_needs_no_passcode(monkeypatch):
     monkeypatch.delenv("DEMO_PASSCODE", raising=False)
     monkeypatch.delenv("VERCEL", raising=False)
     assert client.post("/api/sources/pdf").status_code != 401
+
+
+@pytest.mark.parametrize(
+    "route", ["/api/sessions/s_1", "/api/personas/p_1", "/api/sessions/s_1/insights"]
+)
+def test_shared_report_reads_need_no_passcode(route, monkeypatch):
+    # A shared /report link opens in a browser that has no passcode: 404 here, not 401.
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    app.dependency_overrides[get_store] = lambda: Store(FakeRedis())
+    try:
+        assert client.get(route).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_health_stays_open(monkeypatch):

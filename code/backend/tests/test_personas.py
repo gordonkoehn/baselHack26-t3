@@ -8,8 +8,9 @@ from app import extract
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
-from app.routers.personas import get_extractor
-from app.store import Store, get_store
+from app.routers import personas
+from app.routers.personas import get_extractor, get_prober
+from app.store import PERSONA_LIST_SIZE, Store, get_store
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -25,6 +26,10 @@ REQUEST = {
 }
 
 
+def no_probes(_instructions, _question):
+    raise ProviderUnavailable("readiness probes are covered in test_readiness.py")
+
+
 def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
@@ -37,6 +42,7 @@ def client():
     store = Store(FakeRedis())
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_extractor] = lambda: lambda _req: draft()
+    app.dependency_overrides[get_prober] = lambda: no_probes
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -57,6 +63,76 @@ def test_create_then_read(client):
     # Kept so the live interview knows the product, not only the persona facts.
     saved = app.dependency_overrides[get_store]().get_persona_sources(body["id"])
     assert saved.sources[0].text == REQUEST["sources"][0]["text"]
+
+
+def test_list_shows_created_personas_without_their_facts(client):
+    assert client.get("/api/personas").json() == []
+    first = client.post("/api/personas", json=REQUEST).json()
+    second = client.post("/api/personas", json=REQUEST).json()
+    res = client.get("/api/personas")
+    assert res.status_code == 200
+    assert [p["id"] for p in res.json()] == [second["id"], first["id"]]
+    assert set(res.json()[0]) == {"id", "name", "role", "createdAt", "readiness"}
+    assert res.json()[0]["role"] == EXAMPLE["context"]["job"]
+    # What the library picks: the full persona comes from the id alone, no re-extraction.
+    use_extractor(lambda _req: pytest.fail("reuse must not extract"))
+    assert client.get(f"/api/personas/{first['id']}").json() == first
+
+
+def test_persona_is_not_listed_if_its_sources_could_not_be_saved(client):
+    class SourcesFail(FakeRedis):
+        def set(self, key, value, ex=None):
+            if key.endswith(":sources"):
+                raise TimeoutError("interrupted")
+            super().set(key, value, ex=ex)
+
+    store = Store(SourcesFail())
+    app.dependency_overrides[get_store] = lambda: store
+    assert client.post("/api/personas", json=REQUEST).status_code == 503
+    assert client.get("/api/personas").json() == []
+
+
+def test_list_needs_the_passcode(client, monkeypatch):
+    client.post("/api/personas", json=REQUEST)
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    assert client.get("/api/personas").status_code == 401
+    assert client.get("/api/personas", headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+    res = client.get("/api/personas", headers={"X-Demo-Passcode": "right"})
+    assert res.status_code == 200 and len(res.json()) == 1
+
+
+def test_list_fails_closed_on_vercel_without_passcode(client, monkeypatch):
+    monkeypatch.delenv("DEMO_PASSCODE", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert client.get("/api/personas").status_code == 503
+
+
+def test_edited_persona_keeps_its_place_and_date_and_comes_back_edited(client):
+    first = client.post("/api/personas", json=REQUEST).json()
+    client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert listed[1]["id"] == first["id"]
+
+    fact = {"text": "Edited by hand", "label": "guess", "evidenceId": None}
+    assert client.patch(f"/api/personas/{first['id']}", json={"jobs": [fact]}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    picked = client.get(f"/api/personas/{first['id']}").json()
+    assert picked["jobs"] == [fact]
+    assert picked["version"] == first["version"] + 1
+
+
+def test_editing_a_persona_off_the_list_does_not_bring_it_back(client):
+    oldest = client.post("/api/personas", json=REQUEST).json()
+    for _ in range(PERSONA_LIST_SIZE):
+        client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert oldest["id"] not in [p["id"] for p in listed]
+
+    assert client.patch(f"/api/personas/{oldest['id']}", json={"jobs": []}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    assert client.get(f"/api/personas/{oldest['id']}").json()["jobs"] == []
 
 
 def test_face_and_voice_follow_the_chosen_face(client):
@@ -256,3 +332,124 @@ def test_sparse_draft_omits_null_optional_fields(client):
         assert body["attitudes"] == {}
         assert body["speechStyle"] == {"notes": None}
         assert all("evidenceId" in f for f in body["jobs"])
+
+
+def test_patch_removes_edits_and_downgrades_facts(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    grounded = [f for f in created["pains"] if f["label"] == "grounded"]
+    assert grounded, "example persona needs a grounded pain"
+    kept = created["pains"][0]  # the other pains are removed
+    edited = {**grounded[0], "text": grounded[0]["text"] + " (edited)"}
+    invented = {
+        "text": "Claims grounded without evidence",
+        "label": "grounded",
+        "evidenceId": "nope",
+    }
+    res = client.patch(
+        f"/api/personas/{created['id']}",
+        json={"pains": [kept, edited, invented], "speechStyle": {"notes": "Short answers."}},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["version"] == created["version"] + 1
+    assert body["pains"][0] == kept
+    for fact in body["pains"][1:]:
+        assert fact["label"] == "guess" and fact["evidenceId"] is None
+    assert body["jobs"] == created["jobs"]
+    assert body["speechStyle"]["notes"] == "Short answers."
+    assert body["speechStyle"].get("register") == created["speechStyle"].get("register")
+    # The next interview reads the stored persona, so removed facts are gone for it.
+    assert client.get(f"/api/personas/{created['id']}").json() == body
+
+
+def test_patch_example_and_unknown_persona(client):
+    example = json.loads((EXAMPLES / "persona-update.json").read_text())
+    created = client.post("/api/personas", json=REQUEST).json()
+    assert client.patch(f"/api/personas/{created['id']}", json=example).status_code == 200
+    assert client.patch("/api/personas/p_missing", json=example).status_code == 404
+
+
+def test_patch_identity_and_face(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}"
+    res = client.patch(
+        url,
+        json={
+            "name": "Marco Keller",
+            "age": None,
+            "summary": "New backstory.",
+            "context": {"job": "Baker", "toolsToday": ["TWINT"]},
+            "faceId": FACES["Victor"][0],
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["name"] == "Marco Keller" and body["age"] is None
+    assert body["summary"] == "New backstory." and body["context"]["job"] == "Baker"
+    assert body["location"] == created["location"]  # not sent: kept
+    assert body["faceId"] == FACES["Victor"][0] and body["voiceId"] == VOICES["m"]
+    assert body["jobs"] == created["jobs"] and body["version"] == created["version"] + 1
+    # A null name is ignored, an empty one and an unknown face are rejected.
+    assert client.patch(url, json={"name": None}).json()["name"] == "Marco Keller"
+    assert client.patch(url, json={"name": ""}).status_code == 422
+    assert client.patch(url, json={"faceId": "not-a-face"}).status_code == 422
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+
+
+def test_photo_upload_read_replace_and_remove(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}/photo"
+    assert client.get(url).status_code == 404
+    body = client.put(url, content=PNG).json()
+    assert body["photoUrl"].startswith(f"{url}?v=")
+    # A picture isn't persona content: no version bump, so coverage checks stay valid.
+    assert body["version"] == created["version"]
+    assert body["faceId"] == created["faceId"]  # the call keeps its face
+    res = client.get(url)
+    assert res.status_code == 200 and res.content == PNG
+    assert res.headers["content-type"] == "image/png"
+    jpeg = b"\xff\xd8\xff" + b"\0" * 32
+    replaced = client.put(url, content=jpeg).json()["photoUrl"]
+    assert replaced != body["photoUrl"]  # new URL, so the browser doesn't show the cached one
+    assert client.get(url).content == jpeg
+    removed = client.delete(url).json()
+    assert removed["photoUrl"] is None and removed["version"] == created["version"]
+    assert client.get(url).status_code == 404
+
+
+def test_photo_rejects_other_files(client, monkeypatch):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}/photo"
+    assert client.put(url, content=b"%PDF-1.7").status_code == 422
+    assert client.put(url, content=b"GIF89a" + b"\0" * 32).status_code == 422
+    monkeypatch.setattr(personas, "MAX_PHOTO_BYTES", 10)
+    assert client.put(url, content=PNG).status_code == 413
+    assert client.put("/api/personas/p_missing/photo", content=PNG).status_code == 404
+    assert client.delete("/api/personas/p_missing/photo").status_code == 404
+
+
+def test_patch_attitudes_and_speech_style_change_only_what_is_sent(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}"
+    body = client.patch(
+        url,
+        json={
+            "attitudes": {"techAffinity": 5},
+            "speechStyle": {"register": "formal", "fillers": False},
+        },
+    ).json()
+    assert body["attitudes"] == {**created["attitudes"], "techAffinity": 5}
+    assert body["speechStyle"]["register"] == "formal"
+    assert body["speechStyle"]["fillers"] is False
+    assert body["speechStyle"]["notes"] == created["speechStyle"]["notes"]
+    assert body["speechStyle"]["verbosity"] == created["speechStyle"]["verbosity"]
+    assert client.patch(url, json={"attitudes": {"techAffinity": 9}}).status_code == 422
+
+
+def test_faces_have_photos(client):
+    faces = client.get("/api/faces").json()
+    assert {f["id"] for f in faces} == {f[0] for f in FACES.values()}
+    assert all(f["photoUrl"].endswith(f"/{f['id']}.jpg") for f in faces)
+    assert {f["gender"] for f in faces} == {"f", "m"}

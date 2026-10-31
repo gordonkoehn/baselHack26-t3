@@ -1,3 +1,5 @@
+> **Archived on 31 Oct 2026.** Whiteboard template from earlier that day, kept for the record. Its scope, status and task split are out of date. For what works now, see `ONBOARDING.md`; for the demo, see [#158](https://github.com/gordonkoehn/baselHack26-t3/issues/158).
+
 # OpenTwin – Vorlage für die Tafel
 
 Arbeitsstand: 31.10.2026. Ziel: Das Team versteht in einer Minute, was bereits funktioniert und was noch geprüft wird.

@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:e2e": "playwright test"
+    "check:contracts": "node scripts/check-contract-examples.mjs",
+    "test:contracts": "node scripts/check-contract-examples.mjs --self-test",
+    "test:e2e": "playwright test",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "16.4.3",
@@ -19,12 +22,17 @@
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@tailwindcss/turbopack": "^4",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "jsdom": "^26.1.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "^6.4.5",
+    "vitest": "^4.1.12"
   }
 }
