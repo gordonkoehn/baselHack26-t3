@@ -1,4 +1,4 @@
-.PHONY: help setup dev backend frontend check fix smoke e2e
+.PHONY: help setup dev backend frontend check fix smoke e2e eval
 
 help:             ## list commands
 	@grep -E '^[a-z]+:.*##' Makefile | sed 's/:.*##/ —/'
@@ -31,3 +31,6 @@ smoke:            ## full stack: build frontend, boot both, hit the /api proxy (
 
 e2e:              ## browser regression tests (install Chromium with npx playwright install chromium)
 	cd frontend && npm run test:e2e
+
+eval:             ## opt-in, spends money: score prompts with real OpenAI calls (never in CI)
+	cd backend && uv run $(if $(wildcard backend/.env),--env-file .env) python -m evals.run
