@@ -190,7 +190,7 @@ def prepare_grounded(inputs):
 
 
 @pytest.mark.parametrize("fact_list", ["jobs", "pains", "objections"])
-def test_only_exact_grounded_fact_with_its_own_verbatim_evidence_is_preserved(inputs, fact_list):
+def test_grounded_fact_with_real_evidence_is_preserved_from_any_fact_list(inputs, fact_list):
     session, persona, events, draft = prepare_grounded(inputs)
     fact = persona.jobs[0].model_copy()
     persona.jobs, persona.pains, persona.objections = [], [], []
@@ -210,7 +210,6 @@ def test_only_exact_grounded_fact_with_its_own_verbatim_evidence_is_preserved(in
         "no_evidence",
         "null_quote",
         "blank_quote",
-        "unrelated_quote",
         "duplicate_evidence",
         "provider_guess",
     ],
@@ -230,12 +229,8 @@ def test_unsupported_source_labels_are_downgraded_without_dropping_quotes(inputs
         persona.jobs[0].evidence_id = "e_other"
     elif change == "no_evidence":
         persona.evidence = []
-    elif change in ("null_quote", "blank_quote", "unrelated_quote"):
-        persona.evidence[0].quote = {
-            "null_quote": None,
-            "blank_quote": " \n ",
-            "unrelated_quote": "Another real source passage.",
-        }[change]
+    elif change in ("null_quote", "blank_quote"):
+        persona.evidence[0].quote = {"null_quote": None, "blank_quote": " \n "}[change]
     elif change == "duplicate_evidence":
         persona.evidence.append(persona.evidence[0].model_copy())
     else:
@@ -243,6 +238,100 @@ def test_unsupported_source_labels_are_downgraded_without_dropping_quotes(inputs
     result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
     assert result.label == "guess" and result.evidence_id is None
     assert result.quote == insight.quote
+
+
+def prepare_reworded(inputs):
+    """Grounded citation of a real fact: theme reworded, persona's answer without the source quote."""
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    insight.label = "grounded"
+    insight.theme = "Wants the collection point off her to-do list"
+    insight.evidence_id = persona.jobs[0].evidence_id
+    assert insight.theme != persona.jobs[0].text
+    assert persona.evidence[0].quote not in insight.quote
+    return session, persona, events, draft
+
+
+def test_reworded_theme_citing_a_real_grounded_fact_stays_grounded(inputs):
+    session, persona, events, draft = prepare_reworded(inputs)
+    result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
+    assert result.label == "grounded" and result.evidence_id == persona.jobs[0].evidence_id
+
+
+def test_reworded_german_theme_matches_regardless_of_case(inputs):
+    session, persona, events, draft = prepare_reworded(inputs)
+    persona.jobs[0].text = "Punkteprogramme zahlen zu wenig für den grossen Aufwand"
+    draft.questions[0].insights[0].theme = "Der AUFWAND lohnt sich bei Punkteprogramme nie"
+    result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
+    assert result.label == "grounded"
+
+
+@pytest.mark.parametrize(
+    ("fact", "theme"),
+    [("Zu teuer", "Findet das Angebot teuer"), ("Too dear", "Too dear")],
+)
+def test_short_facts_can_still_be_matched(inputs, fact, theme):
+    session, persona, events, draft = prepare_reworded(inputs)
+    persona.jobs[0].text = fact
+    draft.questions[0].insights[0].theme = theme
+    result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
+    assert result.label == "grounded"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "made_up_id",
+        "topic_only",
+        "function_words_only",
+        "no_content_words",
+        "fact_is_guess",
+        "other_fact_says_it",
+        "null_quote",
+        "provider_guess",
+    ],
+)
+def test_reworded_theme_without_a_real_matching_citation_is_a_guess(inputs, change):
+    session, persona, events, draft = prepare_reworded(inputs)
+    insight = draft.questions[0].insights[0]
+    if change == "made_up_id":
+        insight.evidence_id = "e_made_up"
+    elif change == "topic_only":
+        insight.theme = "Unsure about the collection fee"
+    elif change == "function_words_only":
+        persona.jobs[0].text = "Would really rather not, without their consent"
+        insight.theme = "Without matching their offer is really dull"
+    elif change == "no_content_words":
+        persona.jobs[0].text = "Too dear"
+        insight.theme = "Too dear for now"
+    elif change == "fact_is_guess":
+        persona.jobs[0].label = "guess"
+    elif change == "other_fact_says_it":
+        # The wording matches a fact, but that fact cites nothing, so the id does not back it.
+        persona.jobs[1].text = insight.theme
+        persona.jobs[0].text = "Something else entirely"
+        persona.pains[0].text = "Something else entirely"
+    elif change == "null_quote":
+        persona.evidence[0].quote = None
+    else:
+        insight.label = "guess"
+    result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
+    assert result.label == "guess" and result.evidence_id is None
+
+
+def test_grounded_citation_does_not_loosen_quote_verification(inputs):
+    # A source passage the persona never said stays unquotable, however good the citation is.
+    session, persona, events, draft = prepare_reworded(inputs)
+    draft.questions[0].insights[0].quote = persona.evidence[0].quote
+    assert debrief.build_report(session, persona, events, draft).questions[0].insights == []
+
+
+def test_prompt_matches_the_source_label_rule():
+    prompt = " ".join(extract.DEBRIEF_INSTRUCTIONS.split())
+    assert "exactly equals" not in prompt
+    assert "substring of the insight quote" not in prompt
+    assert "must reuse at least two of its key words unchanged" in prompt
+    assert "never make up an evidenceId" in prompt
 
 
 def test_strict_revalidation_rejects_unvalidated_provider_data(inputs):

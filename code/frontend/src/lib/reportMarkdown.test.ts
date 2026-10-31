@@ -59,7 +59,7 @@ describe("formatReportMarkdown", () => {
     expect(formatReportMarkdown(report({ generatedAt: "nonsense" }), "Anna")).toContain("Date (UTC): unavailable");
   });
 
-  it("labels each insight with its turn and whether the sources back it", () => {
+  it("labels each insight with its turn and whether it was matched to a source", () => {
     const markdown = formatReportMarkdown(
       report({
         questions: [
@@ -79,9 +79,10 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("## Question 1");
     expect(markdown).toContain("Signal: contradicts");
     expect(markdown).toContain("- **[grounded]** Backed");
-    expect(markdown).toContain("Interview turn 2 · also in the persona's sources");
+    expect(markdown).toContain("AI persona quote · interview turn 2 · finding matched to a source");
     expect(markdown).toContain("- **[guess]** Unbacked");
-    expect(markdown).toContain("Interview turn 5 · not backed by the persona's sources");
+    expect(markdown).toContain("AI persona quote · interview turn 5 · not matched to a source");
+    expect(markdown).not.toContain("backed by");
     expect(markdown).toContain("- Ask them why");
   });
 

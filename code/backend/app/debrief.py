@@ -1,11 +1,24 @@
 """Finalization and quote validation for synthetic interview debriefs."""
 
+import re
 from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
 from app.contracts import Insight, InsightReport, Persona, Session, SessionEvent
 from app.extract import DebriefDraft, ExtractionFailed
+
+# Long function words two unrelated sentences can share by chance. Interviews are English or German.
+# fmt: off
+_NOT_CONTENT = frozenset({
+    "about", "after", "because", "before", "could", "every", "other", "their", "there", "these",
+    "those", "under", "where", "which", "while", "without", "would", "should", "really", "still",
+    "wants", "needs", "thinks", "feels",
+    "nicht", "keine", "keinen", "keiner", "einen", "einem", "einer", "eines", "diese", "dieser",
+    "dieses", "diesen", "diesem", "haben", "hatte", "werden", "wurde", "würde", "schon", "immer",
+    "damit", "dabei", "durch", "gegen", "unter", "etwas", "können", "müssen", "sollte", "wirklich",
+})
+# fmt: on
 
 
 class TranscriptIncomplete(Exception):
@@ -45,9 +58,25 @@ def validate_inputs(session: Session, events: list[SessionEvent]) -> dict[int, s
     return turns
 
 
+def _content_words(text: str) -> set[str]:
+    return set(re.findall(r"[^\W\d_]{5,}", text.casefold())) - _NOT_CONTENT
+
+
+def _restates(theme: str, fact: str) -> bool:
+    """Whether a reworded theme keeps enough of the fact's own words to be about that fact.
+
+    One shared word is too weak: every finding in an interview shares the topic's vocabulary.
+    A miss only costs a guess label, while a false grounded label would break the product's promise.
+    """
+    fact_words = _content_words(fact)
+    shared = _content_words(theme) & fact_words
+    return theme == fact or (bool(shared) and len(shared) >= min(2, len(fact_words)))
+
+
 def _source_label(insight: Insight, persona: Persona) -> Insight:
-    # Narrow source policy: exact restatement + the fact's own source quote only. A synthetic
-    # quote matching a turn is a separate check, never evidence of real-customer validation.
+    # The label is about the theme: it cites a real source-backed fact and is recognizably about
+    # it. The quote is the persona's synthetic speech, so it may reword the source and is never
+    # evidence of real-customer validation; _place_quote verifies it against the saved turns.
     evidence = [e for e in persona.evidence if e.id == insight.evidence_id]
     if (
         insight.label == "grounded"
@@ -55,11 +84,10 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
         and len(evidence) == 1
         and evidence[0].quote is not None
         and evidence[0].quote.strip()
-        and evidence[0].quote in insight.quote
         and any(
             fact.label == "grounded"
-            and fact.text == insight.theme
             and fact.evidence_id == insight.evidence_id
+            and _restates(insight.theme, fact.text)
             for fact in persona.jobs + persona.pains + persona.objections
         )
     ):

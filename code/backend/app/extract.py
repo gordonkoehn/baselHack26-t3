@@ -286,9 +286,11 @@ background, never quotable as an interview statement. Never quote the interviewe
 other events. Do not normalize whitespace, paraphrase, translate, splice quotes or add ellipses.
 Insights whose quote is not found in that turn are discarded.
 Synthetic utterances are not real-customer validation. Default label to guess and evidenceId
-to null. Only use grounded when theme exactly equals a grounded jobs/pains/objections fact's
-text, evidenceId equals that fact's evidenceId, and that stored Evidence's nonblank quote is
-itself a verbatim substring of the insight quote. Otherwise keep guess/null.
+to null. Only use grounded when the finding says the same thing as one grounded
+jobs/pains/objections fact and evidenceId equals that fact's evidenceId. The theme may reword the
+fact but must reuse at least two of its key words unchanged, or code downgrades it to guess. The
+quote stays the persona's own words and need not repeat the fact's source passage. Never cite a
+fact only because it shares the topic, and never make up an evidenceId. Otherwise keep guess/null.
 """
 
 
