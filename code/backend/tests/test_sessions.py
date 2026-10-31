@@ -112,6 +112,8 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
     assert PERSONA["name"] in session["instructions"]
     assert PERSONA["pains"][0]["text"] in session["instructions"]
     assert "design advice" in session["instructions"]
+    # Screen frames carry this exact label (ScreenShareButton, #101); the persona must read them.
+    assert "(Interviewer's shared screen, the prototype, right now.)" in session["instructions"]
     assert session["audio"]["input"]["transcription"]["language"] == "de"
     assert session["audio"]["input"]["turn_detection"] == {
         "type": "semantic_vad",
