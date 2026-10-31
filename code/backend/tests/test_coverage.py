@@ -25,7 +25,12 @@ PERSONA = Persona.model_validate(
         **_EXAMPLE,
         "evidence": [
             *_EXAMPLE["evidence"],
-            {"id": "e2", "kind": "transcript", "claim": "Pays by phone", "quote": "Ich zahle fast alles mit TWINT."},
+            {
+                "id": "e2",
+                "kind": "transcript",
+                "claim": "Pays by phone",
+                "quote": "Ich zahle fast alles mit TWINT.",
+            },
         ],
     }
 )
