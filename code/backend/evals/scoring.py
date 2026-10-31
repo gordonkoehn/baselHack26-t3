@@ -69,6 +69,8 @@ NUMBER = re.compile(r"\d+(?:[.,'’]\d+)*")
 # Two or more capitalized words in a row. German capitalizes every noun, so a single capitalized
 # word proves nothing; this catches "Nadine Meier" but not a lone invented "Meier".
 NAME = re.compile(r"[A-ZÄÖÜ][\w’'-]+(?:\s+[A-ZÄÖÜ][\w’'-]+)+")
+# Not a comma: German lowercases what follows one, so a capital there is a noun or a name.
+SENTENCE_OPENERS = ".!?:" + "«‹„‚“‘\"'"
 
 
 @dataclass
@@ -120,17 +122,17 @@ def invented_numbers(text: str, corpus: str) -> set[str]:
 def invented_names(text: str, corpus: str) -> list[str]:
     """Runs of capitalized words with a word from outside the corpus ("Bäckerei Keller").
 
-    Heuristic, in both directions. A name opening a sentence ("Peter Keller vertraut") looks the
-    same as "Klare Transparenz fehlt", so it passes; two nouns in a row with no article between
-    them ("will Kindern Spielplätze") can fail. Failures are printed for a person to judge.
+    Heuristic, in both directions. A name opening a sentence or a quote ("Peter Keller vertraut")
+    looks the same as "Klare Transparenz fehlt", so it passes; two nouns in a row with no article
+    between them ("will Kindern Spielplätze") can fail. Failures are printed for a person to judge.
     """
     known = {word.casefold() for word in WORD.findall(corpus.replace("-", " "))}
     found = []
     for match in NAME.finditer(text):
         words = match.group().split()
         before = text[: match.start()].rstrip()
-        # Any word can start a sentence capitalized, so the first one there says nothing.
-        if not before or before[-1] in ".!?:":
+        # Any word can start a sentence or quote capitalized, so the first one there says nothing.
+        if not before or before[-1] in SENTENCE_OPENERS:
             words = words[1:]
         parts = " ".join(words).replace("-", " ").split()
         if len(words) > 1 and any(part.casefold() not in known for part in parts):

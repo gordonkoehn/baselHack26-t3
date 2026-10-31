@@ -242,6 +242,56 @@ def test_a_capitalized_sentence_start_is_not_a_name():
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "«Reine Werbung» statt Mehrwert",
+        "Wünscht «Klare Transparenz» beim Projekt",
+        "Wünscht ‹Klare Transparenz› beim Projekt",
+        "Wünscht „Klare Transparenz“ beim Projekt",
+        "Wünscht ‚Klare Transparenz‘ beim Projekt",
+        'Fragt "Klare Transparenz"',
+        "Fragt 'Klare Transparenz'",
+    ],
+)
+def test_a_capitalized_quote_start_is_not_a_name(text):
+    assert scoring.invented_names(text, "") == []
+
+
+def test_only_the_first_word_of_a_quote_is_excused():
+    assert scoring.invented_names("Kauft bei «Bäckerei Peter Keller» ein", "") == ["Peter Keller"]
+
+
+def test_a_capital_after_a_comma_is_still_checked():
+    assert scoring.invented_names("Sie mag Anna, Peter Keller nicht", "") == ["Peter Keller"]
+
+
+@pytest.mark.parametrize("reply", ["Ja, the Börse klingt gut.", "Ok, and?"])
+def test_one_stopword_from_the_other_language_is_not_clear_evidence(reply):
+    assert not scoring.wrong_language(reply, "de")
+
+
+def test_two_stopwords_from_the_other_language_are_clear_evidence():
+    assert scoring.wrong_language("Ja, the Börse and klingt gut.", "de")
+
+
+def test_a_quote_copied_from_the_interviewer_fails_though_it_is_in_the_cited_turn():
+    draft = debrief_draft(quote="Was denkst du?")
+    draft.questions[0].insights[0].turn_seq = 1
+    checks = {c.name: c for c in score_debrief(draft, session(), persona(), events())}
+    assert not checks["debrief_quotes_in_cited_turns"].ok
+
+
+def test_a_theme_may_name_a_topic_from_the_interview_guide():
+    guide = ["Wie sieht sie die Quartier Börse?"]
+    theme = "Die Skepsis trifft auch die Quartier Börse"
+    interview = session().model_copy(update={"interview_guide": guide})
+    checks = {
+        c.name: c for c in score_debrief(debrief_draft(theme), interview, persona(), events())
+    }
+    assert checks["debrief_no_invented_names"].ok
+
+
+@pytest.mark.parametrize(
     ("text", "name"),
     [
         ("Vertraut Peter Keller nicht", "Peter Keller"),
@@ -498,6 +548,24 @@ def test_meter_refuses_more_than_max_calls():
     with pytest.raises(run.BudgetExceeded):
         meter.create(model="m")
     assert meter.calls == run.MAX_CALLS
+
+
+@pytest.mark.parametrize(
+    ("method", "cap"),
+    [("parse", run.STRUCTURED_OUTPUT_CAP), ("create", run.REPLY_OUTPUT_CAP)],
+)
+def test_meter_counts_the_whole_output_cap_against_the_budget(method, cap):
+    fake = FakeResponses()
+    meter = run.Meter(fake)
+    meter.input_tokens = run.TOKEN_BUDGET - cap
+    getattr(meter, method)(model="m", text_format=PersonaDraft)
+    assert len(fake.calls) == 1
+
+    meter = run.Meter(fake)
+    meter.input_tokens = run.TOKEN_BUDGET - cap + 1
+    with pytest.raises(run.BudgetExceeded):
+        getattr(meter, method)(model="m", text_format=PersonaDraft)
+    assert len(fake.calls) == 1
 
 
 def test_meter_counts_a_call_without_usage_as_not_metered():
