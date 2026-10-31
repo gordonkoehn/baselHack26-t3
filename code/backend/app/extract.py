@@ -3,7 +3,10 @@
 The single place that talks to OpenAI. Tests replace `_client()`; nothing here logs source text.
 """
 
+import base64
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 
 import openai
@@ -88,14 +91,11 @@ def _client() -> openai.OpenAI:
     return openai.OpenAI(timeout=TIMEOUT_SECONDS, max_retries=1)
 
 
-def extract_persona(request: PersonaCreate) -> PersonaDraft:
+@contextmanager
+def _provider_errors() -> Iterator[None]:
+    """Map OpenAI errors to ProviderUnavailable (503) or ExtractionFailed (502)."""
     try:
-        response = _client().responses.parse(
-            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
-            instructions=INSTRUCTIONS.format(language_name=LANGUAGES[request.language]),
-            input=_format_sources(request),
-            text_format=PersonaDraft,
-        )
+        yield
     except (
         openai.APITimeoutError,
         openai.APIConnectionError,
@@ -120,8 +120,38 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
     except openai.OpenAIError as exc:
         raise ProviderUnavailable(type(exc).__name__) from None
 
+
+def extract_persona(request: PersonaCreate) -> PersonaDraft:
+    with _provider_errors():
+        response = _client().responses.parse(
+            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+            instructions=INSTRUCTIONS.format(language_name=LANGUAGES[request.language]),
+            input=_format_sources(request),
+            text_format=PersonaDraft,
+        )
+
     draft = response.output_parsed
     if draft is None:
         # No parsed output means a refusal or an incomplete answer.
         raise ExtractionFailed(f"no persona in response (status {response.status})")
     return draft
+
+
+TRANSCRIBE = """\
+Transcribe all text visible in this image verbatim, in reading order, in its original language.
+One sticky note, card or speech bubble per line. Keep the exact wording and spelling; do not
+translate, summarize, correct or describe the image. Output only the transcribed text, or nothing
+if the image contains no readable text.
+"""
+
+
+def transcribe_image(data: bytes, mime: str) -> str:
+    """Return the text visible in an image, so it can be quoted like any other source."""
+    url = f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    with _provider_errors():
+        response = _client().responses.create(
+            model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+            instructions=TRANSCRIBE,
+            input=[{"role": "user", "content": [{"type": "input_image", "image_url": url}]}],
+        )
+    return response.output_text.strip()
