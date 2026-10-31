@@ -274,6 +274,28 @@ test("the last item arriving after the wait limit finishes the call: nothing is 
   await expectCompleteWithDebrief(page, request, session);
 });
 
+test("a stale Close click as the last item arrives doesn't cut off the words still on their way", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "late-input" });
+  await end(page);
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("button", { name: "Close without it", exact: true })).toBeVisible();
+  // All in one task: the button is still on screen when the item arrives, as it is for a real click.
+  await page.evaluate((transcript) => {
+    const close = [...document.querySelectorAll("button")].find((button) => button.textContent === "Close without it")!;
+    window.e2eRealtime.emit({ type: "conversation.item.input_audio_transcription.completed", item_id: "late-input", transcript });
+    window.e2eRealtime.emit({ type: "response.done", response: { id: "late-answer", status: "completed", output: [] } });
+    close.click();
+  }, sentence);
+  const words = "These words arrived after the click.";
+  await emit(page, { type: "response.output_audio_transcript.done", response_id: "late-answer", item_id: "late-item", content_index: 0, transcript: words });
+  await settle(page);
+  await expectCompleteWithDebrief(page, request, session);
+  expect((await stored(request, session)).some((event) => event.type === "utterance" && event.data.text === words)).toBe(true);
+});
+
 test("a call where the persona never spoke says so instead of offering a retry that cannot work", async ({ page }) => {
   await start(page);
   await end(page);

@@ -269,7 +269,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     if (!liveEstablished.current || !finalizing.current || work.current.missingTurns) lost.current = true;
     hangUp();
     if (finalizing.current) {
-      if (!draining.current) void closeDrained(false);
+      if (!draining.current) void closeDrained();
     } else void end();
   }
 
@@ -591,7 +591,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
         endStarted.current = Date.now();
         drainStarted.current = performance.now();
         durationSeconds.current = Math.round((Date.now() - liveSince.current) / 1000);
-        await closeDrained(true);
+        await closeDrained();
         return;
       }
       hangUp();
@@ -729,12 +729,12 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     }
     if (g !== gen.current) return;
     draining.current = false;
-    await closeDrained(false);
+    await closeDrained();
   }
 
-  async function closeDrained(incomplete: boolean) {
+  async function closeDrained() {
     if (finishing.current || draining.current) return;
-    if (incomplete || work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
+    if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
@@ -960,7 +960,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
               {channel.current?.readyState === "open" && (
                 <button type="button" className={btn} onClick={drain}>Continue waiting (10 seconds)</button>
               )}
-              <button type="button" className={btn} onClick={() => closeDrained(false)}>
+              <button type="button" className={btn} onClick={closeDrained}>
                 Close without it
               </button>
             </>

@@ -11,8 +11,12 @@ from app.extract import DebriefDraft, ExtractionFailed
 
 # What the browser saves when an answer is cut off (InterviewRoom.tsx). The persona didn't say it.
 INTERRUPTED = "(interrupted)"
-# Below this, text similarity says nothing: different questions share words, a translation doesn't.
-SAME_QUESTION = 0.6
+# Below this, text similarity says nothing: unrelated questions in one language share letters, up
+# to about 0.48 in our samples. Shortened questions that were swapped score from about 0.55.
+SAME_QUESTION = 0.5
+# Characters that join what comes before and after them into one word or number: "non-binding",
+# "1,000", "1'000", "1.50", "wouldn't", including the accents speech and typing use as apostrophes.
+JOINS = r"['’ʼ´`.,\-‐‑]"
 
 
 class TranscriptIncomplete(Exception):
@@ -75,8 +79,12 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
 
 
 def _said(quote: str, text: str) -> bool:
-    """Whether text holds the quote as whole words: "I would" of "I wouldn't" reverses it."""
-    return re.search(rf"(?<!\w){re.escape(quote.strip())}(?!\w|['’]\w)", text) is not None
+    """Whether text holds the quote as whole words: "I would" of "I wouldn't" reverses it.
+
+    This checks words, not meaning: "I would" of "I would not pay" is still something they said.
+    """
+    pattern = rf"(?<!\w)(?<!\w{JOINS}){re.escape(quote.strip())}(?!\w|{JOINS}\w)"
+    return re.search(pattern, text) is not None
 
 
 def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
@@ -111,9 +119,14 @@ def _check_positions(asked: list[str], guide: list[str]) -> None:
     """Answers belong to the guide question at their position, whatever the model called it.
 
     That is only safe with one answer per question in guide order, so a missing or extra answer
-    fails, and so does text that is plainly another guide question, whose quotes would land under
-    the wrong one. Only the wording can show this: a reorder that is also translated or fully
-    paraphrased can't be told from a plain rewording, so it still passes.
+    fails, and so does text closer to another guide question, whose quotes would land under the
+    wrong one. Only the wording can show this, so the check has limits both ways:
+    - It still passes a reorder whose wording stays below SAME_QUESTION for the other question, as
+      a translation or full paraphrase can, and an unrelated question at the right position. Both
+      are then shown under the guide's text.
+    - It fails an honest rewording that lands closer to a similar guide question, such as one with
+      the same opening words. That is visible and can be retried, and a wrong answer under a
+      question is not visible at all, so a close call fails.
     """
     if len(asked) != len(guide) or any(
         _closer_to_another(a, g, guide) for a, g in zip(asked, guide, strict=True)

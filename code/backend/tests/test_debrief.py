@@ -201,6 +201,86 @@ def test_a_swap_is_caught_through_small_rewording(inputs, disguise):
         debrief.build_report(session, persona, events, draft)
 
 
+GUIDE = [
+    "Erleben Nutzer:innen das Teilen ihrer Kilo-Shares fürs Quartier als Mehrwert oder als Verlust?",
+    "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
+    "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
+]
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        ["Erhöht das Matching den Projektanteil?", "Ist Teilen ein Mehrwert oder ein Verlust?"],
+        ["Partner-Matching: mehr fürs Projekt?", "Teilen: Mehrwert oder Verlust?"],
+    ],
+)
+def test_a_swap_is_caught_through_ordinary_shortening(inputs, asked):
+    session, persona, events, draft = inputs
+    session.interview_guide = GUIDE
+    draft.questions[0].question, draft.questions[1].question = asked
+    draft.questions[2].question = GUIDE[2]
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
+@pytest.mark.parametrize(
+    "guide, asked",
+    [
+        (
+            GUIDE,
+            [
+                "Ist Teilen ein Mehrwert oder ein Verlust?",
+                "Erhöht das Matching den Projektanteil?",
+                "Vertrauen in den Beitrag?",
+            ],
+        ),
+        (
+            GUIDE,
+            [
+                "Sharing: benefit or loss?",
+                "Does matching raise the project share?",
+                "Do they trust the money arrives?",
+            ],
+        ),
+        # Unrelated questions in one language: "When" scores 0.48 against "Wie haben Sie".
+        (
+            [
+                "Was kostet Sie das Problem heute?",
+                "Wann ist es zuletzt passiert?",
+                "Wie haben Sie es gelöst?",
+            ],
+            [
+                "What does the problem cost you today?",
+                "When did it last happen?",
+                "How did you solve it?",
+            ],
+        ),
+    ],
+)
+def test_shortening_or_translating_in_place_passes(inputs, guide, asked):
+    session, persona, events, draft = inputs
+    session.interview_guide = guide
+    for question, text in zip(draft.questions, asked, strict=True):
+        question.question = text
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == guide
+
+
+def test_a_rewording_closer_to_a_similar_guide_question_fails_rather_than_risk_a_swap(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = [
+        "How much do you pay for the app each month?",
+        "How much do you use the app each month?",
+        "Would you recommend it?",
+    ]
+    draft.questions[0].question = "How much do you spend on the app each month?"
+    draft.questions[1].question = session.interview_guide[1]
+    draft.questions[2].question = session.interview_guide[2]
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
 def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
     session, persona, events, draft = inputs
     session.interview_guide = [
@@ -253,6 +333,16 @@ def test_reworded_question_does_not_loosen_quote_verification(inputs):
         ("I can't pay for this.", "I can", False),
         ("Hard to say.", "e", False),
         ("Unfair, I think.", "fair", False),
+        ("I wouldn´t buy it.", "I wouldn", False),
+        ("I'd pay 1,000 francs.", "I'd pay 1", False),
+        ("I'd pay 1'000 Franken.", "I'd pay 1", False),
+        ("I'd pay 1.50 at most.", "I'd pay 1", False),
+        ("I'd pay 1,000 francs.", "000 francs", False),
+        ("This is non-binding for me.", "binding for me", False),
+        ("I'd pay 1,000 francs.", "I'd pay 1,000", True),
+        ("This is non-binding for me.", "non-binding", True),
+        ("Ja, sicher. Aber nicht heute.", "Ja, sicher.", True),
+        ("Ja, sicher. Aber nicht heute.", "Aber nicht heute", True),
         ("I wouldn't pay for this.", "I wouldn't pay", True),
         ("I wouldn't pay for this.", "pay for this.", True),
         ("Für die Bäckerei, ja.", "Bäckerei", True),
