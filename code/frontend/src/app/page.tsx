@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
+import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
@@ -260,6 +261,8 @@ function PersonaCard({ persona, sources, seconds }: Result) {
       <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} />
       <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} />
       <FactList title="Objections" facts={persona.objections} persona={persona} sources={sources} />
+      {/* Keyed by persona so a new persona never inherits the previous call. */}
+      <InterviewRoom key={persona.id} persona={persona} />
     </article>
   );
 }
