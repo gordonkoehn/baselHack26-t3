@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "@/lib/api";
-import { errorMessage } from "@/lib/errorMessage";
+import { errorMessage, NETWORK_ERROR } from "@/lib/errorMessage";
 import type {
   CoverageReport,
   Evidence,
@@ -170,10 +170,12 @@ export default function Home() {
           const text = await file.text();
           setDrafts((ds) => [...ds, draft("note", file.name, text)]);
         } else {
-          problems.push(`${file.name}: not supported (use ${ACCEPTED})`);
+          problems.push(`${file.name}: not supported (use ${ACCEPTED.replaceAll(",", ", ")})`);
         }
       } catch (e) {
-        problems.push(`${file.name}: ${e instanceof ApiError ? e.detail : "could not be read"}`);
+        // fetch reports a lost connection as a TypeError; the file itself is fine then.
+        const reason = e instanceof ApiError ? e.detail : e instanceof TypeError ? NETWORK_ERROR : "could not be read";
+        problems.push(`${file.name}: ${reason}`);
       }
     }
     setReading(false);
@@ -445,7 +447,7 @@ export default function Home() {
         </div>
         </div>
         {error && (
-          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          <p role="alert" className="rounded-md bg-red-50 p-3 text-sm break-words text-red-800 dark:bg-red-950 dark:text-red-200">
             {error}
           </p>
         )}
@@ -540,7 +542,7 @@ function WorkspaceBar({
           OpenTwin
           {persona && <span className="truncate font-normal text-muted">/ {persona.name}</span>}
         </p>
-        <nav aria-label="Steps" className="order-last flex w-full rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
+        <nav aria-label="Steps" className="order-last flex w-full flex-wrap rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
           {TABS.map((t) => {
             const locked = t.id !== "sources" && !persona;
             return (
@@ -551,7 +553,7 @@ function WorkspaceBar({
                 disabled={locked}
                 title={locked ? "Create a persona first" : undefined}
                 onClick={() => onTab(t.id)}
-                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs uppercase tracking-widest sm:flex-none sm:px-5 ${
+                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs whitespace-nowrap uppercase tracking-widest sm:flex-none sm:px-5 ${
                   tab === t.id ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground disabled:opacity-40"
                 }`}
               >

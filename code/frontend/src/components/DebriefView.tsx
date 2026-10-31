@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { InsightReport } from "@/lib/contracts";
 import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { TRANSCRIPT_GAPS, formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
@@ -104,7 +105,7 @@ export function DebriefView({
       setReport(await api.debrief(sessionId));
       onCreated?.();
     } catch (e) {
-      if (!(e instanceof ApiError)) setError("Backend not reachable.");
+      if (!(e instanceof ApiError)) setError(NETWORK_ERROR);
       else if (e.status === 409) setError(`The transcript is not complete yet: ${e.detail}`);
       else if (e.status === 503) setError("The debrief model is unavailable right now. Try again in a moment.");
       else if (e.status === 422) {
