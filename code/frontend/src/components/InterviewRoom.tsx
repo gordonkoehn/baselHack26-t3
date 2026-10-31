@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
-import { ScreenShareButton, frameBudget } from "@/components/ScreenShareButton";
+import { InterviewScript } from "@/components/InterviewScript";
+import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
+import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { sampleTurns } from "@/lib/sample";
+import { ReplyTimer, describeLatency, summarizeLatency } from "@/lib/replyLatency";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
@@ -18,12 +21,15 @@ import { sampleTurns } from "@/lib/sample";
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
 type Phase = "idle" | "sample" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
-type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
+type Metrics = { latenciesMs: number[]; avatarMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
 const CAMERA_FRAME_MS = 15_000;
 // While the prototype is shared it replaces the camera, refreshed faster so navigation shows up.
 const SCREEN_FRAME_MS = 10_000;
+// The camera image sits in the context of every reply, so its size adds input tokens to each one (#159).
+// It only shows the interviewer: a small JPEG (captureFrame halves the size until it fits) is enough.
+const CAMERA_FRAME_BYTES = 24 * 1024;
 // Permission prompts, token, SDP and channel setup can all hang; give up after this long.
 const START_TIMEOUT_MS = 45_000;
 // The persona prompt (realtime.py) keys on this exact label; keep them in sync.
@@ -61,9 +67,10 @@ export function InterviewRoom({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(initialGuide);
+  const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
@@ -110,6 +117,8 @@ export function InterviewRoom({
   const mic = useRef<MediaStream | null>(null);
   // Muted: the mic track sends silence, so room talk can't start a turn; typing still works.
   const [muted, setMuted] = useState(false);
+  const [panel, setPanel] = useState<"script" | "transcript">("script");
+  const shownPanel = scriptQuestions.length > 0 ? panel : "transcript";
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
@@ -119,6 +128,7 @@ export function InterviewRoom({
   const cameraDelete = useRef<{ itemId: string; eventId: string; resolve: (removed: boolean) => void } | null>(null);
   const camView = useRef<HTMLVideoElement>(null);
   const [screenShare, setScreenShare] = useState<MediaStream | null>(null);
+  const screenShareRef = useRef<MediaStream | null>(null);
   // When the last screen image went out (in liveSeconds), or why it failed; shown while sharing.
   const [screenSentAt, setScreenSentAt] = useState<number | null>(null);
   const [screenNote, setScreenNote] = useState<string | null>(null);
@@ -132,8 +142,8 @@ export function InterviewRoom({
   const [avatarOff, setAvatarOff] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
-  // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
-  const askedAt = useRef<number | null>(null);
+  // From the interviewer's end of turn (or sent text) to the first persona audio and avatar movement (#159).
+  const replyTimer = useRef(new ReplyTimer());
 
   const dialog = useRef<HTMLDialogElement>(null);
   const transcript = useRef<HTMLOListElement>(null);
@@ -152,6 +162,16 @@ export function InterviewRoom({
     if (inCall && !d?.open) d?.showModal();
     if (!inCall && d?.open) d.close();
   }, [inCall]);
+
+  // Reply delay for the issue (#159): logged once the call is over, so the last reply is included.
+  const callOver = phase === "ended" || phase === "unsaved";
+  useEffect(() => {
+    if (!callOver || metrics.latenciesMs.length === 0) return;
+    console.info(describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs)));
+    console.info(describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs)));
+    // Only on the transition into the ended state, with the metrics as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callOver]);
 
   useEffect(() => {
     if (camView.current) camView.current.srcObject = cam;
@@ -172,7 +192,8 @@ export function InterviewRoom({
       if (busy || cameraPaused.current || !current()) return;
       busy = true;
       try {
-        const image = await captureFrame(view, { maxBytes: frameBudget(pc.current) });
+        const budget = frameBudget(pc.current);
+        const image = await captureFrame(view, { maxBytes: isScreen ? budget : Math.min(budget, CAMERA_FRAME_BYTES) });
         if (!current()) return;
         const dc = channel.current;
         if (dc?.readyState !== "open") return;
@@ -278,6 +299,7 @@ export function InterviewRoom({
 
   function hangUp() {
     callClosed.current = true;
+    replyTimer.current.reset();
     clearTimeout(startTimer.current);
     cameraDelete.current?.resolve(false);
     stopWatching.current?.();
@@ -294,6 +316,7 @@ export function InterviewRoom({
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    screenShareRef.current = null;
     setScreenShare(null);
     setMuted(false);
   }
@@ -301,11 +324,14 @@ export function InterviewRoom({
   // Sharing started or stopped. On stop, the last screen image leaves the context and the persona is
   // told, so it never describes an old screen as live. Text only: no response.create.
   function sharing(stream: MediaStream | null) {
+    const wasSharing = screenShareRef.current !== null;
+    screenShareRef.current = stream;
     setScreenShare(stream);
     setScreenSentAt(null);
     setScreenNote(null);
     const dc = channel.current;
-    if (stream || finalizing.current || dc?.readyState !== "open") return;
+    // Ignore null reports when nothing was shared (button mount/unmount must not pollute the call).
+    if (stream || !wasSharing || finalizing.current || dc?.readyState !== "open") return;
     try {
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {
@@ -347,14 +373,13 @@ export function InterviewRoom({
         break;
       case "input_audio_buffer.speech_stopped":
         work.current.stopped(e.item_id);
-        askedAt.current = performance.now();
+        replyTimer.current.asked(performance.now(), avatar.current !== null);
         break;
       case "output_audio_buffer.started":
         work.current.playback(e.response_id, false);
-        if (askedAt.current !== null) {
-          const ms = performance.now() - askedAt.current;
-          setMetrics((m) => ({ ...m, latenciesMs: [...m.latenciesMs, ms] }));
-          askedAt.current = null;
+        {
+          const ms = replyTimer.current.voice(performance.now());
+          if (ms !== null) setMetrics((m) => ({ ...m, latenciesMs: [...m.latenciesMs, ms] }));
         }
         break;
       case "output_audio_buffer.stopped":
@@ -421,7 +446,11 @@ export function InterviewRoom({
         }
         // A rejected response.create (e.g. one is already running) will never get a response:
         // release its reservation so "End" doesn't wait for an answer that can't come.
-        if (e.error?.event_id?.startsWith("a:")) pending.current.delete(e.error.event_id);
+        if (e.error?.event_id?.startsWith("a:")) {
+          pending.current.delete(e.error.event_id);
+          // Its reply never comes: don't pair the next audio with this ask.
+          replyTimer.current.reset();
+        }
         setError(e.error?.message ?? "Realtime error");
         break;
       }
@@ -522,7 +551,7 @@ export function InterviewRoom({
     setError(null);
     setTurns([]);
     setVoice(null);
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     gen.current += 1;
     const g = gen.current;
     callClosed.current = false;
@@ -694,7 +723,7 @@ export function InterviewRoom({
     setConnectionLost(false);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     try {
       const interviewGuide = guide
         .split("\n")
@@ -732,7 +761,7 @@ export function InterviewRoom({
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
-    askedAt.current = performance.now();
+    replyTimer.current.asked(performance.now(), avatar.current !== null);
     return true;
   }
 
@@ -857,9 +886,6 @@ export function InterviewRoom({
     }
   }
 
-  const avgMs = metrics.latenciesMs.length
-    ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
-    : null;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
   const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
   const canStart = !questionsRequired || questionCount > 0;
@@ -979,13 +1005,14 @@ export function InterviewRoom({
       <dialog
         ref={dialog}
         aria-label={`Interview with ${persona.name}`}
-        className="m-auto w-[min(64rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
+        className="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
         // Esc must not silently drop a running call; ending goes through "End interview".
         onCancel={(e) => e.preventDefault()}
         onClose={() => inCall && dialog.current?.showModal()}
       >
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="font-semibold">{persona.name}</h3>
+          <span className="text-xs font-bold uppercase tracking-wide text-muted">AI test user, not a real person</span>
           {phase === "connecting" && (
             <>
               <span className="text-sm text-muted">Connecting…</span>
@@ -1038,54 +1065,93 @@ export function InterviewRoom({
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,16rem)_1fr]">
-          <div className="space-y-3">
-            {showAvatar && sessionId.current && voice && (
-              <Avatar
-                sessionId={sessionId.current}
-                track={voice}
-                onActive={(control) => {
-                  avatar.current = control;
-                  setAvatarOn(control !== null);
-                }}
+        <div className="mt-4 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="mx-auto w-full max-w-2xl space-y-3">
+            {screenShare && (
+              <ZoomStage label="Shared screen">
+                <ScreenSharePreview stream={screenShare} />
+                {phase === "live" && (
+                  <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
+                    {screenNote ??
+                      (screenSentAt === null
+                        ? "Sending the first screen image to the persona…"
+                        : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+                  </p>
+                )}
+              </ZoomStage>
+            )}
+            <ZoomStage label="Video call">
+              {showAvatar && sessionId.current && voice && (
+                <Avatar
+                  sessionId={sessionId.current}
+                  track={voice}
+                  onSpeaking={() => {
+                    const ms = replyTimer.current.avatar(performance.now());
+                    if (ms !== null) setMetrics((m) => ({ ...m, avatarMs: [...m.avatarMs, ms] }));
+                  }}
+                  onActive={(control) => {
+                    avatar.current = control;
+                    if (!control) replyTimer.current.avatarGone();
+                    setAvatarOn(control !== null);
+                  }}
+                />
+              )}
+              {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
+              {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+              <video
+                ref={camView}
+                autoPlay
+                muted
+                playsInline
+                aria-label="Your camera"
+                className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
               />
-            )}
-            {avatarOff && phase === "live" && <p className="text-xs text-muted">Avatar off, voice only.</p>}
-            {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
-            <video
-              ref={camView}
-              autoPlay
-              muted
-              playsInline
-              aria-label="Your camera"
-              className={`aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
-            />
-            {camNote && <p className="text-xs text-muted">{camNote}</p>}
-            {screenShare && phase === "live" && (
-              <p className="text-xs text-muted" data-testid="screen-status">
-                {screenNote ??
-                  (screenSentAt === null
-                    ? "Sending the first screen image to the persona…"
-                    : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
-              </p>
-            )}
+              {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+            </ZoomStage>
           </div>
-          <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
-            {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
-            {turns.map((t, i) => (
-              <li
-                key={i}
-                className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
-                  t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                } ${t.cancelled ? "opacity-50" : ""}`}
-              >
-                <span className="mb-0.5 block text-xs font-medium text-muted">
-                  {t.who === "persona" ? persona.name : "You"}
-                </span>
-                {t.text}
-              </li>
-            ))}
-          </ol>
+          <div className="min-w-0 space-y-3">
+            {scriptQuestions.length > 0 && (
+              <div className="flex gap-1 border-b border-line text-sm font-bold" role="group" aria-label="Side panel">
+                {(["script", "transcript"] as const).map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={shownPanel === name}
+                    onClick={() => setPanel(name)}
+                    className={`-mb-px border-b-2 px-3 py-1.5 capitalize ${
+                      shownPanel === name ? "border-accent" : "border-transparent text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Both stay mounted: ticks survive a tab switch, and the transcript keeps auto-scrolling. */}
+            <div className={shownPanel === "script" ? "" : "hidden"}>
+              <InterviewScript key={sessionId.current ?? "none"} questions={scriptQuestions} />
+            </div>
+            <ol
+              ref={transcript}
+              className={`max-h-[60dvh] space-y-2 overflow-y-auto pr-1 text-sm ${shownPanel === "transcript" ? "" : "hidden"}`}
+              data-testid="transcript"
+            >
+              {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
+              {turns.map((t, i) => (
+                <li
+                  key={i}
+                  className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
+                    t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+                  } ${t.cancelled ? "opacity-50" : ""}`}
+                >
+                  <span className="mb-0.5 block text-xs font-medium text-muted">
+                    {t.who === "persona" ? persona.name : "You"}
+                  </span>
+                  {t.text}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
 
         {phase === "live" && (
@@ -1125,8 +1191,15 @@ export function InterviewRoom({
         <details className="mt-3 text-xs text-muted">
           <summary className="cursor-pointer">Call diagnostics</summary>
           <p className="mt-1 tabular-nums" data-testid="metrics">
-            Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
-            {metrics.inputTokens} / out {metrics.outputTokens}
+            {describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs))}
+          </p>
+          <p className="tabular-nums">{describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs))}</p>
+          <p className="tabular-nums">
+            Tokens in {metrics.inputTokens} / out {metrics.outputTokens}
+          </p>
+          <p>
+            Timed from when the browser receives the end-of-speech event, so the voice detection wait is not
+            included. Turns without a reply are not counted.
           </p>
         </details>
       )}
