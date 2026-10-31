@@ -75,3 +75,38 @@ test("a temporary failure is not reported as not found, and retry shows the read
   await expect(page.getByRole("button", { name: "Copy link", exact: true })).toHaveCount(0);
   expect(unexpected).toEqual([]);
 });
+
+test("a comparison with a missing debrief shows no counts, against the real backend", async ({ page }) => {
+  await page.goto("/compare?id=s_does_not_exist&id=s_neither");
+  await expect(page.getByRole("heading", { name: "Debrief not found" })).toBeVisible();
+  await expect(page.getByText("Simulated personas: hypotheses for real customer research.")).toBeVisible();
+  await expect(page.getByTestId("compare-table")).toHaveCount(0);
+});
+
+test("a comparison page without interviews says what to do and asks the backend nothing", async ({ page }) => {
+  const calls: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/")) calls.push(request.url());
+  });
+  await page.goto("/compare");
+  await expect(page.getByRole("heading", { name: "Nothing to compare" })).toBeVisible();
+  await expect(page.getByText("Simulated personas: hypotheses for real customer research.")).toBeVisible();
+  expect(calls).toEqual([]);
+});
+
+test("a temporary comparison failure is not reported as not found, and retry shows the table", async ({ page }) => {
+  let up = false;
+  await page.route("**/api/insights/summary", (route) =>
+    route.fulfill(
+      up
+        ? { status: 200, json: { questions: [{ question: "Q", supports: 1, contradicts: 0, unclear: 0, insights: [] }] } }
+        : { status: 503, json: { detail: "store unavailable" } },
+    ),
+  );
+  await page.goto("/compare?id=s_1&id=s_2");
+  await expect(page.getByRole("alert").filter({ hasText: "Could not load this comparison" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Debrief not found" })).toHaveCount(0);
+  up = true;
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByTestId("compare-table")).toContainText("Q");
+});

@@ -22,6 +22,7 @@ from app.contracts import (
     PersonaSource,
     PersonaSummary,
     PersonaUpdate,
+    Session,
 )
 from app.extract import (
     DEFAULT_CRITERIA,
@@ -525,6 +526,19 @@ def read_persona(persona_id: str, store: StoreDep) -> Persona:
     if persona is None:
         raise HTTPException(404, "persona not found")
     return persona
+
+
+# Costs no credit either, but a shared report link reveals its persona id, and this list would turn
+# that one link into the ids of the persona's other interviews, whose transcripts open by id.
+@router.get(
+    "/{persona_id}/sessions",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode)],
+)
+def list_persona_sessions(persona_id: str, store: StoreDep) -> list[Session]:
+    if store.get_persona(persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    return store.list_sessions(persona_id)
 
 
 @router.patch(

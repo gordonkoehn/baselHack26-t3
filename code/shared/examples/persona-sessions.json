@@ -1,0 +1,26 @@
+[
+  {
+    "id": "s_2",
+    "personaId": "p_1",
+    "status": "live",
+    "provider": "openai-realtime",
+    "joinUrl": null,
+    "interviewGuide": ["Bindung: does visible neighbourhood success make users keep the subscription and keep collecting?"],
+    "readySeconds": null,
+    "startedAt": "2026-10-31T15:30:00Z",
+    "endedAt": null,
+    "debriefReady": false
+  },
+  {
+    "id": "s_1",
+    "personaId": "p_1",
+    "status": "ended",
+    "provider": "openai-realtime",
+    "joinUrl": null,
+    "interviewGuide": ["Bindung: does visible neighbourhood success make users keep the subscription and keep collecting?"],
+    "readySeconds": 412,
+    "startedAt": "2026-10-31T14:00:00Z",
+    "endedAt": "2026-10-31T14:12:30Z",
+    "debriefReady": true
+  }
+]

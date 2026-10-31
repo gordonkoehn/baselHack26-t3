@@ -17,6 +17,7 @@ app.include_router(guides.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
 app.include_router(insights.router)
+app.include_router(insights.summary_router)
 
 
 @app.middleware("http")

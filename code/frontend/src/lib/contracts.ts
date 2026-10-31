@@ -118,6 +118,8 @@ export type Session = {
   readySeconds?: number | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  /** Whether a saved debrief can be opened. Only in the persona's session list. */
+  debriefReady?: boolean;
   /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
   sample?: boolean;
 };
@@ -180,6 +182,22 @@ export type InsightReport = {
     signal: "supports" | "contradicts" | "unclear";
     insights: Insight[];
     followUps?: string[];
+  }[];
+};
+
+/** POST /api/insights/summary: 1 to 50 interviews. A repeated id counts once. */
+export type InsightSummaryRequest = { sessionIds: string[] };
+
+/** Saved debriefs side by side, grouped by exact question text. Computed without a model. */
+export type InsightSummary = {
+  questions: {
+    question: string;
+    /** Interviews with this signal. An interview whose guide lacks the question counts in none of the three. */
+    supports: number;
+    contradicts: number;
+    unclear: number;
+    /** Strongest quotes: at most two per interview, with grounded ones first. */
+    insights: (Insight & { sessionId: string })[];
   }[];
 };
 
