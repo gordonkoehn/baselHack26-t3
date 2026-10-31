@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
+import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
   supports: { text: "supports", className: "bg-accent-soft text-accent" },
@@ -17,7 +18,21 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
   const [report, setReport] = useState<InsightReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ error: boolean; text: string } | null>(null);
+  const downloads = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const pending = downloads.current;
+    return () => {
+      for (const [url, timer] of pending) {
+        clearTimeout(timer);
+        URL.revokeObjectURL(url);
+      }
+      pending.clear();
+    };
+  }, []);
 
   // Everyone wants the debrief after an interview: start it right away instead of waiting for a click.
   // Once per session: React dev mode runs effects twice, and two parallel POSTs would both call the model.
@@ -49,6 +64,45 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
     }
   }
 
+  async function copyMarkdown() {
+    if (!report || copying) return;
+    setCopying(true);
+    setExportStatus(null);
+    try {
+      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName));
+      setExportStatus({ error: false, text: "Markdown copied to clipboard." });
+    } catch {
+      setExportStatus({ error: true, text: "Could not copy Markdown. Try again or use Download .md." });
+    } finally {
+      setCopying(false);
+    }
+  }
+
+  function downloadMarkdown() {
+    if (!report) return;
+    const link = document.createElement("a");
+    let url: string | null = null;
+    try {
+      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName)], { type: "text/markdown;charset=utf-8" }));
+      link.href = url;
+      link.download = reportMarkdownFilename(report, personaName);
+      document.body.append(link);
+      link.click();
+      const downloadUrl = url;
+      // Let the browser consume the URL before releasing it; also clean up on unmount.
+      downloads.current.set(downloadUrl, setTimeout(() => {
+        URL.revokeObjectURL(downloadUrl);
+        downloads.current.delete(downloadUrl);
+      }, 1000));
+      setExportStatus({ error: false, text: "Markdown download started." });
+    } catch {
+      if (url) URL.revokeObjectURL(url);
+      setExportStatus({ error: true, text: "Could not download Markdown. Try again or use Copy as Markdown." });
+    } finally {
+      link.remove();
+    }
+  }
+
   if (!report) {
     return (
       <div className="mt-4">
@@ -76,6 +130,29 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
         Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
         findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
       </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={copyMarkdown}
+          disabled={copying}
+          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line disabled:opacity-50"
+        >
+          {copying ? "Copying…" : "Copy as Markdown"}
+        </button>
+        <button
+          type="button"
+          onClick={downloadMarkdown}
+          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+        >
+          Download .md
+        </button>
+      </div>
+      <p role="status" className="mt-2 text-sm text-muted">
+        {exportStatus && !exportStatus.error ? exportStatus.text : ""}
+      </p>
+      {exportStatus?.error && (
+        <p role="alert" className="mt-2 text-sm text-red-800 dark:text-red-200">{exportStatus.text}</p>
+      )}
       <ol className="mt-4 space-y-4">
         {report.questions.map((q) => (
           <li key={q.question} className="rounded-lg border border-line bg-surface p-4">
