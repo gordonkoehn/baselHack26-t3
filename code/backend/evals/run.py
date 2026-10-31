@@ -126,11 +126,15 @@ def load_case() -> tuple[PersonaCreate, list[str], list[str]]:
     guide = re.search(r"QUARTIER_BOERSE_GUIDE = \[(.*?)\];", sample, re.DOTALL)
     if transcript is None or guide is None:
         raise ValueError(f"sample transcript or guide not found in {SAMPLE}")
+    # The document opens with a status banner for readers; the app's prefilled copy starts at its title.
+    testcase = TESTCASE.read_text()
     request = PersonaCreate(
         language=LANGUAGE,
         sources=[
             PersonaSource(
-                kind="note", title="Interview guide Quartier-Börse", text=TESTCASE.read_text()
+                kind="note",
+                title="Interview guide Quartier-Börse",
+                text=testcase[testcase.index("# Test case:") :],
             ),
             PersonaSource(
                 kind="transcript",
