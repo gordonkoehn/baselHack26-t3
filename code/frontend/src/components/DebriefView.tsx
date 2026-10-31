@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
 
@@ -17,6 +17,21 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
   const [report, setReport] = useState<InsightReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  // Everyone wants the debrief after an interview: start it right away instead of waiting for a click.
+  // Once per session: React dev mode runs effects twice, and two parallel POSTs would both call the model.
+  const started = useRef<string | null>(null);
+  useEffect(() => {
+    if (started.current === sessionId) return;
+    started.current = sessionId;
+    void create();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (report) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [report]);
 
   async function create() {
     setLoading(true);
@@ -43,7 +58,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
           onClick={create}
           disabled={loading}
         >
-          {loading ? "Writing debrief…" : "Create debrief"}
+          {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
         </button>
         {error && (
           <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
@@ -55,7 +70,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
+    <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
       <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
       <p className="mt-1 text-xs leading-relaxed text-muted">
         Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not

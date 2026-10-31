@@ -67,8 +67,26 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
 
+  const room = useRef<HTMLElement>(null);
+  const transcript = useRef<HTMLOListElement>(null);
+  const [liveSeconds, setLiveSeconds] = useState(0);
+
   // Never leave the microphone or the call open when the card goes away.
   useEffect(() => () => hangUp(), []);
+
+  // A visible clock while live (interviews run 20–30 min), and the room in view once the call is up.
+  useEffect(() => {
+    if (phase !== "live") return;
+    room.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const id = setInterval(() => setLiveSeconds(Math.floor((Date.now() - liveSince.current) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // Keep the newest turn visible; only the transcript box scrolls, never the page.
+  useEffect(() => {
+    const el = transcript.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns.length]);
 
   function hangUp() {
     mic.current?.getTracks().forEach((t) => t.stop());
@@ -254,6 +272,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
       await api.updateSession(session.id, { status: "live" });
       liveSince.current = Date.now();
+      setLiveSeconds(0);
       setPhase("live");
     } catch (e) {
       hangUp();
@@ -335,11 +354,16 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const avgMs = metrics.latenciesMs.length
     ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
     : null;
+  const showAvatar = voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
 
   return (
-    <section className="mt-8 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
+    <section
+      ref={room}
+      className="mt-8 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5"
+      data-testid="interview-room"
+    >
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Voice interview (pilot)</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Voice interview</h3>
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <button
             type="button"
@@ -355,6 +379,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             <span className="flex items-center gap-2 text-sm font-medium text-accent">
               <span aria-hidden className="size-2 animate-pulse rounded-full bg-accent" />
               Live, speak now
+              <span className="font-normal tabular-nums text-muted">
+                {Math.floor(liveSeconds / 60)}:{String(liveSeconds % 60).padStart(2, "0")}
+              </span>
             </span>
             <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={end}>
               End interview
@@ -412,15 +439,36 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       {/* Plays the persona's voice once; the microphone is never routed back to the speakers. */}
       {/* Stays attached even while muted: Chrome only feeds remote audio to the avatar then. */}
       <audio ref={audio} autoPlay muted={avatarOn} />
-      {voice && sessionId.current && (phase === "live" || phase === "ending" || phase === "waiting") && (
-        <Avatar
-          sessionId={sessionId.current}
-          track={voice}
-          onActive={(control) => {
-            avatar.current = control;
-            setAvatarOn(control !== null);
-          }}
-        />
+      {(showAvatar || turns.length > 0) && (
+        <div className={`mt-4 grid items-start gap-4 ${showAvatar ? "sm:grid-cols-[minmax(0,15rem)_1fr]" : ""}`}>
+          {showAvatar && sessionId.current && voice && (
+            <Avatar
+              sessionId={sessionId.current}
+              track={voice}
+              onActive={(control) => {
+                avatar.current = control;
+                setAvatarOn(control !== null);
+              }}
+            />
+          )}
+          {turns.length > 0 && (
+            <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
+              {turns.map((t, i) => (
+                <li
+                  key={i}
+                  className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
+                    t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+                  } ${t.cancelled ? "opacity-50" : ""}`}
+                >
+                  <span className="mb-0.5 block text-xs font-medium text-muted">
+                    {t.who === "persona" ? persona.name : "You"}
+                  </span>
+                  {t.text}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       )}
 
       {phase === "live" && (
@@ -443,24 +491,6 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
         </p>
-      )}
-
-      {turns.length > 0 && (
-        <ol className="mt-4 space-y-2 text-sm" data-testid="transcript">
-          {turns.map((t, i) => (
-            <li
-              key={i}
-              className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
-                t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-              } ${t.cancelled ? "opacity-50" : ""}`}
-            >
-              <span className="mb-0.5 block text-xs font-medium text-muted">
-                {t.who === "persona" ? persona.name : "You"}
-              </span>
-              {t.text}
-            </li>
-          ))}
-        </ol>
       )}
 
       {(metrics.latenciesMs.length > 0 || metrics.outputTokens > 0) && (

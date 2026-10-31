@@ -95,25 +95,25 @@ export function ScreenShareButton({
   return (
     <>
       {!stream ? (
-        <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={share}>
+        <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={share}>
           Share screen
         </button>
       ) : (
         <>
           <button
             type="button"
-            className="rounded bg-foreground px-3 py-1.5 text-sm text-background disabled:opacity-50"
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
             onClick={show}
             disabled={busy}
           >
             {busy ? "Capturing…" : "Show screen to persona"}
           </button>
-          <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={stop}>
+          <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={stop}>
             Stop sharing
           </button>
         </>
       )}
-      {note && <span className="text-xs opacity-70">{note}</span>}
+      {note && <span className="text-xs text-muted">{note}</span>}
     </>
   );
 }
