@@ -2,7 +2,7 @@
 
 Oct 30, 2026 · BaselHack · Draft v0.1
 
-> Converted from the team's Claude Docs draft (pasted text). The architecture diagram in section 3 was not part of the pasted text. Review against this repo and our research: [opentwin-review.md](opentwin-review.md).
+> Converted from the team's Claude Docs draft (pasted text). The architecture diagram in section 3 was not part of the pasted text.
 
 ## 1. Purpose, scope and goals
 
