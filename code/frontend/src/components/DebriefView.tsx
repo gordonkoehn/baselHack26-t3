@@ -84,7 +84,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
                   {/* The quote is always verbatim from the interview; the label says whether the
                       persona's real sources back it too. */}
                   <blockquote
-                    className={`mt-1.5 border-l-2 pl-3 text-foreground/80 ${
+                    className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
                       i.label === "grounded" ? "border-accent/40" : "border-line"
                     }`}
                   >

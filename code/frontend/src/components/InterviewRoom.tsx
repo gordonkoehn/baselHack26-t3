@@ -430,7 +430,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           {turns.map((t, i) => (
             <li
               key={i}
-              className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed ${
+              className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
                 t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
               } ${t.cancelled ? "opacity-50" : ""}`}
             >
