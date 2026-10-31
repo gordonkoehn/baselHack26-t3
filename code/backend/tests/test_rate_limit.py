@@ -3,6 +3,7 @@ import io
 from dataclasses import dataclass
 from unittest.mock import Mock
 
+import fakeredis
 import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
@@ -13,7 +14,7 @@ from app.extract import ProviderUnavailable
 from app.main import app
 from app.routers.insights import get_debriefer
 from app.routers.personas import get_extractor
-from app.store import Store, get_store
+from app.store import PREFIX, Store, get_store
 from tests.fakes import FakeRedis
 from tests.test_debrief import load
 from tests.test_personas import REQUEST
@@ -177,7 +178,7 @@ def test_without_a_forwarded_header_the_client_address_is_used(ctx, monkeypatch)
     assert f"ot:rate:tokens:ip:{digest}" in ctx.counters()
 
 
-def test_counters_expire_and_later_hits_do_not_extend_the_window(ctx, monkeypatch):
+def test_refusal_says_how_long_is_left_in_the_window(ctx, monkeypatch):
     limit(monkeypatch, "tokens", 1, 100)
     ctx.client.post(TOKEN)
     assert {ctx.redis.ttl[key] for key in ctx.counters()} == {WINDOW}
@@ -187,9 +188,33 @@ def test_counters_expire_and_later_hits_do_not_extend_the_window(ctx, monkeypatc
     res = ctx.client.post(TOKEN)
 
     assert res.status_code == 429
-    assert ctx.redis.ttl[ip_key] == 90
     assert res.headers["retry-after"] == "90"
     assert "Try again in 2 min." in res.json()["detail"]
+
+
+def test_count_hit_script_starts_the_window_once():
+    """FakeRedis only imitates the script, so this runs the real Lua in fakeredis's engine."""
+
+    class LuaClient:
+        eval = staticmethod(lambda script, keys, args: lua.eval(script, len(keys), *keys, *args))
+
+    lua = fakeredis.FakeRedis()
+    store = Store(LuaClient())
+    key = f"{PREFIX}:rate:tokens:all"
+
+    count, seconds_left = store.count_hit("tokens:all", WINDOW)
+    assert count == 1
+    assert WINDOW - 60 < seconds_left <= WINDOW
+
+    lua.expire(key, 90)  # later in the window: more hits must not push the reset back
+    count, seconds_left = store.count_hit("tokens:all", WINDOW)
+    assert count == 2
+    assert 30 < seconds_left <= 90
+
+    lua.delete(key)  # the window ended: the next hit starts a new one, with its own expiry
+    count, seconds_left = store.count_hit("tokens:all", WINDOW)
+    assert count == 1
+    assert WINDOW - 60 < seconds_left <= WINDOW
 
 
 def test_multiplier_scales_both_limits(ctx, monkeypatch):
