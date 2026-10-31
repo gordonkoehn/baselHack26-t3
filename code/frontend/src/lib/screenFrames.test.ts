@@ -150,11 +150,34 @@ describe("capture failures", () => {
     await expect(captureFrame(fakeStream().stream)).rejects.toThrow("could not start playback");
   });
 
+  it("rejects at once when the video fails to load", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(1);
+
+    const capture = captureFrame(fakeStream().stream);
+    played?.dispatchEvent(new Event("error"));
+
+    await expect(capture).rejects.toThrow("could not be loaded");
+  });
+
   it("rejects an empty encoding", async () => {
     vi.mocked(HTMLCanvasElement.prototype.toDataURL).mockReturnValue("data:,");
 
     await expect(captureFrame(fakeStream().stream)).rejects.toThrow("nonempty JPEG");
   });
+});
+
+it("waits for loadeddata when no frame is ready yet as playback starts", async () => {
+  const readyState = vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(1);
+
+  const capture = captureFrame(fakeStream().stream);
+
+  await new Promise((resolve) => setTimeout(resolve));
+  expect(drawImage).not.toHaveBeenCalled();
+
+  readyState.mockReturnValue(2);
+  played?.dispatchEvent(new Event("loadeddata"));
+
+  await expect(capture).resolves.toContain(PREFIX);
 });
 
 // jsdom lacks requestVideoFrameCallback, so everything above takes the path for browsers without it.

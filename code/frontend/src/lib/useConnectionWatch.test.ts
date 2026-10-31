@@ -61,6 +61,17 @@ describe("watchConnection", () => {
     expect(onLoss).toHaveBeenCalledOnce();
   });
 
+  it("forgives a repeated disconnect that recovers: no earlier timer is left running", () => {
+    const { onLoss, setState } = fakeCall();
+
+    setState("disconnected");
+    setState("disconnected");
+    setState("connected");
+    vi.advanceTimersByTime(10_000);
+
+    expect(onLoss).not.toHaveBeenCalled();
+  });
+
   it("forgives a disconnect that recovers", () => {
     const { onLoss, setState } = fakeCall();
 
