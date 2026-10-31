@@ -239,7 +239,7 @@ test("backend unavailable is announced and the same sources can be retried", asy
   // Browser-to-backend connection outage, then recovery to the real API and store.
   await page.route("**/api/personas", (route) => route.abort("connectionrefused"));
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toHaveText("Backend not reachable. Is `make dev` running?");
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText("Couldn't connect. Check your connection and try again.");
   await expect(page.getByTestId("persona-card")).toHaveCount(0);
   await expect(page.getByLabel("Source 2 text")).toHaveValue(source);
   await expect(page.getByRole("button", { name: "Create persona", exact: true })).toBeEnabled();

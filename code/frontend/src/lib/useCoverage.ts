@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { CoverageReport, Persona, PersonaSource, SourceDiversity } from "@/lib/contracts";
 import { QUARTIER_BOERSE } from "@/lib/sample";
 
@@ -17,7 +18,7 @@ export const SAMPLE_GOAL =
 export const OPEN_GOAL = "The product, prototype or change that the sources describe.";
 
 function errorMessage(e: unknown): string {
-  if (!(e instanceof ApiError)) return "Backend not reachable.";
+  if (!(e instanceof ApiError)) return NETWORK_ERROR;
   if (e.status === 401) return "This needs the team link with the passcode.";
   if (e.status === 502) return "The model's answer couldn't be used. Try again.";
   if (e.status === 503) return "The coverage service is temporarily unavailable.";
