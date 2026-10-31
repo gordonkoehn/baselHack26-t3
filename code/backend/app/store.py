@@ -28,6 +28,9 @@ TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
 PERSONA_LIST_SIZE = 20
 SESSION_LIST_SIZE = 50
+# create_persona runs up to ~2 min; a claim left by a killed call must not block retries for long.
+CREATION_PENDING_SECONDS = 180
+CREATION_DONE_SECONDS = 600
 
 
 # KEYS[1] = events hash, ARGV = ttl, then seq/value pairs.
@@ -78,6 +81,15 @@ end
 return {'ok', ARGV[2]}
 """
 SESSION_TRANSITION_ATTEMPTS = 16
+
+# KEYS[1] = persona JSON, KEYS[2] = coverage; ARGV = persona version the report judged, report, TTL.
+# Saves only while the persona still has that version, atomically with any edit in between.
+SAVE_COVERAGE = """
+local raw = redis.call('GET', KEYS[1])
+if not raw or cjson.decode(raw)['version'] ~= tonumber(ARGV[1]) then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+"""
 
 
 class SessionConflict(Exception):
@@ -172,12 +184,23 @@ class Store:
         value = json.loads(raw)
         return value["mime"], base64.b64decode(value["data"])
 
-    # Only the last check per persona: a re-check compares against it so the score stays stable.
-    def save_coverage(self, report: CoverageReport) -> None:
-        self._put(f"{PREFIX}:coverage:{report.persona_id}", report)
+    # Only the last check per persona: a re-check after answers compares against it.
+    def save_coverage(self, report: CoverageReport) -> bool:
+        """False, and nothing saved, if the persona is no longer the version the report judged."""
+        keys = [f"{PREFIX}:persona:{report.persona_id}", f"{PREFIX}:coverage:{report.persona_id}"]
+        args = [str(report.persona_version), _dump(report), str(TTL_SECONDS)]
+        return bool(self._call("eval", SAVE_COVERAGE, keys=keys, args=args))
 
     def get_coverage(self, persona_id: str) -> CoverageReport | None:
-        return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        try:
+            return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        except ValidationError:
+            # Saved before the report had categories. It only keeps a re-check from losing
+            # ground, and its criteria differ anyway, so it is as good as no report.
+            return None
+
+    def delete_coverage(self, persona_id: str) -> None:
+        self._call("delete", f"{PREFIX}:coverage:{persona_id}")
 
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:
@@ -289,6 +312,21 @@ class Store:
         raw = self._call("hgetall", f"{PREFIX}:session:{session_id}:events") or {}
         events = [SessionEvent.model_validate_json(v) for v in raw.values()]
         return sorted(events, key=lambda e: e.seq)
+
+    def claim_creation(self, digest: str) -> str | None:
+        """None if this call may build the persona, else "pending" or the id an earlier call made."""
+        key = f"{PREFIX}:creating:{digest}"
+        if self._call("set", key, "pending", ex=CREATION_PENDING_SECONDS, nx=True):
+            return None
+        return self._call("get", key) or "pending"
+
+    def finish_creation(self, digest: str, persona_id: str | None) -> None:
+        """Records the persona a claim made, or frees the claim when building failed."""
+        key = f"{PREFIX}:creating:{digest}"
+        if persona_id is None:
+            self._call("delete", key)
+        else:
+            self._call("set", key, persona_id, ex=CREATION_DONE_SECONDS)
 
     def count_hit(self, name: str, window_seconds: int) -> tuple[int, int]:
         """Counts one hit in a fixed window, returns (hits so far, seconds until it resets)."""

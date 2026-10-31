@@ -17,7 +17,7 @@ type WireEvent = {
 type SentEvent = {
   type: string;
   event_id?: string;
-  item?: { content: { type: string; text?: string }[] };
+  item?: { id?: string; content: { type: string; text?: string }[] };
 };
 
 declare global {
@@ -25,6 +25,7 @@ declare global {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
       lose: () => void;
+      connection: (state: RTCPeerConnectionState) => void;
       voice: () => void;
       stale: (() => void)[];
       sent: SentEvent[];
@@ -45,7 +46,7 @@ export async function installRealtime(page: Page, { camera = "denied" }: { camer
   await page.addInitScript(({ keepMicrophoneLive, camera }) => {
     const state: Window["e2eRealtime"] = {
       emit: () => { throw new Error("No realtime channel yet"); },
-      lose: () => {}, voice: () => {}, stale: [],
+      lose: () => {}, connection: () => {}, voice: () => {}, stale: [],
       sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
       grantCamera: () => { throw new Error("No camera prompt open"); }, cameraTracks: [],
     };
@@ -64,6 +65,8 @@ export async function installRealtime(page: Page, { camera = "denied" }: { camer
     }
     class Peer extends EventTarget {
       channel = new Channel();
+      link: RTCPeerConnectionState = "connected";
+      get connectionState() { return this.link; }
       ontrack: ((event: { streams: MediaStream[]; track: MediaStreamTrack }) => void) | null = null;
       addTrack() {}
       createDataChannel() {
@@ -75,6 +78,10 @@ export async function installRealtime(page: Page, { camera = "denied" }: { camer
         state.lose = () => {
           this.channel.readyState = "closed";
           this.channel.dispatchEvent(new Event("close"));
+        };
+        state.connection = (value) => {
+          this.link = value;
+          this.dispatchEvent(new Event("connectionstatechange"));
         };
         state.emit = (event) => this.channel.onmessage?.(new MessageEvent("message", { data: JSON.stringify(event) }));
         return this.channel;
@@ -126,6 +133,7 @@ export async function installRealtime(page: Page, { camera = "denied" }: { camer
       },
     });
     Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", {
+      configurable: true, // A test that shares its screen replaces this.
       value: () => Promise.reject(new Error("Screen capture is outside this test")),
     });
   }, { keepMicrophoneLive: process.env.E2E_KEEP_MIC_LIVE === "1", camera });

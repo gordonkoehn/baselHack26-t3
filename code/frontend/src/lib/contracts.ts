@@ -161,7 +161,14 @@ export type SessionEvent = EventBase &
           turnSeq?: number | null;
         };
       }
-    | { type: "session.ended"; data: { durationSeconds?: number } }
+    | {
+        type: "session.ended";
+        data: {
+          durationSeconds?: number;
+          /** True when part of a live call was not captured. Absent means no gap is known. */
+          transcriptGaps?: boolean;
+        };
+      }
   );
 
 export type Insight = {
@@ -177,6 +184,8 @@ export type Insight = {
 export type InsightReport = {
   sessionId: string;
   generatedAt: string;
+  /** Set by the server from the session.ended marker, never by the model. */
+  transcriptGaps?: boolean;
   questions: {
     question: string;
     signal: "supports" | "contradicts" | "unclear";
@@ -216,6 +225,28 @@ export type CoverageCriterion = {
   custom: boolean;
 };
 
+export type CoverageCategory = {
+  category: "persona" | "challenge" | "solution";
+  /** From score: green >= 0.7, yellow >= 0.4, otherwise red. */
+  level: "red" | "yellow" | "green";
+  /** 0..1: covered / total, computed by the server. */
+  score: number;
+  covered: number;
+  total: number;
+  /** One sentence. */
+  reason: string;
+  /** null when green. */
+  recommendation: string | null;
+};
+
+/** Counted in code; not a quality category. */
+export type SourceDiversity = {
+  count: number;
+  kinds: SourceKind[];
+  minimum: number;
+  met: boolean;
+};
+
 export type CoverageReport = {
   personaId: string;
   personaVersion: number;
@@ -223,6 +254,11 @@ export type CoverageReport = {
   /** 0..1, computed by the server from the criteria. */
   score: number;
   recommendation: "ready" | "needs_input";
+  /** good_enough = no red category and source diversity met. Advice only. */
+  overall: "good_enough" | "add_more";
+  /** persona, challenge, solution, in that order. */
+  categories: CoverageCategory[];
+  sourceDiversity: SourceDiversity;
   criteria: CoverageCriterion[];
   /** Gap questions; answers go back in as a note source and the persona is rebuilt. */
   questions: string[];

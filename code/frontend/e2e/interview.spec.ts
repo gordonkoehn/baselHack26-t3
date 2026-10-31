@@ -17,7 +17,7 @@ async function createPersona(page: Page) {
   await page.goto("/");
   await expect(page.getByLabel("Source 2 text")).toContainText("SYNTHETIC INTERVIEW");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
 }
 
 async function startInterview(page: Page): Promise<Session> {
@@ -59,7 +59,8 @@ async function twoPersonas(page: Page): Promise<{ first: Persona; second: Person
   const secondBuilt = built();
   await page.getByRole("button", { name: "Rebuild persona" }).click();
   const second: Persona = await (await secondBuilt).json();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
   return { first, second };
 }
 
@@ -72,7 +73,8 @@ async function pickFromLibrary(page: Page, request: APIRequestContext, id: strin
   const opened = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${id}`) && response.request().method() === "GET");
   await rows.nth(list.findIndex((persona) => persona.id === id)).click();
   await opened;
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
 }
 
 // One whole interview on the open persona's Interview tab, up to its debrief on screen.
@@ -243,12 +245,13 @@ test("backend unavailable is announced and the same sources can be retried", asy
   await expect(page.getByRole("button", { name: "Create persona", exact: true })).toBeEnabled();
   await page.unroute("**/api/personas");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
 test("the card shows the readiness score and explains when there is none", async ({ page }) => {
   await createPersona(page);
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
   const readiness = page.getByTestId("readiness");
   // The fake always cites F1, but the example's quotes aren't in the sample sources, so the real
   // evidence check has already made it a guess: citing it can't earn any grounding.
@@ -279,7 +282,7 @@ test("rate limit is announced with the backend's wait time and keeps the sources
   await expect(page.getByLabel("Source 2 text")).toHaveValue(source);
 });
 
-test("failed last transcription cannot claim a complete transcript or show debrief", async ({ page, request }) => {
+test("a failed turn still reaches a debrief that says the transcript may have gaps, and only quotes saved turns", async ({ page, request }) => {
   const session = await startInterview(page);
   await page.getByLabel("Type a question").fill(typedQuestion);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -288,13 +291,23 @@ test("failed last transcription cannot claim a complete transcript or show debri
   await emit(page, { type: "conversation.item.input_audio_transcription.failed", item_id: "lost-1" });
   await emit(page, { type: "response.done", response: { id: "lost-response", status: "completed", output: [] } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
-  await expect(page.getByText("Ended without the last turn. This transcript is incomplete, so there is no debrief for it.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create debrief", exact: true })).toHaveCount(0);
-  await expect(page.getByTestId("debrief")).toHaveCount(0);
+  await expect(page.getByText("This transcript may have gaps", { exact: false }).first()).toBeVisible();
+  const details = page.getByTestId("interview-room").locator("details");
+  await expect(details.locator("summary")).toContainText("may have gaps");
+  const debrief = page.getByTestId("debrief");
+  await expect(debrief.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
+  // The fixed fake debrief quotes both fixture answers; the persona only said the first.
+  await expect(debrief.locator("blockquote")).toHaveCount(1);
+  await expect(debrief.locator("blockquote")).toContainText(answers[0]);
+  await expect(debrief).not.toContainText(answers[1]);
   const events: SessionEvent[] = await (await request.get(`/api/sessions/${session.id}/events`)).json();
-  expect(events.map((event) => event.type)).toEqual(["utterance", "utterance"]);
-  // This is only a negative read of the real debrief gate; no events are manufactured via HTTP.
-  expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+  expect(events.map((event) => event.type)).toEqual(["utterance", "utterance", "session.ended"]);
+  expect(events[2].data).toMatchObject({ transcriptGaps: true });
+  // The shared link can't look complete either.
+  const report: InsightReport = await (await request.get(`/api/sessions/${session.id}/insights`)).json();
+  expect(report.transcriptGaps).toBe(true);
+  await page.goto(`/report/${session.id}`);
+  await expect(page.getByTestId("transcript-gaps")).toContainText("This transcript may have gaps");
 });
 
 test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {
@@ -310,6 +323,7 @@ test("a persona created earlier can be picked after a reload and interviewed", a
   });
   // Newest first, and other tests share this store.
   await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
   await expect(card.getByRole("heading", { name: "Sandra" })).toBeVisible();
   await expect(card).not.toContainText("Ready in");
   await expect(page.getByRole("region", { name: "Recent personas" })).toBeHidden();
@@ -337,6 +351,7 @@ test("a persona edited from the library keeps its place and comes back edited af
   const library = page.getByRole("region", { name: "Recent personas" });
   const card = page.getByTestId("persona-card");
   await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
   const original = persona.jobs[0].text;
   await card.getByRole("button", { name: `Edit: ${original}`, exact: true }).click();
   const saved = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}`) && response.request().method() === "PATCH");
@@ -351,6 +366,7 @@ test("a persona edited from the library keeps its place and comes back edited af
   await page.reload();
   await expect(card).toHaveCount(0);
   await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await page.getByRole("button", { name: "Persona", exact: true }).click();
   await expect(card.getByText("Edited by hand")).toBeVisible();
   await expect(card.getByText(original, { exact: true })).toHaveCount(0);
 });
@@ -433,7 +449,7 @@ test("the persona list sends the passcode and stays away when refused", async ({
   await page.goto("/?code=team-pass");
   expect((await listed).headers()["x-demo-passcode"]).toBe("team-pass");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Sources", exact: true }).click();
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
@@ -541,7 +557,7 @@ test("the sample sprint questions stay with the example, and a saved persona com
 
   await page.reload();
   await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await expect(guide).toHaveValue("");
   await expect(room.getByTestId("guide-check")).toBeVisible();
@@ -561,7 +577,7 @@ test("sources that are not the sample sprint start the interview with an empty g
   await page.getByLabel("Source 1 text").fill("A neighbour said the bins are always full.");
   await page.getByLabel("Source 2 text").fill("They want to see the money arrive.");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   const room = page.getByTestId("interview-room");
@@ -590,6 +606,23 @@ test("mute silences the microphone without ending the call; typing still works",
   await page.getByRole("button", { name: "Unmute mic", exact: true }).click();
   expect(await enabled()).toEqual([true]);
   expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
+});
+
+test("the script panel lists the questions, ticks them by hand and keeps the transcript one tab away", async ({ page }) => {
+  await startInterview(page);
+  const dialog = page.getByRole("dialog", { name: "Interview with Sandra" });
+  await expect(dialog.getByText("AI test user, not a real person")).toBeVisible();
+  const script = dialog.getByTestId("interview-script");
+  await expect(script).toBeVisible();
+  await expect(script).toContainText(`0 of ${questions.length}`);
+  await script.getByRole("checkbox", { name: questions[0] }).check();
+  await expect(script).toContainText(`1 of ${questions.length}`);
+
+  await dialog.getByRole("button", { name: "transcript", exact: true }).click();
+  await expect(dialog.getByTestId("transcript")).toBeVisible();
+  await expect(script).toBeHidden();
+  await dialog.getByRole("button", { name: "script", exact: true }).click();
+  await expect(script).toContainText(`1 of ${questions.length}`);
 });
 
 test("the team link passcode is sent, leaves the address bar and survives blocked storage", async ({ page }) => {
