@@ -17,3 +17,11 @@ jobs:
       - run: make setup
       - run: make check
       - run: make smoke
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: make e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-regression-report
+          path: .review/issue65/
+          retention-days: 7

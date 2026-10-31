@@ -1,4 +1,4 @@
-.PHONY: help setup dev backend frontend check fix smoke
+.PHONY: help setup dev backend frontend check fix smoke e2e
 
 help:             ## list commands
 	@grep -E '^[a-z]+:.*##' Makefile | sed 's/:.*##/ —/'
@@ -28,3 +28,6 @@ fix:              ## auto-fix formatting + lint, then run make check
 smoke:            ## full stack: build frontend, boot both, hit the /api proxy (stop `make dev` first)
 	cd frontend && npm run build
 	./scripts/smoke.sh
+
+e2e:              ## browser regression tests (install Chromium with npx playwright install chromium)
+	cd frontend && npm run test:e2e
