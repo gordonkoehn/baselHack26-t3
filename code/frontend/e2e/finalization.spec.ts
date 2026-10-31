@@ -832,9 +832,10 @@ for (const manualFirst of [false, true]) {
     const events = await stored(request, session);
     expect(events.map((event) => event.seq)).toEqual([1, 2, 3]);
     expect(events.map((event) => event.type)).toEqual(["utterance", "utterance", "session.ended"]);
-    expect(events.slice(0, 2).map((event) => event.data)).toEqual([
-      { speaker: "interviewer", text: sentence }, { speaker: "interviewer", text: "Separately committed final words" },
-    ]);
+    // Commit order is conversation order (#110), whichever transcript finished first.
+    const vadTurn = { speaker: "interviewer", text: sentence };
+    const manualTurn = { speaker: "interviewer", text: "Separately committed final words" };
+    expect(events.slice(0, 2).map((event) => event.data)).toEqual(manualFirst ? [manualTurn, vadTurn] : [vadTurn, manualTurn]);
   });
 }
 

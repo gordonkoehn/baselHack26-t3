@@ -97,7 +97,7 @@ Related: #58 and #59. Run each case in a fresh call.
 | 5.4 | End while the twin speaks | Press **End interview** in the middle of a persona answer. | Status shows "Checking the final provider events", then "Saving captured text" and "Closing the saved session" with seconds elapsed. Ends with "Ended. Microphone and camera are off, transcript saved." and a debrief. If the answer's audio outlasts the wait, the room closes by itself about 10 seconds after End and the rest of the audio is cut off, with its words saved. If a turn may have been lost, it ends instead with "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured." and the debrief carries the same warning. A warning can be false: record whether anything was really missing. Each completed turn appears once. | Untested | |
 | 5.5 | End during your last sentence | Press **End interview** while you are still speaking. | Same as 5.4. If the wait limit hits: "The wait limit was reached. Capture is off." with **Continue waiting (10 seconds)** and **Close without it**. Record the elapsed seconds. | Untested | |
 | 5.6 | Save failure | (Optional) Go offline right after **End interview**. | "Could not finish saving (n/m events stored). The call is closed. Choose Save again to retry." Back online, **Save again** completes. | Untested | |
-| 5.7 | Turn order | Look at the whole transcript after a call. | Turns are in spoken order. An out-of-order turn is the known bug #110: record it there, not as a new issue. | Untested | |
+| 5.7 | Turn order | Look at the whole transcript after a call. | Turns are in spoken order, also when your speech finishes transcribing after the persona's answer. Text that arrives after its place has passed goes to the end of the transcript and nothing on screen says so, so check the order by reading it. An out-of-order turn is a Fail: record the turns in a new issue. | Untested | |
 | 5.8 | Avatar off and on | During a live call press **Turn avatar off**, then **Turn avatar on**. | "Avatar off, voice only." and the voice keeps playing. Turning it on brings a new face. | Untested | |
 
 ## 6. Debrief
@@ -131,4 +131,4 @@ Every Fail becomes its own bug issue, linked from #75. Use one line per issue:
 
 Example: `[QA #75] Sources: 6 MB PDF shows "Request Entity Too Large" (expected: PDF larger than 10 MB); Chrome 130/macOS, commit abc1234, row 4.5`.
 
-Post the filled-in table as a comment on #75 or commit it here. Known open items stay where they are: turn order (#110), selected-board snapshots (#136).
+Post the filled-in table as a comment on #75 or commit it here. The known open item stays where it is: selected-board snapshots (#136).
