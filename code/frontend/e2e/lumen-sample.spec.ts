@@ -133,6 +133,8 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
     `POST /api/sessions/${session.id}/events`,
     `PATCH /api/sessions/${session.id}`,
     `POST /api/sessions/${session.id}/debrief`,
+    // A new debrief refreshes the persona's past interviews.
+    `GET /api/personas/${persona.id}/sessions`,
   ]);
 
   const savedResponse = await request.get(`/api/sessions/${session.id}`);

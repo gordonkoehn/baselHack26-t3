@@ -97,16 +97,16 @@ requests. Direct script equivalents: `SMOKE_AUTH_HEADER_NAME` and
 `SMOKE_AUTH_HEADER_VALUE`. Set both or neither. Values go to curl via stdin,
 never command arguments or logs. Header control characters are rejected.
 
-None of these four smoke routes uses `require_passcode`: `/api/health` returns a
-static status, `/` serves the frontend, and session create/read use the store
-without checking `X-Demo-Passcode`. Supplying that header therefore does not
-validate `DEMO_PASSCODE`. On Vercel, a missing passcode makes protected routes
-return 503 while this smoke can still pass. A wrong passcode similarly remains
-undetected here. Session creation supplies its own synthetic guide and calls no
-provider. The create/read roundtrip covers the persona lookup and session store
+Session create uses `require_passcode`, because a new session takes a place in a
+persona's interview history. The other three do not: `/api/health` returns a static
+status, `/` serves the frontend, and session read uses the store without checking
+`X-Demo-Passcode`. A deployment with `DEMO_PASSCODE` set therefore needs the
+variable set to `X-Demo-Passcode` and the secret set to the passcode, or the smoke
+fails at session create with 401. On Vercel, a missing passcode fails it with 503.
+Session creation supplies its own synthetic guide and calls no provider. The create/read roundtrip covers the persona lookup and session store
 through the frontend `/api/*` rewrite (`BACKEND_URL`), not paid-route readiness.
 
-Demo-passcode configuration and rejection/acceptance on protected routes, realtime
+Demo-passcode rejection/acceptance on other protected routes, realtime
 and avatar token minting, and actual provider availability require separate owner
 validation. Do not invoke a paid route merely to make this smoke green. The local
 mock suite verifies optional header transport only; protected deployment and

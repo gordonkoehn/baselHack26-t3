@@ -47,6 +47,7 @@ test.beforeEach(async ({ page, context, baseURL }) => {
       if (!url.pathname.startsWith("/api/")) return route.continue();
       if (url.pathname === "/api/personas" && request.method() === "POST") return fulfill(persona);
       if (url.pathname === "/api/personas" && request.method() === "GET") return fulfill([]);
+      if (url.pathname === `/api/personas/${persona.id}/sessions` && request.method() === "GET") return fulfill([]);
       if (url.pathname === "/api/faces") return fulfill([]);
       if (url.pathname.endsWith("/coverage")) return fulfill(exampleCoverage);
       if (url.pathname === "/api/sessions" && request.method() === "POST") {

@@ -116,6 +116,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
       if (url.pathname === "/api/faces") return fulfill([]);
       if (url.pathname.endsWith("/coverage")) return fulfill(exampleCoverage);
       if (url.pathname === "/api/personas") return fulfill({ ...examplePersona, name: personaName });
+      if (url.pathname === `/api/personas/${examplePersona.id}/sessions`) return fulfill([]);
       if (url.pathname === "/api/sessions") return fulfill({ id: report.sessionId, personaId: examplePersona.id, status: "created", provider: "openai-realtime" }, 201);
       if (url.pathname === `/api/sessions/${report.sessionId}/token`) {
         return fulfill({ provider: "openai-realtime", token: "synthetic-not-a-credential", url: "https://example.invalid/synthetic-sdp", expiresAt: "2099-01-01T00:00:00Z" });

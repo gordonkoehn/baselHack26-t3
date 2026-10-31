@@ -27,7 +27,14 @@ def _load(store: Store, session_id: str) -> Session:
     return session
 
 
-@router.post("", status_code=201, response_model_by_alias=True)
+# Costs no credit, but a new session takes a place in its persona's list, which keeps the newest only.
+# A shared report link reveals the persona id, and that must not be enough to push real interviews out.
+@router.post(
+    "",
+    status_code=201,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode)],
+)
 def create_session(body: SessionCreate, store: StoreDep) -> Session:
     if store.get_persona(body.persona_id) is None:
         raise HTTPException(404, "persona not found")

@@ -1,0 +1,48 @@
+{
+  "transcriptGapSessionIds": [],
+  "questions": [
+    {
+      "question": "Matching wirkt: does the Bäckerei Muff matching raise the share put into the project?",
+      "supports": 1,
+      "contradicts": 1,
+      "unclear": 0,
+      "insights": [
+        {
+          "id": "i1",
+          "theme": "Matching tips the split fully to the project",
+          "quote": "Hmm, wenn die Bäckerei das verdoppelt, dann geb ich halt alles ins Projekt.",
+          "turnSeq": 3,
+          "label": "guess",
+          "evidenceId": null,
+          "sessionId": "s_1"
+        },
+        {
+          "id": "i1",
+          "theme": "Matching changes nothing about the split",
+          "quote": "Ob die Bäckerei mitmacht, ist mir ehrlich gesagt egal.",
+          "turnSeq": 5,
+          "label": "guess",
+          "evidenceId": null,
+          "sessionId": "s_2"
+        }
+      ]
+    },
+    {
+      "question": "Mehrwert statt Verlust: do users see sharing for the neighbourhood as added value rather than giving something up?",
+      "supports": 0,
+      "contradicts": 0,
+      "unclear": 2,
+      "insights": [
+        {
+          "id": "i2",
+          "theme": "Confirmation screen contradicts the chosen split",
+          "quote": "Moment, ich hab doch alles ins Projekt gegeben? Da steht sechs und sechs.",
+          "turnSeq": 6,
+          "label": "guess",
+          "evidenceId": null,
+          "sessionId": "s_1"
+        }
+      ]
+    }
+  ]
+}

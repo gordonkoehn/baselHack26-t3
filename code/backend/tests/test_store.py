@@ -7,7 +7,15 @@ from pathlib import Path
 import pytest
 
 from app.contracts import InsightReport, Persona, Session, SessionEvent
-from app.store import PERSONA_LIST_SIZE, TTL_SECONDS, EventConflict, Store, StoreUnavailable
+from app.store import (
+    PERSONA_LIST_SIZE,
+    PREFIX,
+    SESSION_LIST_SIZE,
+    TTL_SECONDS,
+    EventConflict,
+    Store,
+    StoreUnavailable,
+)
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -200,6 +208,64 @@ def test_edit_does_not_revive_a_persona_that_expired_meanwhile(redis):
     store = Store(redis)
     store.update_persona(persona("p_gone"))
     assert store.get_persona("p_gone") is None
+
+
+def session(session_id: str, persona_id: str = "p_1") -> Session:
+    return Session.model_validate(load("session.json")).model_copy(
+        update={"id": session_id, "persona_id": persona_id}
+    )
+
+
+def test_sessions_list_under_their_persona_newest_first(redis, clock):
+    store = Store(redis)
+    store.save_session(session("s_old"))
+    store.save_session(session("s_other", "p_2"))
+    store.save_session(session("s_new"))
+    assert [s.id for s in store.list_sessions("p_1")] == ["s_new", "s_old"]
+    assert [s.id for s in store.list_sessions("p_2")] == ["s_other"]
+    assert store.list_sessions("p_3") == []
+
+
+def test_session_list_says_which_debrief_is_saved_and_never_stores_that(redis, clock):
+    store = Store(redis)
+    store.save_session(session("s_1"))
+    store.save_session(session("s_2"))
+    report = InsightReport.model_validate(load("insight-report.json"))
+    store.save_report(report.model_copy(update={"session_id": "s_1"}))
+    assert [(s.id, s.debrief_ready) for s in store.list_sessions("p_1")] == [
+        ("s_2", False),
+        ("s_1", True),
+    ]
+    assert "debriefReady" not in redis.data[f"{PREFIX}:session:s_1"]
+    assert store.get_session("s_1").debrief_ready is None
+
+
+def test_session_list_shows_the_latest_status_in_the_same_place(redis, clock):
+    store = Store(redis)
+    store.save_session(session("s_1"))
+    store.save_session(session("s_2"))
+    store.transition_session("s_1", "ended", "2026-10-31T15:00:00Z")
+    assert [(s.id, s.status) for s in store.list_sessions("p_1")] == [
+        ("s_2", "live"),
+        ("s_1", "ended"),
+    ]
+
+
+def test_session_list_keeps_only_the_newest(redis, clock):
+    store = Store(redis)
+    for n in range(SESSION_LIST_SIZE + 2):
+        store.save_session(session(f"s_{n:03}"))
+    listed = [s.id for s in store.list_sessions("p_1")]
+    assert listed == [f"s_{n:03}" for n in range(SESSION_LIST_SIZE + 1, 1, -1)]
+
+
+def test_session_list_skips_expired_and_unreadable_sessions(redis, clock):
+    store = Store(redis)
+    for session_id in ("s_1", "s_2", "s_3"):
+        store.save_session(session(session_id))
+    del redis.data[f"{PREFIX}:session:s_1"]
+    redis.data[f"{PREFIX}:session:s_2"] = '{"id": "s_2"}'
+    assert [s.id for s in store.list_sessions("p_1")] == ["s_3"]
 
 
 def test_all_keys_share_one_ttl(redis):

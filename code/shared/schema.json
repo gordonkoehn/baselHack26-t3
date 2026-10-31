@@ -224,6 +224,7 @@
         "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
         "endedAt": { "type": ["string", "null"], "format": "date-time" },
+        "debriefReady": { "type": "boolean", "description": "Whether a saved debrief can be opened. Only in GET /api/personas/{id}/sessions." },
         "sample": { "type": "boolean", "description": "Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so." }
       }
     },
@@ -360,6 +361,54 @@
         }
       }
     },
+    "InsightSummaryRequest": {
+      "type": "object",
+      "required": ["sessionIds"],
+      "properties": {
+        "sessionIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "type": "string" },
+          "description": "Interviews to compare. A repeated id counts once."
+        }
+      }
+    },
+    "InsightSummary": {
+      "type": "object",
+      "description": "Saved debriefs side by side, computed without a model. Questions are grouped by exact text, in order of first appearance.",
+      "required": ["transcriptGapSessionIds", "questions"],
+      "properties": {
+        "transcriptGapSessionIds": { "type": "array", "items": { "type": "string" }, "description": "Compared interviews whose debrief is marked transcriptGaps, so the comparison can say its counts rest on them too." },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["question", "supports", "contradicts", "unclear", "insights"],
+            "properties": {
+              "question": { "type": "string" },
+              "supports": { "type": "integer", "minimum": 0, "description": "Interviews with this signal. An interview whose guide lacks the question counts in none of the three." },
+              "contradicts": { "type": "integer", "minimum": 0 },
+              "unclear": { "type": "integer", "minimum": 0 },
+              "insights": {
+                "type": "array",
+                "description": "Strongest quotes: at most two per interview, so none is left out, with grounded ones first.",
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/Insight" },
+                    {
+                      "type": "object",
+                      "required": ["sessionId"],
+                      "properties": { "sessionId": { "type": "string", "description": "The interview this quote is from." } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "CoverageRequest": {
       "type": "object",
       "description": "What the team will test with this persona, plus their own extra criteria on top of the default checklist.",
@@ -474,6 +523,7 @@
     "GET /api/personas": { "response": "PersonaSummary[]", "note": "Newest first, max 20. An edit (PATCH) keeps a persona's place and createdAt. Needs the demo passcode (X-Demo-Passcode, 401 without it): the list exposes the ids that GET /api/personas/{id} reads. 503 store unavailable." },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
+    "GET /api/personas/{id}/sessions": { "response": "Session[]", "note": "A persona's interviews, newest first, max 50, each with debriefReady. Includes sessions that never started (startedAt null). Needs the demo passcode (X-Demo-Passcode, 401 without it): a shared report link reveals its persona id, and this list would hand over the ids of that persona's other interviews. 404 unknown persona, 503 store unavailable." },
     "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers (a newer persona version) can't lose ground: same test goal keeps weights and still-backed covered rows. A re-check of the same version scores fresh. A report is not saved if the persona changed during the check. An edit (PATCH) drops that report, so a check after it starts fresh. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
     "GET /api/faces": { "response": "Face[]" },
     "PUT /api/personas/{id}/photo": { "body": "raw PNG, JPEG or WebP bytes (max 2 MB, sniffed)", "response": "Persona", "note": "Sets photoUrl (a new URL each upload); version unchanged, since a picture is not persona content. 404 unknown persona; 413 too large; 422 not a supported image." },
@@ -485,7 +535,7 @@
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "Text layer first; scanned PDFs (no text layer, max 20 pages) are transcribed by the vision model. 413 over 10 MB, 100 pages (20 if scanned) or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no readable text; 502/503 transcription failed or provider unavailable." },
     "POST /api/sources/image": { "body": "raw PNG, JPEG, WebP or GIF bytes (max 10 MB, format sniffed from the bytes)", "response": "ExtractedText", "status": "draft", "note": "Visible text transcribed verbatim by the vision model. 413 over 10 MB or 200,000 characters; 422 not a supported image or no readable text; 502 unusable transcription; 503 provider unavailable." },
     "POST /api/guides/review": { "body": "GuideReviewRequest", "response": "GuideReview", "note": "Stateless Mom Test check of an interview guide. Passcode required. 422 invalid body; 502 unusable model output; 503 provider unavailable." },
-    "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
+    "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft", "note": "Needs the demo passcode (X-Demo-Passcode, 401 without it): a new session takes a place in GET /api/personas/{id}/sessions, and a persona id alone must not be enough to push real interviews out of that list." },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
     "PATCH /api/sessions/{id}": { "body": "SessionUpdate", "response": "Session", "status": "draft" },
     "POST /api/sessions/{id}/token": { "response": "SessionToken", "status": "draft" },
@@ -494,6 +544,7 @@
     "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },
     "POST /api/sessions/{id}/coach": { "body": "{ turnSeq }", "response": "SessionEvent (copilot.suggestion)", "status": "draft" },
     "POST /api/sessions/{id}/debrief": { "response": "InsightReport", "status": "draft" },
-    "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" }
+    "GET /api/sessions/{id}/insights": { "response": "InsightReport", "status": "draft" },
+    "POST /api/insights/summary": { "body": "InsightSummaryRequest", "response": "InsightSummary", "note": "No passcode, like GET /api/sessions/{id}/insights: it never calls a model and only returns what those ids can already read. 404 if any interview has no saved debrief (never a partial count), 409 if any is a sample interview (a scripted transcript counts as nobody's answer), 422 for no ids or more than 50, 503 store unavailable." }
   }
 }

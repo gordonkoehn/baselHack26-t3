@@ -162,6 +162,8 @@ class Session(Model):
     ready_seconds: float | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    # Computed for the persona's session list, never stored.
+    debrief_ready: bool | None = _omit_none()
     sample: bool = False
 
 
@@ -218,6 +220,27 @@ class InsightReport(Model):
     # From the session.ended marker, never from the model. Reports saved before this field read False.
     transcript_gaps: bool = False
     questions: list[InsightQuestion]
+
+
+class InsightSummaryRequest(Model):
+    session_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class SummaryInsight(Insight):
+    session_id: str
+
+
+class SummaryQuestion(Model):
+    question: str
+    supports: int = Field(default=0, ge=0)
+    contradicts: int = Field(default=0, ge=0)
+    unclear: int = Field(default=0, ge=0)
+    insights: list[SummaryInsight] = []
+
+
+class InsightSummary(Model):
+    transcript_gap_session_ids: list[str] = []
+    questions: list[SummaryQuestion]
 
 
 class CoverageRequest(Model):

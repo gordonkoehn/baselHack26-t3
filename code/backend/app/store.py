@@ -27,6 +27,7 @@ from app.contracts import (
 TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
 PERSONA_LIST_SIZE = 20
+SESSION_LIST_SIZE = 50
 # create_persona runs up to ~2 min; a claim left by a killed call must not block retries for long.
 CREATION_PENDING_SECONDS = 180
 CREATION_DONE_SECONDS = 600
@@ -58,8 +59,8 @@ return {count, redis.call('TTL', KEYS[1])}
 """
 
 
-# KEYS[1] = persona index, ARGV = created-at score, persona id, rank to trim up to, ttl.
-# NX: saving a persona again must not change when it was created.
+# KEYS[1] = persona index or one persona's session index, ARGV = created-at score, id, rank to trim
+# up to, ttl. NX: saving a persona or session again must not change when it was created.
 INDEX_PERSONA = """
 redis.call('ZADD', KEYS[1], 'NX', ARGV[1], ARGV[2])
 redis.call('ZREMRANGEBYRANK', KEYS[1], 0, ARGV[3])
@@ -209,7 +210,36 @@ class Store:
         return self._load(f"{PREFIX}:persona:{persona_id}:sources", PersonaCreate)
 
     def save_session(self, session: Session) -> None:
+        """Store a session and list it under its persona."""
         self._put(f"{PREFIX}:session:{session.id}", session)
+        args = [str(time.time()), session.id, str(-SESSION_LIST_SIZE - 1), str(TTL_SECONDS)]
+        self._call(
+            "eval",
+            INDEX_PERSONA,
+            keys=[f"{PREFIX}:persona:{session.persona_id}:sessions"],
+            args=args,
+        )
+
+    def list_sessions(self, persona_id: str) -> list[Session]:
+        """A persona's sessions, newest first, each saying whether its debrief is saved. Skips
+        sessions that expired before their index entry or that an older contract wrote."""
+        ids = self._call(
+            "zrange", f"{PREFIX}:persona:{persona_id}:sessions", 0, SESSION_LIST_SIZE - 1, rev=True
+        )
+        if not ids:
+            return []
+        keys = [f"{PREFIX}:session:{session_id}" for session_id in ids]
+        raws = self._call("mget", *keys, *[f"{key}:report" for key in keys])
+        sessions = []
+        for raw, report in zip(raws[: len(ids)], raws[len(ids) :], strict=True):
+            if raw is None:
+                continue
+            try:
+                session = Session.model_validate_json(raw)
+            except ValidationError:
+                continue
+            sessions.append(session.model_copy(update={"debrief_ready": report is not None}))
+        return sessions
 
     def get_session(self, session_id: str) -> Session | None:
         return self._load(f"{PREFIX}:session:{session_id}", Session)
@@ -252,6 +282,17 @@ class Store:
 
     def get_report(self, session_id: str) -> InsightReport | None:
         return self._load(f"{PREFIX}:session:{session_id}:report", InsightReport)
+
+    def get_debriefs(self, session_ids: list[str]) -> list[tuple[Session, InsightReport] | None]:
+        """Sessions with their saved reports in one round trip, in order, None where either is gone."""
+        keys = [f"{PREFIX}:session:{id_}" for id_ in session_ids]
+        raws = self._call("mget", *keys, *[f"{key}:report" for key in keys])
+        return [
+            None
+            if session is None or report is None
+            else (Session.model_validate_json(session), InsightReport.model_validate_json(report))
+            for session, report in zip(raws[: len(keys)], raws[len(keys) :], strict=True)
+        ]
 
     def append_events(self, session_id: str, events: list[SessionEvent]) -> int:
         """Store events, returns how many were new. Identical retries add nothing.

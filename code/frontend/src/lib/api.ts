@@ -6,6 +6,7 @@ import type {
   GuideReview,
   GuideReviewRequest,
   InsightReport,
+  InsightSummary,
   Persona,
   PersonaAnswers,
   PersonaCreate,
@@ -139,7 +140,7 @@ export const api = {
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Session>),
   updateSession,
@@ -203,9 +204,20 @@ export const api = {
     ),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
+  // Newest first. Needs the passcode: a shared report link must not lead to the persona's other interviews.
+  listPersonaSessions: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}/sessions`, { cache: "no-store", headers: passcode() }).then(json<Session[]>),
   getSession: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Session>),
   // The saved report only, 404 if there is none. Unlike debrief() it never calls the model, so it needs no passcode.
   getInsights: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}/insights`, { cache: "no-store" }).then(json<InsightReport>),
+  // Saved debriefs side by side, 404 if any is missing. Like getInsights it never calls the model, so no passcode.
+  insightSummary: (sessionIds: string[]) =>
+    fetch("/api/insights/summary", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds }),
+    }).then(json<InsightSummary>),
 };
