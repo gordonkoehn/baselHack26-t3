@@ -25,6 +25,8 @@ Visual pass (design tokens, Geist, card layout) is done for all three views.
 
 API (all under `/api/`): `POST /sources/pdf`, `POST /sources/image`, `POST /personas`, `GET /personas/{id}`, `POST /sessions`, `GET|PATCH /sessions/{id}`, `POST /sessions/{id}/token`, `POST /sessions/{id}/avatar-token`, `POST|GET /sessions/{id}/events`, `POST /sessions/{id}/debrief`, `GET /sessions/{id}/insights`. Live docs: http://localhost:8000/docs. Contract: `code/shared/schema.json`.
 
+Use case context lives in [`usecases/`](usecases/README.md). Public repo: anonymised material only.
+
 ## What changed vs. the plan
 - **No LiveKit, no worker, no Deepgram/ElevenLabs.** We use OpenAI Realtime directly from the browser (`gpt-realtime-2.1-mini`, voice `marin`, `gpt-4o-mini-transcribe`). Simpler, fits Vercel. Watch the cost.
 - Extraction/debrief model: `gpt-5.4-mini` (override `OPENAI_MODEL`).
