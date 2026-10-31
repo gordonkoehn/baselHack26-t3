@@ -5,6 +5,7 @@ import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
+import { captureFrame } from "@/lib/screenFrames";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 
@@ -15,6 +16,10 @@ type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean 
 type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
+
+// How often the persona gets a fresh look at the interviewer's camera.
+// shortcut: every frame stays in the Realtime context (~30 min = 120 frames), lower the rate if it gets too long.
+const CAMERA_FRAME_MS = 15_000;
 
 // Realtime server events we act on (subset of the GA event list).
 type ServerEvent = {
@@ -58,6 +63,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
+  // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
+  const [cam, setCam] = useState<MediaStream | null>(null);
+  const camStream = useRef<MediaStream | null>(null);
+  const camView = useRef<HTMLVideoElement>(null);
+  const [camNote, setCamNote] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   // The persona's voice track; the avatar lip-syncs it and then plays it instead of <audio>.
   const [voice, setVoice] = useState<MediaStreamTrack | null>(null);
@@ -67,17 +77,59 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
 
-  const room = useRef<HTMLElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
   const transcript = useRef<HTMLOListElement>(null);
   const [liveSeconds, setLiveSeconds] = useState(0);
 
   // Never leave the microphone or the call open when the card goes away.
   useEffect(() => () => hangUp(), []);
 
-  // A visible clock while live (interviews run 20–30 min), and the room in view once the call is up.
+  // The call runs in a popup; it closes once the call is over and the result shows on the page.
+  const inCall = phase === "connecting" || phase === "live" || phase === "ending" || phase === "waiting";
+  useEffect(() => {
+    const d = dialog.current;
+    if (inCall && !d?.open) d?.showModal();
+    if (!inCall && d?.open) d.close();
+  }, [inCall]);
+
+  useEffect(() => {
+    if (camView.current) camView.current.srcObject = cam;
+  }, [cam]);
+
+  // The persona sees the interviewer: a frame now and every CAMERA_FRAME_MS, added as context only
+  // (no response.create), so it shapes the next answer without making the persona talk.
+  useEffect(() => {
+    if (phase !== "live" || !cam) return;
+    const send = async () => {
+      try {
+        const image = await captureFrame(cam);
+        const dc = channel.current;
+        if (dc?.readyState !== "open") return;
+        dc.send(
+          JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [
+                { type: "input_text", text: "(Camera view of the interviewer right now. Do not comment on it unless it matters.)" },
+                { type: "input_image", image_url: image },
+              ],
+            },
+          }),
+        );
+      } catch {
+        // A missed frame is fine; the next one follows.
+      }
+    };
+    void send();
+    const id = setInterval(send, CAMERA_FRAME_MS);
+    return () => clearInterval(id);
+  }, [phase, cam]);
+
+  // A visible clock while live (interviews run 20–30 min).
   useEffect(() => {
     if (phase !== "live") return;
-    room.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     const id = setInterval(() => setLiveSeconds(Math.floor((Date.now() - liveSince.current) / 1000)), 1000);
     return () => clearInterval(id);
   }, [phase]);
@@ -90,9 +142,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
 
   function hangUp() {
     mic.current?.getTracks().forEach((t) => t.stop());
+    camStream.current?.getTracks().forEach((t) => t.stop());
     channel.current?.close();
     pc.current?.close();
-    mic.current = channel.current = pc.current = null;
+    mic.current = camStream.current = channel.current = pc.current = null;
+    setCam(null);
   }
 
   function onEvent(e: ServerEvent) {
@@ -255,6 +309,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       };
       mic.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       mic.current.getTracks().forEach((t) => conn.addTrack(t, mic.current!));
+      // The camera is a bonus: without it the interview still runs, voice only.
+      setCamNote(null);
+      try {
+        camStream.current = await navigator.mediaDevices.getUserMedia({ video: true });
+        setCam(camStream.current);
+      } catch {
+        setCamNote("Camera is off (blocked or not available). The persona only hears you.");
+      }
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
       dc.onmessage = (m) => g === gen.current && onEvent(JSON.parse(m.data));
@@ -356,12 +418,23 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     : null;
   const showAvatar = voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
 
+  const btn = "rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted";
+  const errorBox = error && (
+    <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+      {error}
+    </p>
+  );
+  const saveLine = saveState.total > 0 && (
+    <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
+      Transcript saved {saveState.saved}/{saveState.total}
+      {phase === "live" && saveState.failed && saveState.saved < saveState.total
+        ? " · not saved yet, retrying with the next turn"
+        : ""}
+    </p>
+  );
+
   return (
-    <section
-      ref={room}
-      className="mt-8 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5"
-      data-testid="interview-room"
-    >
+    <section className="mt-8 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
       <div className="flex flex-wrap items-center gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Voice interview</h3>
         {(phase === "idle" || phase === "ended" || phase === "error") && (
@@ -373,50 +446,22 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             {phase === "idle" ? "Start voice interview" : "Start again"}
           </button>
         )}
-        {phase === "connecting" && <span className="text-sm text-muted">Connecting…</span>}
-        {phase === "live" && (
-          <>
-            <span className="flex items-center gap-2 text-sm font-medium text-accent">
-              <span aria-hidden className="size-2 animate-pulse rounded-full bg-accent" />
-              Live, speak now
-              <span className="font-normal tabular-nums text-muted">
-                {Math.floor(liveSeconds / 60)}:{String(liveSeconds % 60).padStart(2, "0")}
-              </span>
-            </span>
-            <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={end}>
-              End interview
-            </button>
-            <ScreenShareButton pc={pc} ask={askWith} />
-          </>
-        )}
-        {phase === "ending" && <span className="text-sm text-muted">Saving transcript…</span>}
-        {phase === "waiting" && (
-          <>
-            <span className="text-sm text-muted">Waiting for the last turn to finish…</span>
-            <button
-              type="button"
-              className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted"
-              onClick={() => (giveUp.current = true)}
-            >
-              Close without it
-            </button>
-          </>
-        )}
+        {inCall && <span className="text-sm text-muted">Interview running in the popup…</span>}
         {phase === "ended" && (
           <span className="text-sm text-muted">
             {lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
-              : "Ended. Microphone is off, transcript saved."}
+              : "Ended. Microphone and camera are off, transcript saved."}
           </span>
         )}
         {phase === "unsaved" && (
-          <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={finish}>
+          <button type="button" className={btn} onClick={finish}>
             Save again
           </button>
         )}
       </div>
       <p className="mt-2 text-xs text-muted">
-        You are talking to an AI persona ({persona.name}), not a real person.
+        You are talking to an AI persona ({persona.name}), not a real person. It hears you and sees your camera.
       </p>
       {(phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mt-3 block text-sm">
@@ -428,71 +473,122 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           />
         </label>
       )}
-      {saveState.total > 0 && (
-        <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
-          Transcript saved {saveState.saved}/{saveState.total}
-          {phase === "live" && saveState.failed && saveState.saved < saveState.total
-            ? " · not saved yet, retrying with the next turn"
-            : ""}
-        </p>
-      )}
+      {!inCall && saveLine}
+      {!inCall && errorBox}
+
       {/* Plays the persona's voice once; the microphone is never routed back to the speakers. */}
       {/* Stays attached even while muted: Chrome only feeds remote audio to the avatar then. */}
       <audio ref={audio} autoPlay muted={avatarOn} />
-      {(showAvatar || turns.length > 0) && (
-        <div className={`mt-4 grid items-start gap-4 ${showAvatar ? "sm:grid-cols-[minmax(0,15rem)_1fr]" : ""}`}>
-          {showAvatar && sessionId.current && voice && (
-            <Avatar
-              sessionId={sessionId.current}
-              track={voice}
-              onActive={(control) => {
-                avatar.current = control;
-                setAvatarOn(control !== null);
-              }}
+
+      <dialog
+        ref={dialog}
+        aria-label={`Interview with ${persona.name}`}
+        className="m-auto w-[min(64rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
+        // Esc must not silently drop a running call; ending goes through "End interview".
+        onCancel={(e) => e.preventDefault()}
+        onClose={() => inCall && dialog.current?.showModal()}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="font-semibold">{persona.name}</h3>
+          {phase === "connecting" && <span className="text-sm text-muted">Connecting…</span>}
+          {phase === "live" && (
+            <>
+              <span className="flex items-center gap-2 text-sm font-medium text-accent">
+                <span aria-hidden className="size-2 animate-pulse rounded-full bg-accent" />
+                Live, speak now
+                <span className="font-normal tabular-nums text-muted">
+                  {Math.floor(liveSeconds / 60)}:{String(liveSeconds % 60).padStart(2, "0")}
+                </span>
+              </span>
+              <button type="button" className={btn} onClick={end}>
+                End interview
+              </button>
+              <ScreenShareButton pc={pc} ask={askWith} />
+            </>
+          )}
+          {phase === "ending" && <span className="text-sm text-muted">Saving transcript…</span>}
+          {phase === "waiting" && (
+            <>
+              <span className="text-sm text-muted">Waiting for the last turn to finish…</span>
+              <button type="button" className={btn} onClick={() => (giveUp.current = true)}>
+                Close without it
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,16rem)_1fr]">
+          <div className="space-y-3">
+            {showAvatar && sessionId.current && voice && (
+              <Avatar
+                sessionId={sessionId.current}
+                track={voice}
+                onActive={(control) => {
+                  avatar.current = control;
+                  setAvatarOn(control !== null);
+                }}
+              />
+            )}
+            {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+            <video
+              ref={camView}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Your camera"
+              className={`aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
             />
-          )}
-          {turns.length > 0 && (
-            <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
-              {turns.map((t, i) => (
-                <li
-                  key={i}
-                  className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
-                    t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                  } ${t.cancelled ? "opacity-50" : ""}`}
-                >
-                  <span className="mb-0.5 block text-xs font-medium text-muted">
-                    {t.who === "persona" ? persona.name : "You"}
-                  </span>
-                  {t.text}
-                </li>
-              ))}
-            </ol>
-          )}
+            {camNote && <p className="text-xs text-muted">{camNote}</p>}
+          </div>
+          <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
+            {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
+            {turns.map((t, i) => (
+              <li
+                key={i}
+                className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
+                  t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+                } ${t.cancelled ? "opacity-50" : ""}`}
+              >
+                <span className="mb-0.5 block text-xs font-medium text-muted">
+                  {t.who === "persona" ? persona.name : "You"}
+                </span>
+                {t.text}
+              </li>
+            ))}
+          </ol>
         </div>
-      )}
 
-      {phase === "live" && (
-        <div className="mt-3 flex gap-2">
-          <input
-            aria-label="Type a question"
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm"
-            placeholder="…or type a question"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && ask()}
-          />
-          <button type="button" className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted" onClick={ask}>
-            Ask
-          </button>
-        </div>
-      )}
+        {phase === "live" && (
+          <div className="mt-3 flex gap-2">
+            <input
+              aria-label="Type a question"
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm"
+              placeholder="…or type a question"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && ask()}
+            />
+            <button type="button" className={btn} onClick={ask}>
+              Ask
+            </button>
+          </div>
+        )}
+        {inCall && saveLine}
+        {inCall && errorBox}
+      </dialog>
 
-      {error && (
-        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-          {error}
-        </p>
+      {phase === "ended" && turns.length > 0 && (
+        <details className="mt-4 text-sm">
+          <summary className="cursor-pointer text-muted">Transcript ({turns.length} turns)</summary>
+          <ol className="mt-2 space-y-1">
+            {turns.map((t, i) => (
+              <li key={i} className={t.cancelled ? "opacity-50" : ""}>
+                <span className="font-medium">{t.who === "persona" ? persona.name : "You"}:</span> {t.text}
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
-
       {(metrics.latenciesMs.length > 0 || metrics.outputTokens > 0) && (
         <p className="mt-3 text-xs tabular-nums text-muted" data-testid="metrics">
           Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
