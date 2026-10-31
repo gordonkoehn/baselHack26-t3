@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DebriefView } from "@/components/DebriefView";
+import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
@@ -338,6 +339,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={end}>
               End interview
             </button>
+            <ScreenShareButton pc={pc} channel={channel} />
           </>
         )}
         {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
