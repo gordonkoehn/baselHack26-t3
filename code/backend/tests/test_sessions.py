@@ -113,6 +113,10 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
     assert PERSONA["pains"][0]["text"] in session["instructions"]
     assert "design advice" in session["instructions"]
     assert session["audio"]["input"]["transcription"]["language"] == "de"
+    assert session["audio"]["input"]["turn_detection"] == {
+        "type": "semantic_vad",
+        "eagerness": "low",
+    }
 
 
 def test_guesses_are_marked_in_instructions():
