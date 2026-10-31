@@ -242,6 +242,34 @@ test("a persona created earlier can be picked after a reload and interviewed", a
   expect(rebuilt).toBe(false);
 });
 
+test("a persona edited from the library keeps its place and comes back edited after a reload", async ({ page, request }) => {
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  await createPersona(page);
+  const persona = await (await created).json();
+  const before = await (await request.get("/api/personas")).json();
+  expect(before[0].id).toBe(persona.id);
+
+  await page.reload();
+  const library = page.getByRole("region", { name: "Recent personas" });
+  const card = page.getByTestId("persona-card");
+  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  const original = persona.jobs[0].text;
+  await card.getByRole("button", { name: `Edit: ${original}`, exact: true }).click();
+  const saved = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}`) && response.request().method() === "PATCH");
+  await card.getByLabel("Fact text").fill("Edited by hand");
+  await card.getByLabel("Fact text").press("Enter");
+  expect((await saved).status()).toBe(200);
+  await expect(card.getByText("Edited by hand")).toBeVisible();
+  await expect(card).not.toContainText("Ready in");
+  expect(await (await request.get("/api/personas")).json()).toEqual(before);
+
+  await page.reload();
+  await expect(card).toHaveCount(0);
+  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await expect(card.getByText("Edited by hand")).toBeVisible();
+  await expect(card.getByText(original, { exact: true })).toHaveCount(0);
+});
+
 test("the persona list sends the passcode and stays away when refused", async ({ page }) => {
   await page.route("**/api/personas", (route) =>
     route.request().method() === "GET"

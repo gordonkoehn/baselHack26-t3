@@ -152,5 +152,5 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             update={"notes": body.speech_style.notes}
         )
     persona = persona.model_copy(update=changes)
-    store.save_persona(persona)
+    store.update_persona(persona)
     return persona

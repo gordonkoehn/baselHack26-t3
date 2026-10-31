@@ -10,7 +10,14 @@ from jsonschema import Draft202012Validator, ValidationError
 from pydantic import Field, create_model
 
 from app import avatar, realtime
-from app.contracts import InsightReport, Persona, Session, SessionEvent, SessionToken
+from app.contracts import (
+    InsightReport,
+    Persona,
+    PersonaSummary,
+    Session,
+    SessionEvent,
+    SessionToken,
+)
 from app.extract import DebriefDraft, PersonaDraft
 from app.main import app
 from app.routers.insights import get_debriefer
@@ -23,6 +30,7 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 # Explicit coverage: adding or renaming a file requires choosing its contract here.
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
+    "persona-summaries.json": ("PersonaSummary", PersonaSummary, True),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
@@ -112,6 +120,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
         status=201,
     )
     response(client.get(f"/api/personas/{created['id']}"), "Persona")
+    summaries = response(client.get("/api/personas"), "PersonaSummary", array=True)
+    assert [summary["id"] for summary in summaries] == [created["id"]]
     guide = load("session.json")["interviewGuide"]
     session = response(
         client.post(

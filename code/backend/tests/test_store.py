@@ -187,6 +187,21 @@ def test_persona_index_has_the_shared_ttl(redis):
     assert redis.ttl["ot:personas"] == TTL_SECONDS
 
 
+def test_edit_keeps_the_expiry_so_a_persona_never_outlives_its_sources(redis):
+    store = Store(redis)
+    store.save_persona(persona("p_a"))
+    redis.ttl["ot:persona:p_a"] = 60  # as old as its sources by now
+    store.update_persona(persona("p_a").model_copy(update={"name": "Edited"}))
+    assert store.get_persona("p_a").name == "Edited"
+    assert redis.ttl["ot:persona:p_a"] == 60
+
+
+def test_edit_does_not_revive_a_persona_that_expired_meanwhile(redis):
+    store = Store(redis)
+    store.update_persona(persona("p_gone"))
+    assert store.get_persona("p_gone") is None
+
+
 def test_all_keys_share_one_ttl(redis):
     store = Store(redis)
     store.save_session(Session.model_validate(load("session.json")))

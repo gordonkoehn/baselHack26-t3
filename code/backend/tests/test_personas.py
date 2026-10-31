@@ -9,7 +9,7 @@ from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
 from app.routers.personas import get_extractor
-from app.store import Store, get_store
+from app.store import PERSONA_LIST_SIZE, Store, get_store
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -99,6 +99,34 @@ def test_list_fails_closed_on_vercel_without_passcode(client, monkeypatch):
     monkeypatch.delenv("DEMO_PASSCODE", raising=False)
     monkeypatch.setenv("VERCEL", "1")
     assert client.get("/api/personas").status_code == 503
+
+
+def test_edited_persona_keeps_its_place_and_date_and_comes_back_edited(client):
+    first = client.post("/api/personas", json=REQUEST).json()
+    client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert listed[1]["id"] == first["id"]
+
+    fact = {"text": "Edited by hand", "label": "guess", "evidenceId": None}
+    assert client.patch(f"/api/personas/{first['id']}", json={"jobs": [fact]}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    picked = client.get(f"/api/personas/{first['id']}").json()
+    assert picked["jobs"] == [fact]
+    assert picked["version"] == first["version"] + 1
+
+
+def test_editing_a_persona_off_the_list_does_not_bring_it_back(client):
+    oldest = client.post("/api/personas", json=REQUEST).json()
+    for _ in range(PERSONA_LIST_SIZE):
+        client.post("/api/personas", json=REQUEST)
+    listed = client.get("/api/personas").json()
+    assert oldest["id"] not in [p["id"] for p in listed]
+
+    assert client.patch(f"/api/personas/{oldest['id']}", json={"jobs": []}).status_code == 200
+
+    assert client.get("/api/personas").json() == listed
+    assert client.get(f"/api/personas/{oldest['id']}").json()["jobs"] == []
 
 
 def test_face_and_voice_follow_the_chosen_face(client):
