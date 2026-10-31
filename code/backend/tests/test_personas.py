@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app import extract
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.main import app
 from app.routers.personas import get_extractor
@@ -70,12 +71,28 @@ def test_invalid_input_422(client, payload):
     assert client.post("/api/personas", json=payload).status_code == 422
 
 
-def test_quote_must_appear_in_sources(client):
+def grounded_texts(body):
+    return [
+        f["text"]
+        for f in body["jobs"] + body["pains"] + body["objections"]
+        if f["label"] == "grounded"
+    ]
+
+
+def test_unverified_quote_drops_evidence_and_downgrades_facts(client):
     bad = [{**EXAMPLE["evidence"][0], "quote": "Something nobody said."}]
     use_extractor(lambda _req: draft(evidence=bad))
     res = client.post("/api/personas", json=REQUEST)
-    assert res.status_code == 502
+    assert res.status_code == 201
+    body = res.json()
+    assert body["evidence"] == [] and grounded_texts(body) == []
     assert "Something" not in res.text
+
+
+def test_verified_quote_keeps_grounding(client):
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert [e["id"] for e in body["evidence"]] == ["e1"]
+    assert len(grounded_texts(body)) == 2
 
 
 def test_quote_match_ignores_whitespace(client):
@@ -113,7 +130,9 @@ def test_provider_failures(client, error, status):
     assert client.post("/api/personas", json=REQUEST).status_code == status
 
 
-def test_default_extractor_is_unavailable_until_28(client):
+def test_real_extractor_without_key_is_503(client, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    extract._client.cache_clear()
     app.dependency_overrides.pop(get_extractor)
     assert client.post("/api/personas", json=REQUEST).status_code == 503
 
@@ -127,9 +146,18 @@ def test_store_down_503(client, monkeypatch):
 
 
 @pytest.mark.parametrize("quote", [None, "", "  \n\t "])
-def test_blank_quote_rejected_and_not_saved(client, quote):
+def test_blank_quote_is_never_grounding(client, quote):
     bad = [{**EXAMPLE["evidence"][0], "quote": quote}]
     use_extractor(lambda _req: draft(evidence=bad))
-    assert client.post("/api/personas", json=REQUEST).status_code == 502
-    store = app.dependency_overrides[get_store]()
-    assert not any(k.startswith("ot:persona:") for k in store.redis.data)
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert body["evidence"] == [] and grounded_texts(body) == []
+
+
+def test_downgrade_reaches_every_fact_list(client):
+    """No grounded fact may keep an evidenceId whose evidence was dropped, in any list."""
+    fact = {"text": "x", "label": "grounded", "evidenceId": "e1"}
+    bad = [{**EXAMPLE["evidence"][0], "quote": "Paraphrased, not in the source."}]
+    use_extractor(lambda _req: draft(evidence=bad, jobs=[fact], pains=[fact], objections=[fact]))
+    body = client.post("/api/personas", json=REQUEST).json()
+    for name in ("jobs", "pains", "objections"):
+        assert body[name] == [{"text": "x", "label": "guess", "evidenceId": None}]
