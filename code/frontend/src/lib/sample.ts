@@ -80,9 +80,11 @@ I: Was müsste die App zeigen, damit du dabeibleibst?
 P1: Einen Fortschrittsbalken, wie weit das Projekt ist. Und am Ende ein Foto vom fertigen Spielplatz. Dann wäre ich schon ein bisschen stolz.
 `;
 
-// The sample transcript as interview turns, for the demo fallback without a live call.
-export function sampleTurns(): { speaker: "interviewer" | "persona"; text: string }[] {
-  return SAMPLE_TRANSCRIPT.split("\n").flatMap((line) => {
+// The SYNTHETIC sample transcript as interview turns, for the demo fallback without a live call.
+// Only the existing Miriam Kessler case uses Lumen; every other persona keeps Quartier unchanged.
+export function sampleTurns(personaName = ""): { speaker: "interviewer" | "persona"; text: string }[] {
+  const transcript = isMiriamKessler(personaName) ? LUMEN_SAMPLE_TRANSCRIPT : SAMPLE_TRANSCRIPT;
+  return transcript.split("\n").flatMap((line) => {
     const turn = /^(I|P1): (.+)$/.exec(line);
     return turn ? [{ speaker: turn[1] === "I" ? ("interviewer" as const) : ("persona" as const), text: turn[2] }] : [];
   });
@@ -116,6 +118,19 @@ export const LUMEN_GUIDE = [
 ];
 
 export const isMiriamKessler = (name: string) => name.includes("Kessler");
+
+// SYNTHETIC sample for LUMEN_GUIDE: handwritten fiction, not a real interview or customer validation.
+// These imagined answers are assumptions, not source-backed persona facts. Never add them as sources.
+export const LUMEN_SAMPLE_TRANSCRIPT = `SYNTHETIC SAMPLE INTERVIEW, written for the Lumen demo. Nobody was interviewed.
+I: ${LUMEN_GUIDE[0]}
+P1: I'm well, thank you. Let's look at the renewal email.
+I: ${LUMEN_GUIDE[1]}
+P1: An email 90 days before renewal could give me time to prepare. Savings against list price are not an independent comparison of alternatives, though. I would need that caveat beside the figure.
+I: ${LUMEN_GUIDE[2]}
+P1: I would want a board-ready one-page summary with researcher usage, the calculation basis and its limits. I would still need an independent comparison before recommending renewal.
+I: ${LUMEN_GUIDE[3]}
+P1: I can't mark the prototype in this sample. In words, I would put the list-price caveat next to savings and make the one-page summary easy to find. Nothing has been annotated or changed.
+`;
 
 // Team twin (#102): a persona of our own team, built from what each member writes about themselves.
 // Each member who opts in replaces one placeholder below with their own text, in their own PR, and
