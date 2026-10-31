@@ -103,9 +103,16 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
         openai.LengthFinishReasonError,
         openai.ContentFilterFinishReasonError,
         openai.BadRequestError,
+        openai.UnprocessableEntityError,
         ValidationError,
     ) as exc:
         raise ExtractionFailed(type(exc).__name__) from None
+    except openai.APIStatusError as exc:
+        # Anything else from the API (e.g. 404 for an unknown OPENAI_MODEL) is a setup or
+        # service problem, not bad persona output.
+        raise ProviderUnavailable(f"{type(exc).__name__} {exc.status_code}") from None
+    except openai.OpenAIError as exc:
+        raise ProviderUnavailable(type(exc).__name__) from None
 
     draft = response.output_parsed
     if draft is None:

@@ -96,9 +96,16 @@ def test_verified_quote_keeps_grounding(client):
 
 
 def test_quote_match_ignores_whitespace(client):
-    spaced = SOURCE.replace(". Mind.", ".\n\n   Mind.")
-    req = {**REQUEST, "sources": [{"kind": "miro", "text": spaced}]}
-    assert client.post("/api/personas", json=req).status_code == 201
+    """Whitespace may differ in both source and quote; the evidence must still be kept."""
+    spaced_source = SOURCE.replace(". Mind.", ".\n\n   Mind.")
+    spaced_quote = EXAMPLE["evidence"][0]["quote"].replace(" Mind.", "\n  Mind.")
+    use_extractor(lambda _req: draft(evidence=[{**EXAMPLE["evidence"][0], "quote": spaced_quote}]))
+    req = {**REQUEST, "sources": [{"kind": "miro", "text": spaced_source}]}
+    body = client.post("/api/personas", json=req).json()
+    assert [(e["id"], e["kind"], e["sourceRef"]) for e in body["evidence"]] == [
+        ("e1", "miro", "source:1")
+    ]
+    assert len(grounded_texts(body)) == 2
 
 
 def test_grounded_fact_needs_existing_evidence(client):
@@ -192,3 +199,31 @@ def test_matching_attribution_is_kept(client):
     body = client.post("/api/personas", json=REQUEST).json()
     assert body["evidence"][0]["kind"] == "miro"
     assert body["evidence"][0]["sourceRef"] == "source:1"
+
+
+@pytest.mark.parametrize(("code", "status"), [(404, 503), (422, 502)])
+def test_openai_status_errors_reach_endpoint_controlled(client, monkeypatch, code, status):
+    import httpx
+    import openai
+
+    cls = {404: openai.NotFoundError, 422: openai.UnprocessableEntityError}[code]
+    req = httpx.Request("POST", "https://api.openai.com/v1/responses")
+
+    class Failing:
+        def parse(self, **_kwargs):
+            raise cls("boom", response=httpx.Response(code, request=req), body=None)
+
+    monkeypatch.setattr(extract, "_client", lambda: type("C", (), {"responses": Failing()})())
+    app.dependency_overrides.pop(get_extractor)
+    assert client.post("/api/personas", json=REQUEST).status_code == status
+
+
+def test_sparse_draft_omits_null_optional_fields(client):
+    """schema.json allows attitudes/speechStyle fields to be absent, not null."""
+    sparse = draft(attitudes={}, speechStyle={"notes": None})
+    use_extractor(lambda _req: sparse)
+    created = client.post("/api/personas", json=REQUEST).json()
+    for body in (created, client.get(f"/api/personas/{created['id']}").json()):
+        assert body["attitudes"] == {}
+        assert body["speechStyle"] == {"notes": None}
+        assert all("evidenceId" in f for f in body["jobs"])

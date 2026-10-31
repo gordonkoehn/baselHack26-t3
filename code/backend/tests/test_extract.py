@@ -22,6 +22,10 @@ REQUEST = PersonaCreate.model_validate(
 HTTP_REQ = httpx.Request("POST", "https://api.openai.com/v1/responses")
 
 
+def status_error(cls, code):
+    return cls("boom", response=httpx.Response(code, request=HTTP_REQ), body=None)
+
+
 class FakeResponses:
     def __init__(self, result=None, error=None):
         self.result, self.error, self.calls = result, error, []
@@ -79,6 +83,9 @@ def test_refusal_or_incomplete_fails(monkeypatch):
             ),
             ExtractionFailed,
         ),
+        (status_error(openai.NotFoundError, 404), ProviderUnavailable),
+        (status_error(openai.UnprocessableEntityError, 422), ExtractionFailed),
+        (status_error(openai.APIStatusError, 418), ProviderUnavailable),
     ],
 )
 def test_provider_errors_are_mapped(monkeypatch, error, expected):
