@@ -432,8 +432,55 @@ for (const failure of ["gateway", "transport", "deadline", "body"]) {
     });
     const rejected = assert.rejects(api.updateSession("startup", { status: "live" }));
     await api.updateSession("startup", { status: "ended" });
-    t.mock.timers.tick(4_000);
+    t.mock.timers.tick(15_000);
     await rejected;
     assert.deepEqual(writes, ["live", "ended"]);
+  });
+}
+
+for (const body of [false, true]) {
+  test(`startup live PATCH can finish after four seconds (${body ? "body" : "fetch"})`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let release;
+    const delayed = new Promise((resolve) => { release = resolve; });
+    let signal;
+    t.mock.method(globalThis, "fetch", (_url, init) => {
+      signal = init.signal;
+      if (!body) return delayed;
+      return Promise.resolve({ ok: true, json: () => delayed });
+    });
+    let outcome = "pending";
+    const request = api.updateSession("slow-startup", { status: "live" }).then(
+      (value) => { outcome = "success"; return value; },
+      (error) => { outcome = "failed"; throw error; },
+    );
+    // Observe rejection even when this regression fails before awaiting request.
+    request.catch(() => {});
+    await Promise.resolve();
+    t.mock.timers.tick(5_000);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(outcome, "pending");
+    assert.equal(signal.aborted, false);
+    release(body ? { status: "live" } : Response.json({ status: "live" }));
+    assert.deepEqual(await request, { status: "live" });
+  });
+}
+
+for (const body of [false, true]) {
+  test(`startup live PATCH has a finite body-inclusive 15-second deadline (${body ? "body" : "fetch"})`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let signal;
+    t.mock.method(globalThis, "fetch", (_url, init) => {
+      signal = init.signal;
+      return body ? Promise.resolve(new Response(new ReadableStream({ start() {} }))) : new Promise(() => {});
+    });
+    const rejected = assert.rejects(api.updateSession("startup", { status: "live" }), RequestDeadlineError);
+    await Promise.resolve();
+    await Promise.resolve();
+    t.mock.timers.tick(14_999);
+    assert.equal(signal.aborted, false);
+    t.mock.timers.tick(1);
+    await rejected;
+    assert.equal(signal.aborted, true);
   });
 }

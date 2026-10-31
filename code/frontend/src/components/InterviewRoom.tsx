@@ -52,6 +52,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const sending = useRef<Promise<void> | null>(null);
   const [saveState, setSaveState] = useState({ saved: 0, total: 0, failed: false });
   const liveSince = useRef(0);
+  const liveEstablished = useRef(false);
+  const startupFailure = useRef<string | null>(null);
   // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
   const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean } | null>(null);
   const questions = useRef(0);
@@ -262,7 +264,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     callLost.current = true;
     setConnectionLost(true);
     // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    if (pending.current.size > 0) lost.current = true;
+    if (!liveEstablished.current || pending.current.size > 0) lost.current = true;
     hangUp();
     if (finalizing.current) {
       if (!draining.current) void closeDrained(false);
@@ -387,7 +389,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       data,
     } as SessionEvent);
     setSaveState((st) => ({ ...st, total: events.current.length }));
-    if (!finalizing.current) void flush();
+    if (!finalizing.current) {
+      // A new live turn can retry an exhausted, idle batch without changing its payload.
+      // Events during an active attempt or finalization never replenish that budget.
+      if (liveEstablished.current && !sending.current && retryBatch.current && retryBatch.current.attempts >= SAVE_ATTEMPTS) {
+        retryBatch.current.attempts = 0;
+      }
+      void flush();
+    }
   }
 
   // Send everything not yet confirmed, one request at a time so seqs arrive in order.
@@ -439,6 +448,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   async function start() {
     hangUp();
     setPhase("connecting");
+    startupFailure.current = null;
+    liveEstablished.current = false;
     setError(null);
     setTurns([]);
     setVoice(null);
@@ -554,9 +565,15 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       if (!current()) return;
       liveSince.current = Date.now();
       setLiveSeconds(0);
+      liveEstablished.current = true;
       setPhase("live");
     } catch (e) {
       if (!current()) return;
+      startupFailure.current = e instanceof DOMException && e.name === "NotAllowedError"
+        ? "Microphone access was denied. Allow microphone access in your browser and start again."
+        : e instanceof ApiError ? `Could not start (${e.status}): ${e.detail}`
+          : `Could not start: ${e instanceof Error ? e.message : "the interview could not connect."}`;
+      setError(startupFailure.current);
       if (sessionId.current) {
         // A failed startup may already have captured turns or mutated remote state.
         // Close as incomplete and preserve the same save/retry path as an ended call.
@@ -570,9 +587,6 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       }
       hangUp();
       setPhase("error");
-      if (e instanceof DOMException && e.name === "NotAllowedError") setError("Microphone access was denied.");
-      else if (e instanceof ApiError) setError(`Could not start (${e.status}): ${e.detail}`);
-      else setError(e instanceof Error ? e.message : "Could not start the interview.");
     }
   }
 
@@ -713,7 +727,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     const persistStarted = performance.now();
     setPhase("ending");
     setFinalStage("Saving captured text");
-    setError(null);
+    setError(startupFailure.current);
     try {
       if (!await flush()) throw new Error("TranscriptSaveError");
       if (g !== gen.current) return;
@@ -747,7 +761,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       if (g !== gen.current) return;
       measure("persistence", persistStarted, error instanceof Error ? error.name : "Error");
       setPhase("unsaved");
-      setError(`Could not finish saving (${saved.current}/${events.current.length} events stored). The call is closed. Choose Save again to retry.`);
+      setError(`${startupFailure.current ? `${startupFailure.current} ` : ""}Could not finish saving (${saved.current}/${events.current.length} events stored). The call is closed. Choose Save again to retry.`);
     } finally {
       if (g === gen.current) finishing.current = false;
     }
@@ -775,7 +789,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
       Transcript saved {saveState.saved}/{saveState.total}
       {phase === "live" && saveState.failed && saveState.saved < saveState.total
-        ? " · automatic retries stopped; finish the call, then choose Save again"
+        ? " · save paused; the next turn retries, or finish the call and choose Save again"
         : ""}
     </p>
   );
@@ -807,6 +821,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           <span className="text-sm text-muted">
             {ended?.sample
               ? "Sample interview loaded: a scripted transcript. No live call took place and nobody was interviewed."
+              : startupFailure.current
+              ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
