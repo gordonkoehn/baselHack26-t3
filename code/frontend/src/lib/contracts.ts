@@ -49,6 +49,16 @@ export type Persona = {
   evidence: Evidence[];
 };
 
+/** One row of the persona library (GET /api/personas). */
+export type PersonaSummary = {
+  id: string;
+  name: string;
+  /** The persona's context.job. */
+  role: string | null;
+  createdAt: string;
+  readiness: { score: number; consistency: number; grounding: number } | null;
+};
+
 /** Plain text pulled from an uploaded file (POST /api/sources/pdf). */
 export type ExtractedText = { text: string; pages: number };
 

@@ -59,6 +59,35 @@ def test_create_then_read(client):
     assert saved.sources[0].text == REQUEST["sources"][0]["text"]
 
 
+def test_list_shows_created_personas_without_their_facts(client):
+    assert client.get("/api/personas").json() == []
+    first = client.post("/api/personas", json=REQUEST).json()
+    second = client.post("/api/personas", json=REQUEST).json()
+    res = client.get("/api/personas")
+    assert res.status_code == 200
+    assert [p["id"] for p in res.json()] == [second["id"], first["id"]]
+    assert set(res.json()[0]) == {"id", "name", "role", "createdAt", "readiness"}
+    assert res.json()[0]["role"] == EXAMPLE["context"]["job"]
+    # What the library picks: the full persona comes from the id alone, no re-extraction.
+    use_extractor(lambda _req: pytest.fail("reuse must not extract"))
+    assert client.get(f"/api/personas/{first['id']}").json() == first
+
+
+def test_list_needs_the_passcode(client, monkeypatch):
+    client.post("/api/personas", json=REQUEST)
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    assert client.get("/api/personas").status_code == 401
+    assert client.get("/api/personas", headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+    res = client.get("/api/personas", headers={"X-Demo-Passcode": "right"})
+    assert res.status_code == 200 and len(res.json()) == 1
+
+
+def test_list_fails_closed_on_vercel_without_passcode(client, monkeypatch):
+    monkeypatch.delenv("DEMO_PASSCODE", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert client.get("/api/personas").status_code == 503
+
+
 def test_face_and_voice_follow_the_chosen_face(client):
     use_extractor(lambda _req: draft(name="Marco Keller", gender="m", face="Victor"))
     body = client.post("/api/personas", json=REQUEST).json()

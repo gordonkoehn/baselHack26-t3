@@ -3,6 +3,7 @@ import type {
   InsightReport,
   Persona,
   PersonaCreate,
+  PersonaSummary,
   Session,
   SessionCreate,
   SessionEvent,
@@ -65,6 +66,8 @@ export const api = {
       headers: { "Content-Type": "application/json", ...passcode() },
       body: JSON.stringify(body),
     }).then(json<Persona>),
+  listPersonas: () =>
+    fetch("/api/personas", { cache: "no-store", headers: passcode() }).then(json<PersonaSummary[]>),
   // The raw file is the body; the backend pulls out the text layer so quotes stay verifiable.
   extractPdf: (file: File) =>
     fetch("/api/sources/pdf", {

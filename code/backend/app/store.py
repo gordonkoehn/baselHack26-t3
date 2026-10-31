@@ -5,16 +5,26 @@ contract JSON, so what we read back validates against the same models.
 """
 
 import json
+import time
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
 from pydantic import BaseModel
 
-from app.contracts import InsightReport, Persona, PersonaCreate, Session, SessionEvent
+from app.contracts import (
+    InsightReport,
+    Persona,
+    PersonaCreate,
+    PersonaSummary,
+    Session,
+    SessionEvent,
+)
 
 # shortcut: one TTL for every key so events/reports never outlive their session; revisit after the demo.
 TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
+PERSONA_LIST_SIZE = 20
 
 
 # KEYS[1] = events hash, ARGV = ttl, then seq/value pairs.
@@ -30,6 +40,15 @@ for i = 2, #ARGV, 2 do
 end
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 return out
+"""
+
+
+# KEYS[1] = persona index, ARGV = created-at score, persona id, rank to trim up to, ttl.
+# NX: saving a persona again must not change when it was created.
+INDEX_PERSONA = """
+redis.call('ZADD', KEYS[1], 'NX', ARGV[1], ARGV[2])
+redis.call('ZREMRANGEBYRANK', KEYS[1], 0, ARGV[3])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
 """
 
 
@@ -66,6 +85,34 @@ class Store:
 
     def save_persona(self, persona: Persona) -> None:
         self._put(f"{PREFIX}:persona:{persona.id}", persona)
+        args = [str(time.time()), persona.id, str(-PERSONA_LIST_SIZE - 1), str(TTL_SECONDS)]
+        self._call("eval", INDEX_PERSONA, keys=[f"{PREFIX}:personas"], args=args)
+
+    def list_personas(self) -> list[PersonaSummary]:
+        """Newest first. A persona can expire before its index entry, those are skipped."""
+        rows = self._call(
+            "zrange", f"{PREFIX}:personas", 0, PERSONA_LIST_SIZE - 1, rev=True, withscores=True
+        )
+        if not rows:
+            return []
+        raws = self._call("mget", *[f"{PREFIX}:persona:{persona_id}" for persona_id, _ in rows])
+        summaries = []
+        for (_, created), raw in zip(rows, raws, strict=True):
+            if raw is None:
+                continue
+            persona = Persona.model_validate_json(raw)
+            summaries.append(
+                PersonaSummary(
+                    id=persona.id,
+                    name=persona.name,
+                    role=persona.context.job,
+                    created_at=datetime.fromtimestamp(created, UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    readiness=persona.readiness,
+                )
+            )
+        return summaries
 
     def get_persona(self, persona_id: str) -> Persona | None:
         return self._load(f"{PREFIX}:persona:{persona_id}", Persona)

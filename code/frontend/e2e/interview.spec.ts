@@ -175,6 +175,49 @@ test("failed last transcription cannot claim a complete transcript or show debri
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
 });
 
+test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  await createPersona(page);
+  const persona = await (await created).json();
+  await page.reload();
+  const card = page.getByTestId("persona-card");
+  await expect(card).toHaveCount(0);
+  let rebuilt = false;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/personas")) rebuilt = true;
+  });
+  // Newest first, and other tests share this store.
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await expect(card.getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(card).not.toContainText("Ready in");
+  await expect(page.getByRole("heading", { name: "Sources", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+
+  const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  const session: Session = await (await started).json();
+  expect(session.personaId).toBe(persona.id);
+  const dialog = page.getByRole("dialog", { name: "Interview with Sandra" });
+  await expect(dialog.getByText("Live, speak now")).toBeVisible();
+  expect(rebuilt).toBe(false);
+});
+
+test("the persona list sends the passcode and stays away when refused", async ({ page }) => {
+  await page.route("**/api/personas", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ status: 401, contentType: "application/json", body: '{"detail":"passcode missing or wrong"}' })
+      : route.fallback(),
+  );
+  const listed = page.waitForRequest((request) => request.method() === "GET" && request.url().endsWith("/api/personas"));
+  await page.goto("/?code=team-pass");
+  expect((await listed).headers()["x-demo-passcode"]).toBe("team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+});
+
 test("the team link passcode is sent, leaves the address bar and survives blocked storage", async ({ page }) => {
   await page.addInitScript(() => {
     Storage.prototype.setItem = () => {

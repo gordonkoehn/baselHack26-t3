@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
-import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
+import type {
+  Evidence,
+  Fact,
+  Language,
+  Persona,
+  PersonaSource,
+  PersonaSummary,
+  SourceKind,
+} from "@/lib/contracts";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
@@ -14,7 +22,8 @@ const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
 type Draft = PersonaSource & { id: number };
-type Result = { persona: Persona; sources: PersonaSource[]; seconds: number };
+// seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
+type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -68,12 +77,16 @@ export default function Home() {
   const [reading, setReading] = useState(false);
   // Once a persona exists the sources fold away, so the persona and the interview get the screen.
   const [editing, setEditing] = useState(false);
+  const [recent, setRecent] = useState<PersonaSummary[]>([]);
+  const [opening, setOpening] = useState(false);
   const card = useRef<HTMLDivElement>(null);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
   // While building or reading files, nothing is editable: a late file result can't land in a
   // reset list, and the submitted sources can't change under a running request.
-  const busy = loading || reading;
+  const busy = loading || reading || opening;
+  const personaId = result?.persona.id;
+  const picked = result?.seconds === null;
 
   // Tick a visible timer while the persona is being built: the demo claims "ready in minutes".
   useEffect(() => {
@@ -86,6 +99,21 @@ export default function Home() {
   useEffect(() => {
     if (result) card.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [result]);
+
+  // On load and after each new persona. The list is optional: without the passcode or a store it
+  // just stays away, and creating a persona still reports its own errors.
+  useEffect(() => {
+    let current = true;
+    api
+      .listPersonas()
+      .then((personas) => {
+        if (current) setRecent(personas);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [personaId]);
 
   const update = (id: number, patch: Partial<PersonaSource>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -137,6 +165,20 @@ export default function Home() {
     }
   }
 
+  async function pick(id: string) {
+    if (busy) return;
+    setOpening(true);
+    setError(null);
+    try {
+      setResult({ persona: await api.getPersona(id), sources: [], seconds: null });
+      setEditing(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setOpening(false);
+    }
+  }
+
   return (
     <main
       className="mx-auto w-full max-w-3xl px-5 py-10 font-sans sm:px-8"
@@ -163,24 +205,59 @@ export default function Home() {
         </p>
       </header>
 
+      {/* Folds away with the sources, so a click here can't replace the persona being interviewed. */}
+      {recent.length > 0 && (!result || editing) && (
+        <section
+          aria-labelledby="recent-personas"
+          className="mb-8 rounded-xl border border-line bg-surface p-5 shadow-sm"
+        >
+          <h2 id="recent-personas" className="text-sm font-semibold">
+            Recent personas
+          </h2>
+          <ul className="mt-2 divide-y divide-line">
+            {recent.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className="flex w-full flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
+                  onClick={() => pick(p.id)}
+                  disabled={busy}
+                >
+                  <span className="font-medium">{p.name}</span>
+                  {p.role && <span className="min-w-0 truncate text-muted">{p.role}</span>}
+                  <span className="ml-auto text-xs tabular-nums text-muted">
+                    {p.readiness && `${Math.round(p.readiness.score * 100)} % ready · `}
+                    {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section
         className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-sm font-semibold">
-            Sources <span className="font-normal text-muted">({filled.length})</span>
+            Sources
+            {/* A saved persona's sources stay on the server; the drafts here are unrelated to it. */}
+            {!(picked && !editing) && <span className="font-normal text-muted"> ({filled.length})</span>}
           </h2>
           {result && !editing && (
             <>
               <span className="min-w-0 flex-1 truncate text-sm text-muted">
-                {result?.sources.map((src) => src.title || "Untitled").join(" · ")}
+                {picked
+                  ? "Saved persona"
+                  : result?.sources.map((src) => src.title || "Untitled").join(" · ")}
               </span>
               <button
                 type="button"
                 className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted"
                 onClick={() => setEditing(true)}
               >
-                Edit sources
+                {picked ? "New persona" : "Edit sources"}
               </button>
             </>
           )}
@@ -286,7 +363,7 @@ export default function Home() {
             onClick={create}
             disabled={busy || filled.length === 0}
           >
-            {loading ? "Building persona…" : result ? "Rebuild persona" : "Create persona"}
+            {loading ? "Building persona…" : result && !picked ? "Rebuild persona" : "Create persona"}
           </button>
           {loading && <span className="text-sm tabular-nums text-muted">{elapsed.toFixed(1)} s</span>}
           {filled.length === 0 && <span className="text-sm text-muted">Add at least one source.</span>}
@@ -325,7 +402,8 @@ function PersonaCard({ persona, sources, seconds }: Result) {
   return (
     <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
       <p className="mb-4 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
-        Ready in {seconds.toFixed(1)} s · {grounded} grounded · {facts.length - grounded} guesses
+        {seconds !== null && `Ready in ${seconds.toFixed(1)} s · `}
+        {grounded} grounded · {facts.length - grounded} guesses
       </p>
       <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
       {meta && <p className="text-sm text-muted">{meta}</p>}

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
 from app.auth import require_passcode
-from app.contracts import Evidence, Fact, Persona, PersonaCreate
+from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaSummary
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.store import Store, get_store
@@ -106,6 +106,13 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
     store.save_persona(persona)
     store.save_persona_sources(persona.id, body)
     return persona
+
+
+# Costs no credit, but needs the passcode anyway: a persona's random id is what keeps its facts and
+# quotes from the sources private, and this list would hand every id to anyone on the public URL.
+@router.get("", response_model_by_alias=True, dependencies=[Depends(require_passcode)])
+def list_personas(store: StoreDep) -> list[PersonaSummary]:
+    return store.list_personas()
 
 
 @router.get("/{persona_id}", response_model_by_alias=True)
