@@ -1,9 +1,38 @@
+import type { Persona, PersonaCreate } from "@/lib/contracts";
+
+/** A non-2xx answer. `status` lets the UI tell bad input (422) from model (502) or setup (503) trouble. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+  ) {
+    super(`${status} ${detail}`);
+  }
+}
+
 // Same-origin /api/* is proxied to the backend (see next.config.ts), so no CORS and no URLs here.
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.text();
+    let detail = body;
+    try {
+      // FastAPI errors are {"detail": "..."} or {"detail": [validation errors]}.
+      const parsed = JSON.parse(body).detail;
+      detail = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+    } catch {}
+    throw new ApiError(res.status, detail);
+  }
   return res.json() as Promise<T>;
 }
 
 export const api = {
   health: () => fetch("/api/health", { cache: "no-store" }).then(json<{ status: string }>),
+  createPersona: (body: PersonaCreate) =>
+    fetch("/api/personas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(json<Persona>),
+  getPersona: (id: string) =>
+    fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
 };
