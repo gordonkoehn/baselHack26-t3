@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
+import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
@@ -46,6 +47,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(QUARTIER_BOERSE_GUIDE.join("\n"));
+  const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
@@ -896,7 +898,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       <dialog
         ref={dialog}
         aria-label={`Interview with ${persona.name}`}
-        className="m-auto w-[min(64rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
+        className="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
         // Esc must not silently drop a running call; ending goes through "End interview".
         onCancel={(e) => e.preventDefault()}
         onClose={() => inCall && dialog.current?.showModal()}
@@ -955,8 +957,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,16rem)_1fr]">
-          <div className="space-y-3">
+        <div className="mt-4 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="mx-auto w-full max-w-2xl space-y-3">
             {showAvatar && sessionId.current && voice && (
               <Avatar
                 sessionId={sessionId.current}
@@ -979,7 +981,9 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
             />
             {camNote && <p className="text-xs text-muted">{camNote}</p>}
           </div>
-          <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
+          <div className="min-w-0 space-y-4">
+            <InterviewScript key={sessionId.current ?? "none"} questions={scriptQuestions} />
+          <ol ref={transcript} className="max-h-[40dvh] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
             {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
             {turns.map((t, i) => (
               <li
@@ -995,6 +999,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
               </li>
             ))}
           </ol>
+          </div>
         </div>
 
         {phase === "live" && (
