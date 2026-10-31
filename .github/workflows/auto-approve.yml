@@ -1,0 +1,40 @@
+name: auto-approve
+# Approves small PRs that touch only docs or tests. Anything else needs a human.
+# Runs from main and never checks out PR code, so a PR can't change these rules for itself.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  decide:
+    # Forks never qualify.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve if low risk, otherwise withdraw any earlier auto-approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MAX_LINES: 200
+          SAFE: '^(documentation/|code/backend/tests/|code/frontend/e2e/)'
+          RISKY: '^(\.github/|CLAUDE\.md$|AGENTS\.md$|GEMINI\.md$)'
+        run: |
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" -q '.[].filename')
+          lines=$(gh api --paginate "repos/$REPO/pulls/$PR/files" -q '.[] | .additions + .deletions' | awk '{s+=$1} END {print s+0}')
+          unsafe=$(echo "$files" | grep -Ev "$SAFE" || true)
+          risky=$(echo "$files" | grep -E "$RISKY" || true)
+          if [ -z "$unsafe" ] && [ -z "$risky" ] && [ "$lines" -le "$MAX_LINES" ]; then
+            gh pr review "$PR" -R "$REPO" --approve --body "Auto-approved: docs or tests only, $lines lines."
+            exit 0
+          fi
+          echo "Needs a human: $lines lines. Outside the safe paths: ${unsafe:-none}"
+          gh api "repos/$REPO/pulls/$PR/reviews" \
+            -q '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id' |
+            while read -r id; do
+              gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" -f message="New changes need a human review."
+            done
