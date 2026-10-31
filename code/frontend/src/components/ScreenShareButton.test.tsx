@@ -203,6 +203,52 @@ describe("showing a frame", () => {
   });
 });
 
+// #101: InterviewRoom sends background frames of whatever stream is reported here.
+describe("reporting the shared stream", () => {
+  async function shareWithReport() {
+    const onSharing = vi.fn();
+    const fake = fakeStream();
+    getDisplayMedia.mockResolvedValueOnce(fake.stream);
+    const view = render(<ScreenShareButton pc={{ current: null }} ask={ask} onSharing={onSharing} />);
+    click("Share screen");
+    await screen.findByRole("button", { name: "Stop sharing" });
+    expect(onSharing).toHaveBeenLastCalledWith(fake.stream);
+    return { onSharing, ...fake, ...view };
+  }
+
+  it("reports the stream on share and null on stop", async () => {
+    const { onSharing } = await shareWithReport();
+
+    click("Stop sharing");
+
+    expect(onSharing).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reports null when the browser ends the track", async () => {
+    const { onSharing, track } = await shareWithReport();
+
+    act(() => {
+      track.dispatchEvent(new Event("ended"));
+    });
+
+    expect(onSharing).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reports null when unmounted", async () => {
+    const { onSharing, unmount } = await shareWithReport();
+
+    unmount();
+
+    expect(onSharing).toHaveBeenLastCalledWith(null);
+  });
+
+  it("tells the interviewer which tab to share", async () => {
+    await shareWithReport();
+
+    screen.getByText(/Share the prototype's tab or window, not this call/);
+  });
+});
+
 // #58: a frame captured just as sharing ends must never reach the persona.
 describe("no send after sharing ended", () => {
   async function captureInFlight() {

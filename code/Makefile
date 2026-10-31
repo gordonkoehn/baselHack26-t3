@@ -21,7 +21,7 @@ check:            ## what CI runs — run before pushing
 	cd backend && uv export --no-dev --no-hashes -q -o requirements.txt && git diff --exit-code requirements.txt
 	cd frontend && npm run lint && npm run typecheck && npm run check:contracts && npm run test:contracts && npm test && npm run build
 
-fix:              ## auto-fix formatting + lint, then run make check
+fix:              ## auto-fix formatting + lint; run make check afterwards
 	cd backend && uv run ruff format . && uv run ruff check --fix .
 	cd frontend && npx eslint --fix .
 
