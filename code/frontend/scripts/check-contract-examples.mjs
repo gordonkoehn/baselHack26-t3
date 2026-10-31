@@ -13,6 +13,7 @@ const definitions = {
   "persona.json": "Persona",
   "persona-summaries.json": "PersonaSummary[]",
   "persona-update.json": "PersonaUpdate",
+  "persona-sessions.json": "Session[]",
   "session.json": "Session",
   "session-events.json": "SessionEvent[]",
   "insight-report.json": "InsightReport",

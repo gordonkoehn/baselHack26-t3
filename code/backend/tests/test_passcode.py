@@ -65,6 +65,19 @@ def test_shared_report_reads_need_no_passcode(route, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_persona_session_list_needs_the_passcode(monkeypatch):
+    # A shared report link reveals the persona id; it must not lead to the other interviews.
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    app.dependency_overrides[get_store] = lambda: Store(FakeRedis())
+    route = "/api/personas/p_1/sessions"
+    try:
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+        assert client.get(route, headers={"X-Demo-Passcode": "right"}).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_health_stays_open(monkeypatch):
     monkeypatch.setenv("DEMO_PASSCODE", "right")
     assert client.get("/api/health").status_code == 200

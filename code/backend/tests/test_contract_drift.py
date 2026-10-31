@@ -33,6 +33,7 @@ EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
     "persona-summaries.json": ("PersonaSummary", PersonaSummary, True),
     "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
+    "persona-sessions.json": ("Session", Session, True),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
@@ -172,6 +173,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
     report = response(client.post(f"{url}/debrief"), "InsightReport")
     assert any(q["insights"] for q in report["questions"]), "Exercise nested insight contracts"
     assert response(client.get(f"{url}/insights"), "InsightReport") == report
+    listed = response(client.get(f"/api/personas/{created['id']}/sessions"), "Session", array=True)
+    assert [(s["id"], s["debriefReady"]) for s in listed] == [(session["id"], True)]
 
 
 @pytest.mark.parametrize("change", ["required", "type"])

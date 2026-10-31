@@ -12,6 +12,7 @@ import type {
   SourceKind,
 } from "@/lib/contracts";
 import { InterviewRoom } from "@/components/InterviewRoom";
+import { PastInterviews } from "@/components/PastInterviews";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
@@ -415,6 +416,7 @@ function PersonaCard({
   onPersona,
 }: Result & { opening: boolean; onPersona: (p: Persona) => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   // The server decides the labels: an edited or new fact always comes back as a guess.
   async function save(field: FactField, facts: Fact[]) {
     setSaveError(null);
@@ -456,7 +458,13 @@ function PersonaCard({
       />
       {/* Keyed by persona so a new persona never inherits the previous call. */}
       {/* The picked persona replaces this card when it arrives, which would cut off a call started now. */}
-      <InterviewRoom key={persona.id} persona={persona} startBlocked={opening} />
+      <InterviewRoom
+        key={persona.id}
+        persona={persona}
+        startBlocked={opening}
+        onHistoryChange={() => setHistoryVersion((v) => v + 1)}
+      />
+      <PastInterviews personaId={persona.id} version={historyVersion} />
     </article>
   );
 }

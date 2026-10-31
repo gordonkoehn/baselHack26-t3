@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import exampleReport from "../../shared/examples/insight-report.json";
 import exampleEvents from "../../shared/examples/session-events.json";
+import examplePersonaSessions from "../../shared/examples/persona-sessions.json";
 import type { Persona, Session, SessionEvent, InsightReport } from "../src/lib/contracts";
 import { emit, installRealtime } from "./realtime";
 
@@ -68,6 +69,23 @@ async function pickFromLibrary(page: Page, request: APIRequestContext, id: strin
   await rows.nth(list.findIndex((persona) => persona.id === id)).click();
   await opened;
   await expect(page.getByRole("button", { name: "New persona" })).toBeVisible();
+}
+
+// One whole interview in the open persona card, up to its debrief on screen.
+async function completeInterview(page: Page): Promise<string> {
+  await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(questions.join("\n"));
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: /^(Start voice interview|Start again)$/ }).click();
+  const session: Session = await (await created).json();
+  await expect(page.getByRole("dialog", { name: "Interview with Sandra" }).getByText("Live, speak now")).toBeVisible();
+  for (const [index, quote] of answers.entries()) {
+    await page.getByLabel("Type a question").fill(typedQuestion);
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    await answer(page, `${session.id}-answer-${index}`, quote);
+  }
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByTestId("debrief")).toBeVisible({ timeout: 10_000 });
+  return session.id;
 }
 
 let unexpected: string[] = [];
@@ -384,6 +402,67 @@ test("the persona list sends the passcode and stays away when refused", async ({
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Edit sources" }).click();
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+});
+
+test("two interviews with one persona are both listed, also after a reload, and both debriefs open", async ({ page, context }) => {
+  await createPersona(page);
+  const past = page.getByRole("region", { name: "Past interviews" });
+  await expect(past).toHaveCount(0);
+
+  const first = await completeInterview(page);
+  await expect(past.getByRole("link")).toHaveCount(1);
+  const second = await completeInterview(page);
+  const expectListed = async () => {
+    const links = past.getByRole("link");
+    await expect(links).toHaveCount(2);
+    await expect(links.nth(0)).toHaveAttribute("href", `/report/${second}`);
+    await expect(links.nth(1)).toHaveAttribute("href", `/report/${first}`);
+    for (const link of await links.all()) {
+      await expect(link).toContainText("Ended");
+      await expect(link).toContainText("Debrief ready");
+    }
+  };
+  await expectListed();
+
+  await page.reload();
+  // Newest first, and other tests share this store.
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await expectListed();
+
+  for (const id of [second, first]) {
+    const opened = context.waitForEvent("page");
+    await past.locator(`a[href="/report/${id}"]`).click();
+    const report = await opened;
+    await expect(report.getByTestId("debrief")).toContainText(answers[0]);
+    expect(new URL(report.url()).pathname).toBe(`/report/${id}`);
+    await report.close();
+  }
+  // Opening a debrief in its own tab leaves this one, with its persona, as it was.
+  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+});
+
+test("past interviews link only saved debriefs and leave out sessions that never started", async ({ page }) => {
+  const neverStarted = { id: "s_0", personaId: "p_1", status: "ended", provider: "openai-realtime", startedAt: null, debriefReady: false };
+  await page.route("**/api/personas/*/sessions", (route) => route.fulfill({ json: [...examplePersonaSessions, neverStarted] }));
+  const listed = page.waitForRequest((request) => request.url().endsWith("/sessions") && request.method() === "GET");
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  expect((await listed).headers()["x-demo-passcode"]).toBe("team-pass");
+  const rows = page.getByRole("region", { name: "Past interviews" }).getByRole("listitem");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText("Not ended");
+  await expect(rows.nth(0).getByRole("link")).toHaveCount(0);
+  await expect(rows.nth(1)).toContainText("13 min");
+  await expect(rows.nth(1).getByRole("link")).toHaveAttribute("href", "/report/s_1");
+});
+
+test("past interviews stay away when the passcode is refused", async ({ page }) => {
+  const refused = page.waitForResponse((response) => response.url().endsWith("/sessions") && response.status() === 401);
+  await page.route("**/api/personas/*/sessions", (route) => route.fulfill({ status: 401, json: { detail: "passcode missing or wrong" } }));
+  await createPersona(page);
+  await refused;
+  await expect(page.getByRole("region", { name: "Past interviews" })).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
 test("mute silences the microphone without ending the call; typing still works", async ({ page }) => {

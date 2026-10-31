@@ -90,6 +90,8 @@ export type Session = {
   readySeconds?: number | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  /** Whether a saved debrief can be opened. Only in the persona's session list. */
+  debriefReady?: boolean;
 };
 
 export type SessionCreate = { personaId: string; interviewGuide?: string[] };

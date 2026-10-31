@@ -38,7 +38,16 @@ type ServerEvent = {
   error?: { message?: string; event_id?: string };
 };
 
-export function InterviewRoom({ persona, startBlocked }: { persona: Persona; startBlocked: boolean }) {
+export function InterviewRoom({
+  persona,
+  startBlocked,
+  onHistoryChange,
+}: {
+  persona: Persona;
+  startBlocked: boolean;
+  /** An interview ended or its debrief was saved. */
+  onHistoryChange: () => void;
+}) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -714,6 +723,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
       setPhase("ended");
+      onHistoryChange();
     } catch (error) {
       if (g !== gen.current) return;
       measure("persistence", persistStarted, error instanceof Error ? error.name : "Error");
@@ -938,7 +948,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
         </p>
       )}
       {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
-        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} />
+        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} onCreated={onHistoryChange} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
         <p className="mt-4 text-sm text-muted">
