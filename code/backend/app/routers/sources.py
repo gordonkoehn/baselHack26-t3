@@ -32,7 +32,8 @@ async def extract_pdf(request: Request) -> ExtractedText:
         if len(reader.pages) > MAX_PAGES:
             raise HTTPException(413, f"PDF has more than {MAX_PAGES} pages")
         pages = [page.extract_text() or "" for page in reader.pages]
-    except (PyPdfError, ValueError, KeyError, TypeError) as exc:
+    # NotImplementedError: pypdf meets a stream filter it doesn't support.
+    except (PyPdfError, ValueError, KeyError, TypeError, NotImplementedError) as exc:
         raise HTTPException(422, f"PDF could not be read ({type(exc).__name__})") from None
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     if not text:
