@@ -44,10 +44,10 @@ describe("DebriefView", () => {
     screen.getByText("Feels like marketing", { exact: false });
     screen.getByText("Ask real users next: Ask how they split without the badge.");
     const [backed, unbacked] = Array.from(container.querySelectorAll("blockquote"), (quote) => quote.textContent);
-    expect(backed).toBe("“Dann geb ich alles.”Anna (AI persona) · interview turn 3 · statement repeats a persona fact that cites a source passage, quote not compared to it");
-    expect(unbacked).toBe("“Klingt nach Werbung.”Anna (AI persona) · interview turn 5 · not matched to a source");
+    expect(backed).toBe("“Dann geb ich alles.”Anna · interview turn 3 · repeats a persona fact, and the quote contains its source passage");
+    expect(unbacked).toBe("“Klingt nach Werbung.”Anna · interview turn 5");
     const labels = Array.from(container.querySelectorAll("li li > span"), (label) => label.textContent);
-    expect(labels).toEqual(["grounded", "guess"]);
+    expect(labels).toEqual(["grounded", "not matched to a source"]);
   });
 
   it("leads with a summary of what held up and what didn't", async () => {
@@ -58,6 +58,32 @@ describe("DebriefView", () => {
     expect(screen.getByTestId("debrief").firstElementChild?.nextElementSibling).toBe(summary);
   });
 
+  it("gives each summary item the same meaning as the details", () => {
+    const unmatched = REPORT.questions[0].insights[1];
+    const report = {
+      ...REPORT,
+      questions: [REPORT.questions[0], { question: "Would they pay?", signal: "unclear" as const, insights: [unmatched] }],
+    };
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={report} />);
+
+    const lines = Array.from(screen.getByTestId("debrief-summary").querySelectorAll("li p:last-child"), (line) => line.textContent);
+    expect(lines).toEqual(["grounded: repeats a persona fact, and the quote contains its source passage", "not matched to a source"]);
+  });
+
+  it.each([false, true])("never calls an unmatched insight a guess, sample %s", (sample) => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={REPORT} sample={sample} />);
+
+    expect(screen.getByTestId("debrief").textContent).not.toMatch(/guess|backed|also in the sources/i);
+  });
+
+  it("explains both labels on a sample and says grounded proves nothing there", () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={REPORT} sample />);
+
+    const banner = screen.getByTestId("sample-label").textContent;
+    expect(banner).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(banner).toContain("so “grounded” proves nothing here.");
+  });
+
   it("states that the persona is an AI and the quotes are hypotheses", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue(REPORT);
     show();
@@ -65,9 +91,7 @@ describe("DebriefView", () => {
     const debrief = await screen.findByTestId("debrief");
 
     expect(debrief.textContent).toContain("Anna, an AI persona: hypotheses to check with real users, not findings.");
-    expect(debrief.textContent).toContain(
-      "“grounded” means the statement repeats a persona fact that cites a passage in the sources; nothing checks that passage or the AI persona's quote against that fact. “guess” means it was not matched to a source.",
-    );
+    expect(debrief.textContent).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
   });
 
   it("shows the gaps banner on a report whose transcript may have gaps, generated or saved", async () => {

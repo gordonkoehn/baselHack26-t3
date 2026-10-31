@@ -1,6 +1,16 @@
-import type { InsightReport } from "./contracts";
+import type { InsightReport, Label } from "./contracts";
 
 export const TRANSCRIPT_GAPS = "This transcript may have gaps: part of the call may not have been captured, so this debrief only covers what was saved. A question with no quotes may just mean its answer was lost.";
+
+// One meaning for the whole debrief, on screen and exported. "guess" is only the stored value: a miss
+// means _source_label found no exact match, not that the persona made it up, so readers never see it.
+export const NOT_MATCHED = "not matched to a source";
+export const GROUNDED_DETAIL = "repeats a persona fact, and the quote contains its source passage";
+export const LABEL_LEGEND = `“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “${NOT_MATCHED}” means the code did not find that match, not that the sources disagree.`;
+
+export function labelText(label: Label): string {
+  return label === "grounded" ? "grounded" : NOT_MATCHED;
+}
 
 // Escape report text so headings, links, HTML and list markers remain literal content.
 function textLines(value: string): string[] {
@@ -37,8 +47,8 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
     "Simulated AI persona: hypotheses, not customer evidence.",
     "",
     sample
-      ? 'Quotes are from the sample script, not from an interview. If the persona uses the prefilled example sources, they contain the same script, so "grounded" proves nothing here. Neither label is validated customer evidence.'
-      : 'Quotes are from the simulated interview, never from a real customer. "grounded" means the statement repeats a persona fact that cites a passage in the sources, and nothing checks that passage or the quote against that fact; "guess" means it was not matched to a source. Neither is validated customer evidence.',
+      ? `Quotes are from the sample script, not from an interview. ${LABEL_LEGEND} If the persona uses the prefilled example sources, they contain the same script, so “grounded” proves nothing here. Neither label is validated customer evidence.`
+      : `Quotes are from the simulated interview. ${LABEL_LEGEND} Neither is validated customer evidence.`,
   ];
 
   for (const [index, question] of report.questions.entries()) {
@@ -46,9 +56,9 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
       `Signal: ${question.signal}`, "", "### Insights", "");
     if (question.insights.length === 0) lines.push("No insights recorded.", "");
     for (const insight of question.insights) {
-      lines.push(`- **[${insight.label}]** ${textLines(insight.theme).join("  \n  ")}`, "",
+      lines.push(`- **[${labelText(insight.label)}]** ${textLines(insight.theme).join("  \n  ")}`, "",
         ...textLines(insight.quote).map((line) => `  > ${line}${line ? "  " : ""}`), "",
-        `  ${sample ? "Sample script turn" : "AI persona quote · interview turn"} ${insight.turnSeq} · ${insight.label === "grounded" ? "statement repeats a persona fact that cites a source passage, quote not compared to it" : "not matched to a source"}`, "");
+        `  ${sample ? "Sample script turn" : "Interview turn"} ${insight.turnSeq}${insight.label === "grounded" ? ` · ${GROUNDED_DETAIL}` : ""}`, "");
     }
     lines.push("### Follow-up questions for real customers", "");
     if (!question.followUps?.length) lines.push("No follow-up questions recorded.");

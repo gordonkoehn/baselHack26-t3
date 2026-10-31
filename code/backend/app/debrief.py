@@ -52,40 +52,25 @@ def validate_inputs(session: Session, events: list[SessionEvent]) -> dict[int, s
     return turns
 
 
-def _comparable(text: str) -> str:
-    # Only differences that can't change the meaning: a symbol like "¬" or "-5" still counts.
-    return " ".join(text.casefold().split()).rstrip(".!,;")
-
-
 def _source_label(insight: Insight, persona: Persona) -> Insight:
-    # Grounded means the theme IS a fact that cites the sources, so the label only ever sits on that
-    # fact's text. Whether the passage supports the fact is the extraction model's word, not checked.
-    # Comparing a reworded theme can't work: word overlap sees neither negation nor which fact is
-    # meant, and facts on one evidence id share vocabulary. A miss only costs a guess label.
-    # The quote is the persona's synthetic speech, so it may reword the source and is never
-    # evidence of real-customer validation; _place_quote verifies it against the saved turns.
+    # Narrow source policy: exact restatement + the fact's own source quote only. A synthetic
+    # quote matching a turn is a separate check, never evidence of real-customer validation.
     evidence = [e for e in persona.evidence if e.id == insight.evidence_id]
-    theme = _comparable(insight.theme)
-    fact = next(
-        (
-            f
-            for f in persona.jobs + persona.pains + persona.objections
-            if f.label == "grounded"
-            and f.evidence_id == insight.evidence_id
-            and _comparable(f.text) == theme
-        ),
-        None,
-    )
     if (
         insight.label == "grounded"
         and insight.evidence_id is not None
         and len(evidence) == 1
         and evidence[0].quote is not None
         and evidence[0].quote.strip()
-        and theme
-        and fact is not None
+        and evidence[0].quote in insight.quote
+        and any(
+            fact.label == "grounded"
+            and fact.text == insight.theme
+            and fact.evidence_id == insight.evidence_id
+            for fact in persona.jobs + persona.pains + persona.objections
+        )
     ):
-        return insight.model_copy(update={"theme": fact.text})
+        return insight
     return insight.model_copy(update={"label": "guess", "evidence_id": None})
 
 

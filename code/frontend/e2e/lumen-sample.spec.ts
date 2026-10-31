@@ -119,7 +119,9 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const debrief = page.getByTestId("debrief");
   await expect(debrief.getByTestId("sample-label")).toContainText(sampleLabel);
   await expect(debrief.getByTestId("sample-label")).toContainText(`${personaName} did not say these lines`);
-  await expect(debrief).toContainText("Sample script · turn 4 · not backed by the sources");
+  await expect(debrief).toContainText("Sample script · turn 4");
+  await expect(debrief).toContainText("not matched to a source");
+  await expect(debrief).not.toContainText("guess");
   await expect(debrief).toContainText(answers[1]);
   const room = page.getByTestId("interview-room");
   await expect(room).toContainText("No live call took place and nobody was interviewed.");
@@ -171,14 +173,18 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   await page.goto(link!);
   await expect(page.getByTestId("sample-label")).toContainText(sampleLabel);
   await expect(debrief).toContainText(answers[2]);
-  await expect(debrief).toContainText("Sample script · turn 6 · not backed by the sources");
+  await expect(debrief).toContainText("Sample script · turn 6");
+  await expect(debrief).toContainText("not matched to a source");
+  await expect(debrief).not.toContainText("guess");
   const downloadStarted = page.waitForEvent("download");
   await debrief.getByRole("button", { name: "Download .md", exact: true }).click();
   const markdown = await readFile(await (await downloadStarted).path(), "utf8");
   expect(markdown).toContain("SAMPLE INTERVIEW");
   expect(markdown).toContain("Nobody was interviewed.");
   expect(markdown).toContain("Neither label is validated customer evidence.");
-  expect(markdown).toContain("Sample script turn 6 · not backed by the persona's sources");
+  expect(markdown).toContain("Sample script turn 6\n");
+  expect(markdown).toContain("**[not matched to a source]**");
+  expect(markdown).not.toContain("guess");
   expect(markdown).toContain("Savings against list price are not an independent comparison of alternatives");
   expect(markdown).not.toContain("Kilo");
   expect(apiRequests).toEqual(expect.arrayContaining([

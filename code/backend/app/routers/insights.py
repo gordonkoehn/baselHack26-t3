@@ -49,10 +49,6 @@ def create_debrief(session_id: str, store: StoreDep, debriefer: DebrieferDep) ->
     try:
         debrief.validate_inputs(session, events)
         draft = debriefer(session, persona, events)
-        # A fact removed or corrected on the card during generation must not come back grounded.
-        persona = store.get_persona(session.persona_id)
-        if persona is None:
-            raise HTTPException(404, "persona not found")
         report = debrief.build_report(session, persona, events, draft)
     except debrief.TranscriptIncomplete:
         raise HTTPException(409, "transcript is not finalized") from None

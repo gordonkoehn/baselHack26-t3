@@ -85,11 +85,21 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("## Question 1");
     expect(markdown).toContain("Signal: contradicts");
     expect(markdown).toContain("- **[grounded]** Backed");
-    expect(markdown).toContain("AI persona quote · interview turn 2 · statement repeats a persona fact that cites a source passage, quote not compared to it");
-    expect(markdown).toContain("- **[guess]** Unbacked");
-    expect(markdown).toContain("AI persona quote · interview turn 5 · not matched to a source");
-    expect(markdown).not.toContain("backed by");
+    expect(markdown).toContain("Interview turn 2 · repeats a persona fact, and the quote contains its source passage");
+    expect(markdown).toContain("- **[not matched to a source]** Unbacked\n\n  > Ich gebe alles.  \n\n  Interview turn 5\n");
+    expect(markdown).not.toMatch(/guess|backed by|also in the/i);
     expect(markdown).toContain("- Ask them why");
+  });
+
+  it("explains both labels the same way in a real and a sample export", () => {
+    const real = formatReportMarkdown(report(), "Anna");
+    const sample = formatReportMarkdown(report(), "Anna", true);
+
+    expect(real).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(sample).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(sample).toContain("so “grounded” proves nothing here.");
+    expect(real).not.toMatch(/guess/i);
+    expect(sample).not.toMatch(/guess/i);
   });
 
   it("says when a question has no insights or follow-ups", () => {
@@ -106,7 +116,7 @@ describe("formatReportMarkdown", () => {
     );
 
     expect(markdown).toContain("\\# \\[x\\]\\(http://evil\\) \\<b\\>&amp;");
-    expect(markdown).toContain("- **[guess]** 1\\. item");
+    expect(markdown).toContain("- **[not matched to a source]** 1\\. item");
   });
 
   it("keeps every line of a multi-line quote inside the blockquote", () => {
