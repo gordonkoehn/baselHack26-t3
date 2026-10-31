@@ -168,6 +168,21 @@ describe("TranscriptWork.unrecordedTurns", () => {
     work.done("answer");
     expect(work.unrecordedTurns).toBe(false);
   });
+
+  // That input was in the model's context when it answered, and blank can't tell noise from lost
+  // speech. Blaming only the latest input would let a real lost question look complete.
+  it("warns when blank speech that got no reply of its own is followed by an answer", () => {
+    const work = new TranscriptWork();
+    work.commit("noise");
+    work.transcribed("noise");
+    work.blank("noise");
+    work.commit("real");
+    work.transcribed("real");
+    work.created("answer");
+    work.spoke("answer");
+    work.done("answer");
+    expect(work.unrecordedTurns).toBe(true);
+  });
 });
 
 describe("drainDescription", () => {

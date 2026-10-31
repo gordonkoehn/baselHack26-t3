@@ -17,7 +17,7 @@ type WireEvent = {
 type SentEvent = {
   type: string;
   event_id?: string;
-  item?: { content: { type: string; text?: string }[] };
+  item?: { id?: string; content: { type: string; text?: string }[] };
 };
 
 declare global {
@@ -133,6 +133,7 @@ export async function installRealtime(page: Page, { camera = "denied" }: { camer
       },
     });
     Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", {
+      configurable: true, // A test that shares its screen replaces this.
       value: () => Promise.reject(new Error("Screen capture is outside this test")),
     });
   }, { keepMicrophoneLive: process.env.E2E_KEEP_MIC_LIVE === "1", camera });

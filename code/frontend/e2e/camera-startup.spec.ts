@@ -36,6 +36,40 @@ test("voice goes live while the camera prompt is still open; a later grant shows
   expect(await cameraStates(page)).toEqual(["live"]);
 });
 
+// An error with no event_id counts as a possible lost turn, so a rejected image must not look like one.
+test("every request on the data channel carries an id: camera image, its removal, screen image and the note when sharing stops", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", { value: async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 48;
+      canvas.getContext("2d")!.fillRect(0, 0, 64, 48);
+      return canvas.captureStream(1);
+    } });
+  });
+  await openInterview(page);
+  await page.getByRole("button", { name: "Start video interview" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Live, speak now")).toBeVisible();
+  const sent = () => page.evaluate(() => window.e2eRealtime.sent);
+  const itemIds = async () => (await sent()).flatMap((event) => event.type === "conversation.item.create" && event.item?.id ? [event.item.id] : []);
+
+  await page.evaluate(() => window.e2eRealtime.grantCamera());
+  await expect.poll(async () => (await itemIds()).some((id) => id.startsWith("cam_")), { timeout: 15_000 }).toBe(true);
+  await dialog.getByRole("button", { name: "Share screen", exact: true }).click();
+  await expect.poll(async () => (await sent()).some((event) => event.type === "conversation.item.delete"), { timeout: 15_000 }).toBe(true);
+  const [camera] = await itemIds();
+  await emit(page, { type: "conversation.item.deleted", item_id: camera });
+  await expect.poll(async () => (await itemIds()).some((id) => id.startsWith("screen_")), { timeout: 15_000 }).toBe(true);
+  await dialog.getByRole("button", { name: "Stop sharing", exact: true }).click();
+  await expect.poll(async () => (await sent()).filter((event) => event.type === "conversation.item.delete").length).toBe(2);
+  await expect.poll(async () => JSON.stringify(await sent())).toContain("Screen sharing stopped");
+
+  const events = await sent();
+  expect(events.filter((event) => !event.event_id)).toEqual([]);
+  expect(events.some((event) => String(event.event_id).startsWith("q:"))).toBe(false);
+});
+
 test("a camera granted after Cancel is stopped at once", async ({ page }) => {
   await openInterview(page);
   // The call setup is never answered, so the call stays connecting.

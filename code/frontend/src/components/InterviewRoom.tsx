@@ -208,6 +208,7 @@ export function InterviewRoom({
         dc.send(
           JSON.stringify({
             type: "conversation.item.create",
+            event_id: `frame_${itemId}`,
             item: {
               id: itemId,
               type: "message",
@@ -310,11 +311,12 @@ export function InterviewRoom({
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {
         cameraItem.current = null;
-        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous }));
+        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous, event_id: `frame_delete_${previous}` }));
       }
       dc.send(
         JSON.stringify({
           type: "conversation.item.create",
+          event_id: "screen_stopped",
           item: {
             type: "message",
             role: "user",
@@ -425,6 +427,9 @@ export function InterviewRoom({
         // A rejected response.create (e.g. one is already running) will never get a response:
         // release its reservation so "End" doesn't wait for an answer that can't come.
         if (e.error?.event_id?.startsWith("a:")) pending.current.delete(e.error.event_id);
+        // Every request we send has an id. A rejected question, or an error tied to no request, may
+        // have cost a turn; the rest (images, the commit at End) can't.
+        if (!e.error?.event_id || e.error.event_id.startsWith("q:")) lost.current = true;
         setError(e.error?.message ?? "Realtime error");
         break;
       }
@@ -610,7 +615,7 @@ export function InterviewRoom({
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
       dc.onmessage = (m) => current() && onEvent(JSON.parse(m.data));
-      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g));
+      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g), () => { lost.current = true; });
       if (!current()) return;
 
       const offer = await conn.createOffer();
@@ -733,9 +738,9 @@ export function InterviewRoom({
   function askWith(content: object[]): boolean {
     const dc = channel.current;
     if (finalizing.current || !dc || dc.readyState !== "open") return false;
-    dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     const ask = `a:${++asks.current}`;
+    dc.send(JSON.stringify({ type: "conversation.item.create", event_id: `q:${asks.current}`, item: { type: "message", role: "user", content } }));
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
@@ -751,8 +756,8 @@ export function InterviewRoom({
     setTyped("");
   }
 
-  // Words said into a bad connection leave no event, and "disconnected" only counts as lost after
-  // its grace, so End can come first. A browser that doesn't report a state can't show anything.
+  // Words said into a bad connection leave no event, so watchConnection marks any disconnect. This
+  // covers a state read before its event arrives. A browser that doesn't report a state can't show anything.
   function markBadConnection() {
     const state = pc.current?.connectionState;
     if (state && state !== "connected") lost.current = true;

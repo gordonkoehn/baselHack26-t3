@@ -31,6 +31,9 @@ async function start(page: Page, waitForLive = true, beforeStart?: () => Promise
   return (await response).json() as Promise<Session>;
 }
 
+// The room also has a "Call diagnostics" details once the call has metrics.
+const transcriptSummary = (page: Page) => page.getByTestId("interview-room").locator("details summary").filter({ hasText: "Transcript (" });
+
 async function stored(request: APIRequestContext, session: Session): Promise<SessionEvent[]> {
   const response = await request.get(`/api/sessions/${session.id}/events`);
   expect(response.ok()).toBeTruthy();
@@ -63,7 +66,7 @@ async function expectGaps(page: Page, request: APIRequestContext, session: Sessi
   expect(events.filter((event) => event.type === "session.ended")).toHaveLength(1);
   expect(events.at(-1)).toMatchObject({ type: "session.ended", data: { transcriptGaps: true } });
   expect(await (await request.get(`/api/sessions/${session.id}`)).json()).toMatchObject({ status: "ended" });
-  if (events.some((event) => event.type === "utterance")) await expect(page.getByTestId("interview-room").locator("details summary")).toContainText(", has gaps");
+  if (events.some((event) => event.type === "utterance")) await expect(transcriptSummary(page)).toContainText(", has gaps");
   const spoke = events.some((event) => event.type === "utterance" && event.data.speaker === "persona" && event.data.text !== "(interrupted)");
   if (spoke) await expect(page.getByTestId("debrief").getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
   else await expectNothingToDebrief(page);
@@ -162,7 +165,7 @@ async function expectCompleteWithDebrief(page: Page, request: APIRequestContext,
   await expect(page.getByText(complete, { exact: true })).toBeVisible();
   await expect(page.getByTestId("debrief").locator("blockquote")).toHaveCount(1);
   await expect(page.getByTestId("transcript-gaps")).toHaveCount(0);
-  await expect(page.getByTestId("interview-room").locator("details summary")).not.toContainText("gaps");
+  await expect(transcriptSummary(page)).toHaveText(/^Transcript \(\d+ turns\)$/);
   const events = await stored(request, session);
   expect(events.at(-1)).toMatchObject({ type: "session.ended" });
   expect(events.at(-1)?.data).not.toHaveProperty("transcriptGaps");
@@ -244,12 +247,52 @@ test("a connection going bad during the drain is marked as gaps, even if closing
   await expectGaps(page, request, session);
 });
 
-test("a disconnect that recovers before End stays complete", async ({ page, request }) => {
+test("a freeze just under the grace that recovers before End is marked as gaps: words said into it leave no event", async ({ page, request }) => {
   const session = await start(page);
   await answerStillPlaying(page);
   await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
   await page.evaluate(() => window.e2eRealtime.connection("disconnected"));
+  await page.clock.runFor(4_900);
   await page.evaluate(() => window.e2eRealtime.connection("connected"));
+  await page.clock.runFor(2_000);
+  await expect(page.getByTestId("connection-lost")).toHaveCount(0);
+  await end(page);
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("a provider error tied to no request is marked as gaps: it may have cost a turn", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await emit(page, { type: "error", error: { message: "The server had an error" } });
+  await end(page);
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("a rejected typed question is marked as gaps, even if the persona still answers", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await page.getByLabel("Type a question").fill("A question the provider rejects");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  const eventId = await page.evaluate(() => window.e2eRealtime.sent.findLast((event) => event.type === "conversation.item.create")?.event_id);
+  expect(eventId).toBeDefined();
+  await emit(page, { type: "error", error: { event_id: eventId, message: "Invalid item" } });
+  await emit(page, { type: "response.done", response: { id: "unrelated-answer", status: "completed", output: [
+    { id: "unrelated-item", content: [{ type: "output_audio", transcript: exampleReport.questions[1].insights[0].quote }] },
+  ] } });
+  await end(page);
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("a rejected image is not a gap: no turn depended on it", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await emit(page, { type: "error", error: { event_id: "frame_cam_1_1", message: "Image too large" } });
   await end(page);
   await settle(page);
   await expectCompleteWithDebrief(page, request, session);
