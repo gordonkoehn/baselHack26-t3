@@ -100,10 +100,14 @@ describe("frame bounds", () => {
   });
 
   it("uses a 60 KiB budget by default", async () => {
-    jpegLength = (width) => (width > 640 ? 60 * 1024 : 100);
+    const budget = 60 * 1024 - PREFIX.length;
 
+    jpegLength = () => budget;
+    await expect(captureFrame(fakeStream().stream)).resolves.toHaveLength(60 * 1024);
+    expect(lastDrawnSize()).toEqual([1280, 720]);
+
+    jpegLength = (width) => (width > 640 ? budget + 1 : 100);
     await captureFrame(fakeStream().stream);
-
     expect(lastDrawnSize()).toEqual([640, 360]);
   });
 

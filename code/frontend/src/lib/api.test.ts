@@ -97,18 +97,34 @@ describe("proxy paths", () => {
 });
 
 describe("request deadline", () => {
-  it("gives up on a saved-transcript request whose answer never arrives, and aborts it", async () => {
+  const requests: [string, (api: Api) => Promise<unknown>, number][] = [
+    ["a saved-transcript request", (a) => a.postEvents(ID, []), 4_000],
+    ["a final session update", (a) => a.updateSession(ID, { status: "ended" }), 4_000],
+    ["a startup session update, which may wait on a cold backend", (a) => a.updateSession(ID, { status: "live" }), 15_000],
+  ];
+
+  it.each(requests)("gives up on %s whose answer never arrives, and aborts it", async (_name, call, deadlineMs) => {
     vi.useFakeTimers();
     try {
       const fetchMock = vi.fn<(path: string, init?: RequestInit) => Promise<Response>>(() => new Promise(() => {}));
       vi.stubGlobal("fetch", fetchMock);
       const { api, RequestDeadlineError } = await load();
+      let settled = false;
 
-      const result = api.postEvents(ID, []).catch((e: unknown) => e);
-      await vi.advanceTimersByTimeAsync(4_000);
+      const result = call(api)
+        .catch((e: unknown) => e)
+        .finally(() => {
+          settled = true;
+        });
+      const signal = fetchMock.mock.calls[0][1]?.signal;
 
+      await vi.advanceTimersByTimeAsync(deadlineMs - 1);
+      expect(settled).toBe(false);
+      expect(signal?.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
       expect(await result).toBeInstanceOf(RequestDeadlineError);
-      expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+      expect(signal?.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }
