@@ -174,3 +174,20 @@ test("failed last transcription cannot claim a complete transcript or show debri
   // This is only a negative read of the real debrief gate; no events are manufactured via HTTP.
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
 });
+
+test("mute silences the microphone without ending the call; typing still works", async ({ page }) => {
+  await startInterview(page);
+  expect(await page.evaluate(() => window.e2eRealtime.audioConstraints)).toEqual([
+    { echoCancellation: true, noiseSuppression: true },
+  ]);
+  const enabled = () => page.evaluate(() => window.e2eRealtime.microphones.map((track) => track.enabled));
+  await page.getByRole("button", { name: "Mute mic", exact: true }).click();
+  expect(await enabled()).toEqual([false]);
+  await expect(page.getByRole("button", { name: "Unmute mic", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("Type a question").fill(typedQuestion);
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await answer(page, "answer-1", answers[0]);
+  await page.getByRole("button", { name: "Unmute mic", exact: true }).click();
+  expect(await enabled()).toEqual([true]);
+  expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
+});
