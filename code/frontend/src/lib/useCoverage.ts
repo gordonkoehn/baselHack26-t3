@@ -54,6 +54,11 @@ export function sameTest(report: CoverageReport, goal: string, criteria: string[
   return report.testGoal.trim() === goal.trim() && own.size === checked.length && checked.every((c) => own.has(c));
 }
 
+/** Web and API deploy separately, so a report can come from an older API without the levels. */
+export function hasLevels(report: CoverageReport | null): report is CoverageReport {
+  return Array.isArray(report?.categories);
+}
+
 export type Coverage = ReturnType<typeof useCoverage>;
 
 /** The one coverage check of a persona, shared by the score screen and the detail on Add more. */
@@ -74,7 +79,7 @@ export function useCoverage({
 }) {
   const [goal, setGoal] = useState(SAMPLE_GOAL);
   const [criteria, setCriteria] = useState<string[]>([]);
-  const [report, setReport] = useState<CoverageReport | null>(initial);
+  const [report, setReport] = useState<CoverageReport | null>(hasLevels(initial) ? initial : null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -90,6 +95,10 @@ export function useCoverage({
     setError(null);
     try {
       const next = await api.checkCoverage(persona.id, { testGoal: input.goal, criteria: input.criteria });
+      if (!hasLevels(next)) {
+        setError("The backend is older than this page, so it can't score yet. Try again after it deploys.");
+        return;
+      }
       setReport(next);
       onReport(next);
       setAnswers({});

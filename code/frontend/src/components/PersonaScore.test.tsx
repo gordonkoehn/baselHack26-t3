@@ -6,7 +6,7 @@ import examplePersona from "../../../shared/examples/persona.json";
 import { ApiError, api } from "@/lib/api";
 import type { CoverageReport, Persona, PersonaSource } from "@/lib/contracts";
 import { QUARTIER_BOERSE } from "@/lib/sample";
-import { OPEN_GOAL, SAMPLE_GOAL, localDiversity, sameTest, startingInput, useCoverage, type Coverage } from "@/lib/useCoverage";
+import { OPEN_GOAL, SAMPLE_GOAL, hasLevels, localDiversity, sameTest, startingInput, useCoverage, type Coverage } from "@/lib/useCoverage";
 import { PersonaScore } from "./PersonaScore";
 
 const PERSONA = { ...examplePersona, id: "p_1", version: 1 } as unknown as Persona;
@@ -259,5 +259,15 @@ describe("useCoverage", () => {
     expect(localStorage.getItem("opentwin.coverage")).toBeNull();
     act(() => result.current.setGoal("My test"));
     expect(JSON.parse(localStorage.getItem("opentwin.coverage")!).goal).toBe("My test");
+  });
+});
+
+describe("hasLevels", () => {
+  it("rejects a report from an older API, so the screen can't crash on it", () => {
+    const { categories: _, ...older } = exampleReport;
+
+    expect(hasLevels(exampleReport as unknown as CoverageReport)).toBe(true);
+    expect(hasLevels(older as unknown as CoverageReport)).toBe(false);
+    expect(hasLevels(null)).toBe(false);
   });
 });
