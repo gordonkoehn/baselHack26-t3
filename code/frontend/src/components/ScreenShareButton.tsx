@@ -25,6 +25,7 @@ export function ScreenShareButton({
   pc: RefObject<RTCPeerConnection | null>;
   // InterviewRoom's send path: registers the expected answer so "End" waits for it.
   ask: (content: object[]) => boolean;
+  // Live preview lives in the call stage; the parent attaches it to a <video> and refreshes frames.
   onSharing?: (stream: MediaStream | null) => void;
 }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -140,5 +141,32 @@ export function ScreenShareButton({
       )}
       {note && <span className="text-xs text-muted">{note}</span>}
     </>
+  );
+}
+
+// Mirrors the capture stream into a video element for the call stage preview.
+export function ScreenSharePreview({ stream }: { stream: MediaStream }) {
+  const video = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    el.srcObject = stream;
+    void el.play().catch(() => {});
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream]);
+
+  return (
+    <video
+      ref={video}
+      autoPlay
+      muted
+      playsInline
+      aria-label="Shared screen preview"
+      data-testid="screen-share-preview"
+      className="aspect-video w-full rounded-lg bg-black object-contain"
+    />
   );
 }

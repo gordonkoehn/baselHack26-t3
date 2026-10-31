@@ -58,4 +58,5 @@ The debrief, the shared `/report/…` link and the Markdown export all say it is
 - [ ] Record the backup video and put it in `assets/`.
 - [ ] Prepare the Lumen persona and the saved report link on the deployed app.
 - [ ] Rehearse each fallback once on the deployed app: avatar off mid-call, saved report link, backup video.
+- [ ] Run the browser, mic, screen-share, sources, interview and debrief checklist in [qa-run.md](qa-run.md) on the deployed app (#75). Every Fail becomes its own bug issue.
 - [ ] Run the stage demo on the live link three times in a row, inside one minute (#158).

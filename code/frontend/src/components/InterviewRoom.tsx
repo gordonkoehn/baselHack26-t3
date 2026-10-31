@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
-import { ScreenShareButton, frameBudget } from "@/components/ScreenShareButton";
+import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
+import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
@@ -119,6 +120,7 @@ export function InterviewRoom({
   const cameraDelete = useRef<{ itemId: string; eventId: string; resolve: (removed: boolean) => void } | null>(null);
   const camView = useRef<HTMLVideoElement>(null);
   const [screenShare, setScreenShare] = useState<MediaStream | null>(null);
+  const screenShareRef = useRef<MediaStream | null>(null);
   // When the last screen image went out (in liveSeconds), or why it failed; shown while sharing.
   const [screenSentAt, setScreenSentAt] = useState<number | null>(null);
   const [screenNote, setScreenNote] = useState<string | null>(null);
@@ -295,6 +297,7 @@ export function InterviewRoom({
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    screenShareRef.current = null;
     setScreenShare(null);
     setMuted(false);
   }
@@ -302,11 +305,14 @@ export function InterviewRoom({
   // Sharing started or stopped. On stop, the last screen image leaves the context and the persona is
   // told, so it never describes an old screen as live. Text only: no response.create.
   function sharing(stream: MediaStream | null) {
+    const wasSharing = screenShareRef.current !== null;
+    screenShareRef.current = stream;
     setScreenShare(stream);
     setScreenSentAt(null);
     setScreenNote(null);
     const dc = channel.current;
-    if (stream || finalizing.current || dc?.readyState !== "open") return;
+    // Ignore null reports when nothing was shared (button mount/unmount must not pollute the call).
+    if (stream || !wasSharing || finalizing.current || dc?.readyState !== "open") return;
     try {
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {
@@ -1063,37 +1069,44 @@ export function InterviewRoom({
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,16rem)_1fr]">
+        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
           <div className="space-y-3">
-            {showAvatar && sessionId.current && voice && (
-              <Avatar
-                sessionId={sessionId.current}
-                track={voice}
-                onActive={(control) => {
-                  avatar.current = control;
-                  setAvatarOn(control !== null);
-                }}
+            {screenShare && (
+              <ZoomStage label="Shared screen">
+                <ScreenSharePreview stream={screenShare} />
+                {phase === "live" && (
+                  <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
+                    {screenNote ??
+                      (screenSentAt === null
+                        ? "Sending the first screen image to the persona…"
+                        : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+                  </p>
+                )}
+              </ZoomStage>
+            )}
+            <ZoomStage label="Video call">
+              {showAvatar && sessionId.current && voice && (
+                <Avatar
+                  sessionId={sessionId.current}
+                  track={voice}
+                  onActive={(control) => {
+                    avatar.current = control;
+                    setAvatarOn(control !== null);
+                  }}
+                />
+              )}
+              {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
+              {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+              <video
+                ref={camView}
+                autoPlay
+                muted
+                playsInline
+                aria-label="Your camera"
+                className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
               />
-            )}
-            {avatarOff && phase === "live" && <p className="text-xs text-muted">Avatar off, voice only.</p>}
-            {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
-            <video
-              ref={camView}
-              autoPlay
-              muted
-              playsInline
-              aria-label="Your camera"
-              className={`aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
-            />
-            {camNote && <p className="text-xs text-muted">{camNote}</p>}
-            {screenShare && phase === "live" && (
-              <p className="text-xs text-muted" data-testid="screen-status">
-                {screenNote ??
-                  (screenSentAt === null
-                    ? "Sending the first screen image to the persona…"
-                    : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
-              </p>
-            )}
+              {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+            </ZoomStage>
           </div>
           <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
             {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
