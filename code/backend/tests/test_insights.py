@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts import Persona, Session, SessionEvent
+from app.contracts import Fact, Persona, Session, SessionEvent
 from app.extract import DebriefDraft, ExtractionFailed, ProviderUnavailable
 from app.main import app
 from app.routers.insights import get_debriefer
@@ -99,6 +99,80 @@ def test_saved_report_is_reused_after_persona_expires(context, monkeypatch):
     persona_lookup.assert_not_called()
     context.provider.assert_called_once()
     context.save.assert_called_once()
+
+
+WRONG_FACT = "Collection point fee is too high for her household"
+
+
+def cite_wrong_fact(context: Context) -> DebriefDraft:
+    # The evidence and a grounded sibling on the same id both survive the correction (#94).
+    persona = context.store.get_persona("p_1")
+    persona.pains = [Fact(text=WRONG_FACT, label="grounded", evidence_id="e1")]
+    context.store.save_persona(persona)
+    draft = context.provider.return_value
+    draft.questions[0].insights[0].label = "grounded"
+    draft.questions[0].insights[0].theme = WRONG_FACT
+    draft.questions[0].insights[0].evidence_id = "e1"
+    return draft
+
+
+corrections = pytest.mark.parametrize(
+    "correction",
+    [
+        {"pains": []},
+        {"pains": [{"text": "Fee is fine for her", "label": "grounded", "evidenceId": "e1"}]},
+        {"pains": [{"text": WRONG_FACT, "label": "guess", "evidenceId": None}]},
+    ],
+    ids=["removed", "edited", "relabelled"],
+)
+
+
+@corrections
+def test_fact_corrected_on_the_card_cannot_come_back_as_grounded(context, correction):
+    cite_wrong_fact(context)
+    assert context.client.patch("/api/personas/p_1", json=correction).status_code == 200
+
+    assert context.client.post(DEBRIEF).status_code == 200
+    insight = context.client.get(INSIGHTS).json()["questions"][0]["insights"][0]
+    assert insight["label"] == "guess" and insight["evidenceId"] is None
+
+
+@corrections
+def test_fact_corrected_during_generation_cannot_come_back_as_grounded(context, correction):
+    draft = cite_wrong_fact(context)
+
+    def generate(*_args):
+        assert context.client.patch("/api/personas/p_1", json=correction).status_code == 200
+        return draft
+
+    context.provider.side_effect = generate
+    assert context.client.post(DEBRIEF).status_code == 200
+    insight = context.client.get(INSIGHTS).json()["questions"][0]["insights"][0]
+    assert insight["label"] == "guess" and insight["evidenceId"] is None
+
+
+def test_persona_gone_during_generation_is_404_and_not_cached(context):
+    draft = cite_wrong_fact(context)
+
+    def generate(*_args):
+        context.store.redis.data.pop("ot:persona:p_1")
+        return draft
+
+    context.provider.side_effect = generate
+    assert context.client.post(DEBRIEF).status_code == 404
+    context.save.assert_not_called()
+    assert context.store.get_report(SID) is None
+
+
+def test_citation_of_an_uncorrected_fact_is_saved_as_grounded(context):
+    draft = context.provider.return_value
+    draft.questions[0].insights[0].label = "grounded"
+    draft.questions[0].insights[0].theme = load("persona.json")["jobs"][0]["text"]
+    draft.questions[0].insights[0].evidence_id = "e1"
+
+    assert context.client.post(DEBRIEF).status_code == 200
+    insight = context.client.get(INSIGHTS).json()["questions"][0]["insights"][0]
+    assert insight["label"] == "grounded" and insight["evidenceId"] == "e1"
 
 
 @pytest.mark.parametrize("method,suffix", [("post", "debrief"), ("get", "insights")])

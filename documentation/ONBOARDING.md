@@ -4,7 +4,7 @@ Read this first, then `README.md` (how to run) and `CLAUDE.md` (rules for you an
 
 ## The product in one minute
 **Challenge:** live, interviewable AI test users for instant sprint validation (Sprintbox AI).
-**Our answer (OpenTwin):** a sprint team turns real interview material into an AI test user, interviews it live by voice with a talking face while sharing their prototype, and gets a debrief where every insight is labelled **grounded** (backed by a real quote) or **guess**.
+**Our answer (OpenTwin):** a sprint team turns real interview material into an AI test user, interviews it live by voice with a talking face while sharing their prototype, and gets a debrief where every insight is labelled **grounded** (repeats a persona fact that cites a source passage) or **guess**.
 
 Pitch line from the 30 Oct plan (on main the persona watches a shared screen; it does not click): "Simile predicts what a population will choose. We let a sprint team interrupt one test user mid-click, and we mark every answer the interviews can't back up as a guess."
 

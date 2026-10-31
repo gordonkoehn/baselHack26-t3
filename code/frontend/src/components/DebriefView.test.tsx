@@ -44,8 +44,8 @@ describe("DebriefView", () => {
     screen.getByText("Feels like marketing", { exact: false });
     screen.getByText("Ask real users next: Ask how they split without the badge.");
     const [backed, unbacked] = Array.from(container.querySelectorAll("blockquote"), (quote) => quote.textContent);
-    expect(backed).toBe("“Dann geb ich alles.”Anna · interview turn 3 · also in the sources");
-    expect(unbacked).toBe("“Klingt nach Werbung.”Anna · interview turn 5 · not backed by the sources");
+    expect(backed).toBe("“Dann geb ich alles.”Anna (AI persona) · interview turn 3 · statement repeats a persona fact that cites a source passage, quote not compared to it");
+    expect(unbacked).toBe("“Klingt nach Werbung.”Anna (AI persona) · interview turn 5 · not matched to a source");
     const labels = Array.from(container.querySelectorAll("li li > span"), (label) => label.textContent);
     expect(labels).toEqual(["grounded", "guess"]);
   });
@@ -65,6 +65,9 @@ describe("DebriefView", () => {
     const debrief = await screen.findByTestId("debrief");
 
     expect(debrief.textContent).toContain("Anna, an AI persona: hypotheses to check with real users, not findings.");
+    expect(debrief.textContent).toContain(
+      "“grounded” means the statement repeats a persona fact that cites a passage in the sources; nothing checks that passage or the AI persona's quote against that fact. “guess” means it was not matched to a source.",
+    );
   });
 
   it("renders an empty report without questions or errors", async () => {

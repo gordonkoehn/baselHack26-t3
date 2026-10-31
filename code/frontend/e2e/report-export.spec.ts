@@ -35,13 +35,14 @@ test("formatter: preserves synthetic evidence, multiline text and literal Markdo
   const markdown = formatReportMarkdown(report, personaName);
   expect(markdown).toContain("Persona: Äda \\[Ops\\] / Team\n\nDate (UTC): 2026-11-01");
   expect(markdown).toContain("Simulated AI persona: hypotheses, not customer evidence.");
-  expect(markdown).toContain('"grounded" means the persona\'s sources also support the statement; "guess" means they do not. Neither is validated customer evidence.');
+  expect(markdown).toContain('never from a real customer. "grounded" means the statement repeats a persona fact that cites a passage in the sources, and nothing checks that passage or the quote against that fact; "guess" means it was not matched to a source. Neither is validated customer evidence.');
   expect(markdown).toContain("Does \\*matching\\* help?  \nWhat about \\[fees\\]\\(https://example.invalid\\)?");
   expect(markdown).toContain("- **[grounded]** Trust \\[draft\\]  \n  \\# No validation");
   expect(markdown).toContain("  > I use \\*stars\\* and \\[brackets\\].  \n  > \\> Keep \\<this\\> &amp; that.  \n  > \n  > 1\\. Still my words.  ");
-  expect(markdown).toContain("Interview turn 2 · also in the persona's sources");
+  expect(markdown).toContain("AI persona quote · interview turn 2 · statement repeats a persona fact that cites a source passage, quote not compared to it");
   expect(markdown).toContain("- **[guess]** An assumption\n\n  > Maybe; this is a guess.");
-  expect(markdown).toContain("Interview turn 4 · not backed by the persona's sources");
+  expect(markdown).toContain("AI persona quote · interview turn 4 · not matched to a source");
+  expect(markdown).not.toContain("backed by");
   expect(markdown).toContain("- Ask about \\`cost\\`.  \n  \\- Without a leading question?\n- Where is the evidence?");
   expect(markdown.match(/^Signal: .+$/gm)).toEqual(["Signal: supports", "Signal: contradicts", "Signal: unclear"]);
   expect(markdown.match(/^### Follow-up questions for real customers$/gm)).toHaveLength(3);
