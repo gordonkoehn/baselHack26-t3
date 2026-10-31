@@ -60,7 +60,8 @@ test.beforeEach(async ({ page, context }) => {
     let failures: Set<(reason: string) => void> | undefined;
     Map.prototype.set = function (key, value) {
       if (key === "start" && value instanceof Set) handlers = value;
-      if (key === "startup_error" && value instanceof Set) failures = value;
+      // The first one is the transport's, with the SDK's retry on it; the app's own listener gets a later Set.
+      if (key === "startup_error" && value instanceof Set) failures ??= value;
       return set.call(this, key, value);
     };
     window.e2eSimliStart = () => handlers?.forEach((handler) => handler());
@@ -73,7 +74,7 @@ test.afterEach(() => { expect(unexpected).toEqual([]); });
 async function createPersona(page: Page) {
   await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(questions.join("\n"));
 }
@@ -126,10 +127,13 @@ test("turning the avatar off during the SDK's retry backoff closes the socket th
   await createPersona(page);
   await startCall(page);
   const dialog = page.getByRole("dialog");
+  const consoleLines: string[] = [];
+  page.on("console", (message) => consoleLines.push(message.text()));
   await page.evaluate(() => window.e2eRealtime.voice());
   await expect.poll(() => simliSockets.length).toBe(1);
 
   await page.evaluate(() => window.e2eSimliSocketFailed()); // The SDK now waits 1 to 1.2 s to retry.
+  await expect.poll(() => consoleLines).toContain("[avatar] attempt failed: Websocket Failed");
   await dialog.getByRole("button", { name: "Turn avatar off", exact: true }).click();
   await expect(dialog.getByText("Avatar off, voice only.")).toBeVisible();
   await expect.poll(() => simliSockets.length).toBe(2);

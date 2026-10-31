@@ -160,13 +160,12 @@ export default function HomePage() {
               Why OpenTwin
             </a>
           </nav>
-          {/* Full navigation: Next soft-nav to the client studio page can stall under cacheComponents. */}
-          <a
+          <Link
             href="/studio"
             className="rounded-md bg-accent px-4 py-2 text-sm font-bold text-surface hover:opacity-90"
           >
             Open the studio
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -187,12 +186,12 @@ export default function HomePage() {
                 prototype, and see which answers your sources back up and which are guesses.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
-                <a
+                <Link
                   href="/studio"
                   className="rounded-md bg-accent px-5 py-3 text-sm font-bold text-surface hover:opacity-90"
                 >
                   Start a test
-                </a>
+                </Link>
                 <a
                   href="#how"
                   className="rounded-md border border-room-muted/40 px-5 py-3 text-sm font-bold text-room-text hover:border-room-text"
@@ -294,12 +293,12 @@ export default function HomePage() {
               </h2>
               <p className="mt-2 opacity-90">Start with the Quartier-Börse example, or describe your own product.</p>
             </div>
-            <a
+            <Link
               href="/studio"
               className="rounded-md bg-surface px-5 py-3 text-sm font-bold text-accent hover:opacity-90"
             >
               Open the studio
-            </a>
+            </Link>
           </div>
         </section>
       </main>

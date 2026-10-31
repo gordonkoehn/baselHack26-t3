@@ -16,6 +16,7 @@ from pydantic import ConfigDict, ValidationError
 
 from app.contracts import (
     Attitudes,
+    CoverageCategoryName,
     CoverageRequest,
     CoverageStatus,
     Evidence,
@@ -27,6 +28,7 @@ from app.contracts import (
     PersonaAnswers,
     PersonaContext,
     PersonaCreate,
+    PersonaSource,
     Session,
     SessionEvent,
     SpeechStyle,
@@ -334,17 +336,34 @@ def extract_debrief(session: Session, persona: Persona, events: list[SessionEven
     return response.output_parsed
 
 
-# The default checklist; users add their own criteria per request.
-DEFAULT_CRITERIA = [
-    "Demographics and household",
-    "Job and daily routine",
-    "Digital literacy and tools used today",
-    "Goals related to what is tested",
-    "Pains in this area",
-    "Objections and trust in the tested solution",
-    "Attitude to price and value",
-    "Language and way of speaking",
-]
+# The default checklist by category, the one place that maps criteria to what the demo opens on.
+# Users add their own criteria per request; those belong to no category.
+CATEGORY_CRITERIA: dict[CoverageCategoryName, list[str]] = {
+    "persona": [
+        "Demographics and household",
+        "Job and daily routine",
+        "Digital literacy and tools used today",
+        "Goals related to what is tested",
+        "Objections and trust in the tested solution",
+        "Attitude to price and value",
+        "Language and way of speaking",
+    ],
+    "challenge": [
+        "Pains in this area",
+        "Current process steps",
+        "Who is involved and who decides",
+        "What happens today when it goes wrong",
+    ],
+    "solution": [
+        "What the solution is",
+        "What the user sees and does",
+        "Key claims or figures",
+        "What we want to learn",
+    ],
+}
+DEFAULT_CRITERIA = [name for names in CATEGORY_CRITERIA.values() for name in names]
+# The persona needn't have absorbed these: a passage of a source is enough to know them.
+SOURCE_CRITERIA = CATEGORY_CRITERIA["challenge"] + CATEGORY_CRITERIA["solution"]
 
 
 class CoverageDraftCriterion(Model):
@@ -373,6 +392,11 @@ For EVERY criterion in `criteria`, in the same order, copying its name exactly, 
   one of those quotes that show it (verbatim, contiguous, no edits). A quote about another topic
   does not cover a criterion. "guessed" if the persona only has guesses or an invented backstory
   for it; "missing" if the persona says nothing about it. support is empty unless covered.
+  Criteria listed in `sourceCriteria` are about the problem and the tested solution, not the
+  person: they may also be covered by a passage of a source that is about THIS criterion. Then list
+  that source's id in evidenceIds and copy into support at least 6 consecutive words of it. In the
+  "Answers to gap questions" source only the answers (A:) count, never the questions (Q:). The
+  testGoal alone covers nothing.
 - weight: how much THIS test (testGoal) depends on the criterion: 3 = the test result is
   meaningless without it, 2 = it matters, 1 = nice to have.
 - note: one short sentence saying what is known or what is missing.
@@ -384,7 +408,10 @@ Write notes and questions in {language_name}.
 
 
 def check_coverage(
-    persona: Persona, request: CoverageRequest, criteria: list[str]
+    persona: Persona,
+    request: CoverageRequest,
+    criteria: list[str],
+    sources: list[PersonaSource],
 ) -> CoverageDraft:
     with _provider_errors(), provider_call("openai", "check_coverage"):
         response = _client().responses.parse(
@@ -394,7 +421,12 @@ def check_coverage(
                 {
                     "testGoal": request.test_goal,
                     "criteria": criteria,
+                    "sourceCriteria": SOURCE_CRITERIA,
                     "persona": persona.model_dump(mode="json", by_alias=True),
+                    "sources": [
+                        {"id": f"source:{i}", "kind": s.kind, "title": s.title, "text": s.text}
+                        for i, s in enumerate(sources, start=1)
+                    ],
                 },
                 ensure_ascii=False,
             ),

@@ -8,8 +8,10 @@ const guideLabel = "Interview questions, one per line (the debrief answers these
 async function openGuide(page: Page) {
   await page.goto("/studio");
   await expect(page.getByLabel("Source 2 text")).toContainText("SYNTHETIC INTERVIEW");
+  // The page defaults to English; pick the example persona's language so the review must carry it.
+  await page.getByLabel("Conversation language").selectOption(persona.language);
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   return page.getByLabel(guideLabel);
 }

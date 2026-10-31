@@ -34,12 +34,14 @@ export function ProductBrief({
   guide,
   onGuide,
   onNext,
+  nextLabel = "Next: add sources",
 }: {
   product: Product;
   onProduct: (product: Product) => void;
   guide: string;
   onGuide: (guide: string) => void;
   onNext: () => void;
+  nextLabel?: string;
 }) {
   const questions = guideLines(guide);
   const ready = productForSession(product) !== null && questions.length > 0;
@@ -117,7 +119,7 @@ export function ProductBrief({
           disabled={!ready}
           className="rounded-md bg-accent px-4 py-2 text-sm font-bold text-surface hover:opacity-90 disabled:opacity-40"
         >
-          Next: add sources
+          {nextLabel}
         </button>
         <p className="text-sm text-muted" role="status">
           {ready

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "@/lib/api";
 import { errorMessage } from "@/lib/errorMessage";
 import type {
@@ -23,7 +23,19 @@ import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/Identi
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
 import { ProductBrief } from "@/components/ProductBrief";
-import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, QUARTIER_BOERSE_PRODUCT, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import { PersonaScore } from "@/components/PersonaScore";
+import {
+  LUMEN_GUIDE,
+  LUMEN_PRODUCT,
+  LUMEN_PERSONAS,
+  QUARTIER_BOERSE,
+  QUARTIER_BOERSE_GUIDE,
+  QUARTIER_BOERSE_PRODUCT,
+  SAMPLE_TRANSCRIPT,
+  TEAM_TWIN,
+  isMiriamKessler,
+} from "@/lib/sample";
+import { useCoverage } from "@/lib/useCoverage";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
 // Files the browser can read as plain text without any extra library; PDFs and images go through
@@ -32,9 +44,51 @@ const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
 const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
+// Once a Lumen persona has been built, the library shows the Lumen case: built ones open, the rest
+// are listed as examples.
+function library(recent: PersonaSummary[]) {
+  const built = LUMEN_PERSONAS.map((l) => recent.find((p) => p.name.includes(l.surname))).filter(
+    (p): p is PersonaSummary => p !== undefined,
+  );
+  if (built.length === 0) return { personas: recent, examples: [] };
+  return {
+    personas: built,
+    examples: LUMEN_PERSONAS.filter((l) => !built.some((p) => p.name.includes(l.surname))),
+  };
+}
+
 type Draft = PersonaSource & { id: number };
 // seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
-type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
+// A saved persona gets its own brief, never another persona's sample questions or product.
+type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null; brief: Brief };
+
+const EXAMPLE_GUIDE = QUARTIER_BOERSE_GUIDE.join("\n");
+
+// The sample ships with its own questions. Any other material starts with an empty guide,
+// so the debrief cannot answer a sprint the sources never mentioned.
+function guideFor(sources: { text: string }[]): string {
+  const example =
+    sources.length === 2 && sources[0]?.text === QUARTIER_BOERSE && sources[1]?.text === SAMPLE_TRANSCRIPT;
+  return example ? EXAMPLE_GUIDE : "";
+}
+
+// The Lumen demo twin starts with the short Lumen guide, built or picked from the library.
+const guideForPersona = (persona: Persona, fallback: string) =>
+  isMiriamKessler(persona.name) ? LUMEN_GUIDE.join("\n") : fallback;
+
+type Brief = { product: Product; guide: string };
+const EMPTY_PRODUCT: Product = { name: "", description: "", prototypeUrl: null };
+
+function briefForSources(sources: PersonaSource[]): Brief {
+  const guide = guideFor(sources);
+  return { product: guide ? QUARTIER_BOERSE_PRODUCT : EMPTY_PRODUCT, guide };
+}
+
+function briefForPersona(persona: Persona, fallback: Brief): Brief {
+  return isMiriamKessler(persona.name)
+    ? { product: LUMEN_PRODUCT, guide: guideForPersona(persona, fallback.guide) }
+    : fallback;
+}
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -48,6 +102,8 @@ const SAMPLES = (): Draft[] => [
   draft("note", "Interview guide Quartier-Börse", QUARTIER_BOERSE),
   draft("transcript", "Interview transcript (synthetic)", SAMPLE_TRANSCRIPT),
 ];
+
+const TEAM_SAMPLES = (): Draft[] => TEAM_TWIN.map((source) => draft(source.kind, source.title, source.text));
 
 // Draw the image on white: the vision model reads text on a transparent PNG as black on black.
 // Also shrink to 2048 px (the model downsizes anyway), so phone photos stay far below 10 MB.
@@ -66,14 +122,13 @@ async function onWhite(file: File): Promise<Blob> {
   );
 }
 
-type Brief = { product: Product; guide: string };
-// Prefilled with the demo case, like the sources; the team overwrites it with their own product.
-const DEFAULT_BRIEF: Brief = { product: QUARTIER_BOERSE_PRODUCT, guide: QUARTIER_BOERSE_GUIDE.join("\n") };
-
 export default function Home() {
   const [drafts, setDrafts] = useState<Draft[]>(SAMPLES);
-  const [brief, setBrief] = useState<Brief>(DEFAULT_BRIEF);
-  const [language, setLanguage] = useState<Language>("de");
+  // Explicit draft edits belong to the sources being built. Selected personas keep their own brief.
+  const [draftBrief, setDraftBrief] = useState<Partial<Brief>>({});
+  const [editingDraft, setEditingDraft] = useState(true);
+  const [personaBriefs, setPersonaBriefs] = useState(() => new Map<string, Brief>());
+  const [language, setLanguage] = useState<Language>("en");
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +147,23 @@ export default function Home() {
   const busy = loading || reading || opening;
   const personaId = result?.persona.id;
   const picked = result?.seconds === null;
+  const sourceBrief = { ...briefForSources(filled), ...draftBrief };
+  const brief = editingDraft || !result ? sourceBrief : result.brief;
+
+  function updateBrief(patch: Partial<Brief>) {
+    if (editingDraft || !result) setDraftBrief((current) => ({ ...current, ...patch }));
+    else {
+      const next = { ...result.brief, ...patch };
+      setPersonaBriefs((current) => new Map(current).set(result.persona.id, next));
+      setResult({ ...result, brief: next });
+    }
+  }
+
+  function navigate(next: Tab) {
+    if (next === "sources") setEditingDraft(true);
+    else if (next !== "product") setEditingDraft(false);
+    setTab(next);
+  }
 
   // Tick a visible timer while the persona is being built: the demo claims "ready in minutes".
   useEffect(() => {
@@ -156,8 +228,16 @@ export default function Home() {
     setError(null);
     try {
       const persona = await api.createPersona({ language, sources });
-      setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000 });
-      setTab("persona");
+      const createdBrief = { ...briefForPersona(persona, briefForSources(sources)), ...draftBrief };
+      setPersonaBriefs((current) => new Map(current).set(persona.id, createdBrief));
+      setResult({
+        persona,
+        sources,
+        seconds: (Date.now() - startedAt.current) / 1000,
+        brief: createdBrief,
+      });
+      setEditingDraft(false);
+      setTab("score");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -179,8 +259,12 @@ export default function Home() {
     setOpening(true);
     setError(null);
     try {
-      setResult({ persona: await api.getPersona(id), sources: [], seconds: null });
-      setTab("persona");
+      const persona = await api.getPersona(id);
+      setResult({ persona, sources: [], seconds: null,
+        brief: personaBriefs.get(persona.id) ?? briefForPersona(persona, { product: EMPTY_PRODUCT, guide: "" }),
+      });
+      setEditingDraft(false);
+      setTab("score");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -192,7 +276,7 @@ export default function Home() {
     <>
     <WorkspaceBar
       tab={tab}
-      onTab={setTab}
+      onTab={navigate}
       persona={result?.persona ?? null}
       coverage={current}
       verdict={currentVerdict}
@@ -213,15 +297,15 @@ export default function Home() {
       <div hidden={tab !== "product"}>
         <ProductBrief
           product={brief.product}
-          onProduct={(product) => setBrief((b) => ({ ...b, product }))}
+          onProduct={(product) => updateBrief({ product })}
           guide={brief.guide}
-          onGuide={(guide) => setBrief((b) => ({ ...b, guide }))}
-          onNext={() => setTab("sources")}
+          onGuide={(guide) => updateBrief({ guide })}
+          nextLabel={editingDraft ? "Next: add sources" : "Back to the interview"}
+          onNext={() => navigate(editingDraft ? "sources" : "interview")}
         />
       </div>
-
       <div hidden={tab !== "sources"}>
-      <ProductLine product={brief.product} onEdit={() => setTab("product")} />
+      <ProductLine product={sourceBrief.product} onEdit={() => navigate("product")} />
       <header className="mb-10 pt-6">
         <Image src="/opentwin-logo.svg" alt="OpenTwin" width={140} height={32} className="mb-8 h-8 w-auto" priority />
         <h1 className="max-w-3xl text-5xl leading-[1.05] sm:text-6xl">
@@ -254,7 +338,7 @@ export default function Home() {
             Recent personas
           </h2>
           <ul className="mt-2 divide-y divide-line">
-            {recent.map((p) => (
+            {library(recent).personas.map((p) => (
               <li key={p.id}>
                 <button
                   type="button"
@@ -269,6 +353,13 @@ export default function Home() {
                     {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </span>
                 </button>
+              </li>
+            ))}
+            {library(recent).examples.map((l) => (
+              <li key={l.surname} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm text-muted">
+                <span className="font-medium text-foreground">{l.name}</span>
+                <span className="min-w-0 truncate">{l.role}</span>
+                <span className="ml-auto text-xs">example</span>
               </li>
             ))}
           </ul>
@@ -361,16 +452,26 @@ export default function Home() {
           <button
             type="button"
             className="ml-auto rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
-            onClick={() => setDrafts(SAMPLES())}
+            onClick={() => { setDrafts(SAMPLES()); setDraftBrief({}); }}
             disabled={busy}
           >
             Reset to example
           </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
+            onClick={() => { setDrafts(TEAM_SAMPLES()); setDraftBrief({}); }}
+            disabled={busy}
+          >
+            Team twin
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <label htmlFor="conversation-language" className="text-sm font-bold">Conversation language</label>
           <select
-            aria-label="Persona language"
+            id="conversation-language"
+            aria-describedby="conversation-language-help"
             className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
             value={language}
             onChange={(e) => setLanguage(e.target.value as Language)}
@@ -379,10 +480,13 @@ export default function Home() {
             <option value="de">Deutsch</option>
             <option value="en">English</option>
           </select>
+          <span id="conversation-language-help" className="text-sm text-muted">
+            The spoken interview language. Source quotes stay in their original language.
+          </span>
           <button
             type="button"
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-40"
-            onClick={create}
+            onClick={() => void create()}
             disabled={busy || filled.length === 0}
           >
             {loading ? "Building persona…" : result && !picked ? "Rebuild persona" : "Create persona"}
@@ -393,7 +497,7 @@ export default function Home() {
             <button
               type="button"
               className="ml-auto rounded-md px-2 py-1 text-sm text-muted hover:text-foreground"
-              onClick={() => setTab("persona")}
+              onClick={() => navigate("score")}
             >
               Back to {result.persona.name} →
             </button>
@@ -411,17 +515,20 @@ export default function Home() {
       {/* Hidden, not unmounted: a running call and an unfinished check survive switching tabs. */}
       {result && (
         <>
-          <div hidden={tab !== "persona"}>
+          <div hidden={tab === "interview"}>
             {/* Keyed by persona, so an open edit or save error can't carry over to the next persona. */}
             <PersonaProfile
               key={result.persona.id}
               {...result}
+              product={result.brief.product}
+              tab={tab}
+              onTab={navigate}
               coverage={current}
               onReport={setCoverage}
               verdict={currentVerdict}
               onVerdict={(ok) => setVerdict({ personaId: result.persona.id, ok })}
               // Mounted only while visible, so the page never holds two call rooms' controls at once.
-              showTestCall={tab === "persona"}
+              showTestCall={tab === "verify"}
               opening={opening}
               // A save can finish after a pick, and must not bring the previous persona back.
               onPersona={(persona) =>
@@ -441,9 +548,13 @@ export default function Home() {
               key={result.persona.id}
               persona={result.persona}
               startBlocked={opening}
-              product={brief.product}
-              guide={brief.guide}
-              onGuideChange={(guide) => setBrief((b) => ({ ...b, guide }))}
+              product={result.brief.product}
+              guide={result.brief.guide}
+              onGuideChange={(guide) => {
+                const next = { ...result.brief, guide };
+                setPersonaBriefs((current) => new Map(current).set(result.persona.id, next));
+                setResult({ ...result, brief: next });
+              }}
             />
           </div>
         </>
@@ -453,11 +564,14 @@ export default function Home() {
   );
 }
 
-type Tab = "product" | "sources" | "persona" | "interview";
+// One idea per screen, and each screen has one clear button to the next.
+type Tab = "product" | "sources" | "score" | "persona" | "verify" | "interview";
 const TABS: { id: Tab; label: string }[] = [
   { id: "product", label: "Product" },
   { id: "sources", label: "Sources" },
+  { id: "score", label: "Score" },
   { id: "persona", label: "Persona" },
+  { id: "verify", label: "Add more" },
   { id: "interview", label: "Interview" },
 ];
 
@@ -494,9 +608,8 @@ function WorkspaceBar({
           </Link>
           {persona && <span className="truncate font-normal text-muted">/ {persona.name}</span>}
         </p>
-        <nav aria-label="Steps" className="order-last flex w-full rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
+        <nav aria-label="Steps" className="order-last flex w-full flex-wrap rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
           {TABS.map((t) => {
-            // Product and sources come before any persona; the later steps need one.
             const locked = t.id !== "product" && t.id !== "sources" && !persona;
             return (
               <button
@@ -506,7 +619,7 @@ function WorkspaceBar({
                 disabled={locked}
                 title={locked ? "Create a persona first" : undefined}
                 onClick={() => onTab(t.id)}
-                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs uppercase tracking-widest sm:flex-none sm:px-5 ${
+                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs uppercase tracking-widest sm:flex-none sm:px-3 ${
                   tab === t.id ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground disabled:opacity-40"
                 }`}
               >
@@ -516,18 +629,25 @@ function WorkspaceBar({
           })}
         </nav>
         <div className="flex flex-1 justify-end gap-1.5 text-sm">
-          {persona && (
-            <button
-              type="button"
-              onClick={() => {
-                onTab("persona");
-                requestAnimationFrame(() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" }));
-              }}
+          {/* Not on the score screen: it shows the categories and no overall number. */}
+          {persona && tab !== "score" && (
+            <button type="button" onClick={() => onTab("verify")}
               className="flex gap-1.5"
               aria-label="Go to verification"
             >
-              <span className={`rounded-full px-3 py-1 ${tone(coverage ? coverage.recommendation === "ready" : null)}`}>
+              <span className={`rounded-full px-3 py-1 ${
+                coverage?.overall === "good_enough"
+                  ? "bg-accent-soft text-accent"
+                  : coverage?.overall === "add_more"
+                    ? "bg-alert-tint text-on-alert"
+                    : "bg-line text-muted"
+              }`} data-testid="workspace-coverage">
                 {coverage ? `AI ${Math.round(coverage.score * 100)}%` : "AI –"}
+                {coverage?.overall === "good_enough"
+                  ? " · Good enough to test."
+                  : coverage?.overall === "add_more"
+                    ? " · Add more first."
+                    : " · Not checked"}
               </span>
               <span className={`rounded-full px-3 py-1 ${tone(verdict)}`}>
                 {verdict === null ? "Test call –" : verdict ? "Test call ✓" : "Test call ✗"}
@@ -570,11 +690,25 @@ function SaveError({ text }: { text: string }) {
   );
 }
 
+function NextButton({ onClick, back, children }: { onClick: () => void; back?: ReactNode; children: string }) {
+  return (
+    <div className="flex items-center justify-end gap-4">
+      {back}
+      <button type="button" className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-surface hover:opacity-90" onClick={onClick}>
+        {children}
+      </button>
+    </div>
+  );
+}
+
 function PersonaProfile({
   persona,
   sources,
   seconds,
-  coverage,
+  product,
+  tab,
+  onTab,
+  coverage: currentReport,
   onReport,
   verdict,
   onVerdict,
@@ -583,8 +717,11 @@ function PersonaProfile({
   onPersona,
   onAnswered,
 }: Result & {
+  product: Product;
+  tab: Tab;
+  onTab: (tab: Tab) => void;
   coverage: CoverageReport | null;
-  onReport: (report: CoverageReport) => void;
+  onReport: (report: CoverageReport | null) => void;
   verdict: boolean | null;
   onVerdict: (ok: boolean) => void;
   showTestCall: boolean;
@@ -592,6 +729,8 @@ function PersonaProfile({
   onPersona: (p: Persona) => void;
   onAnswered: (p: Persona, source: PersonaSource) => void;
 }) {
+  // Here, not on a screen: the score screen and Add more show the same single check.
+  const coverage = useCoverage({ persona, sources, initial: currentReport, onReport, onAnswered });
   // Shown next to what failed: the identity editor or the fact lists.
   const [saveError, setSaveError] = useState<{ at: "identity" | "facts"; text: string } | null>(null);
   const [editing, setEditing] = useState(false);
@@ -617,7 +756,19 @@ function PersonaProfile({
     .join(" · ");
 
   return (
+    <>
+    <div hidden={tab !== "score"}>
+      <PersonaScore
+        persona={persona}
+        sources={sources}
+        coverage={coverage}
+        onInterview={() => onTab("interview")}
+        onAddMore={() => onTab("verify")}
+      />
+    </div>
+    <div hidden={tab !== "persona"}>
     <article className="space-y-4" data-testid="persona-card">
+      <NextButton onClick={() => onTab("verify")}>Next: add more</NextButton>
       <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
         {editing ? (
           <IdentityEditor
@@ -662,8 +813,8 @@ function PersonaProfile({
       <PersonaOverview
         persona={persona}
         sources={sources}
-        coverage={coverage}
-        onVerify={() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" })}
+        coverage={coverage.current}
+        onVerify={() => onTab("verify")}
         onSave={(update) => void save(update, "identity")}
         onEditProfile={() => {
           setEditing(true);
@@ -684,21 +835,40 @@ function PersonaProfile({
         />
       </Card>
 
-      <section id="verify" className="scroll-mt-20 space-y-4">
-        <div className="pt-4">
-          <h2 className="text-xl font-semibold tracking-tight">Verify before you interview</h2>
+    </article>
+    </div>
+    <div hidden={tab !== "verify"}>
+      <section id="verify" className="space-y-4" data-testid="verify">
+        <NextButton
+          onClick={() => onTab("interview")}
+          back={
+            <button type="button" className="text-sm font-bold text-accent underline" onClick={() => onTab("score")}>
+              Back to the score
+            </button>
+          }
+        >
+          Go to the interview
+        </NextButton>
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Add more before you interview.</h2>
           <p className="text-sm text-muted">
             Two checks: the AI compares what {persona.name} knows with what you test, and you talk to them yourself.
           </p>
         </div>
-        <CoverageCheck persona={persona} onReport={onReport} onAnswered={onAnswered} />
+        <CoverageCheck coverage={coverage} />
         <Card
           title="Test call"
           hint={`Talk to ${persona.name} for a minute. Does this sound like your customer? No questions needed; this is not the interview.`}
         >
           {/* Its own room, keyed apart from the interview's, so a test never mixes into the real call. */}
           {showTestCall && (
-            <InterviewRoom key={`test-${persona.id}`} persona={persona} startBlocked={opening} questionsRequired={false} />
+            <InterviewRoom
+              key={`test-${persona.id}`}
+              persona={persona}
+              startBlocked={opening}
+              questionsRequired={false}
+              product={product}
+            />
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 text-sm">
             <span className="font-medium">Your verdict:</span>
@@ -722,7 +892,8 @@ function PersonaProfile({
           </div>
         </Card>
       </section>
-    </article>
+    </div>
+    </>
   );
 }
 

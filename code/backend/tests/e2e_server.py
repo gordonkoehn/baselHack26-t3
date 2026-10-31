@@ -13,11 +13,11 @@ from types import SimpleNamespace
 
 from app import realtime
 from app.contracts import GuideReview, GuideReviewItem, GuideReviewRequest
-from app.extract import DebriefDraft, PersonaDraft, ProbeAnswer
+from app.extract import CoverageDraft, DebriefDraft, PersonaDraft, ProbeAnswer
 from app.main import app
 from app.routers.guides import get_reviewer
 from app.routers.insights import get_debriefer
-from app.routers.personas import get_extractor, get_prober
+from app.routers.personas import get_coverage_checker, get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
 
@@ -60,6 +60,15 @@ def answer_probe(_instructions, _question):
     return ProbeAnswer(answer="Ja.", position="yes", fact_ids=["F1"])
 
 
+def check_coverage(_persona, _request, names, _sources):
+    # Nothing is backed, so every category is red; the real scoring still decides that.
+    rows = [
+        {"name": n, "status": "missing", "weight": 2, "note": "n", "evidenceIds": [], "support": ""}
+        for n in names
+    ]
+    return CoverageDraft.model_validate({"criteria": rows, "questions": ["What do they do today?"]})
+
+
 def extract_debrief(_session, _persona, _events):
     # Fixed provider output, independent of stored events: real quote validation must reject
     # missing/altered transcript content instead of the fake inventing matching evidence.
@@ -87,5 +96,6 @@ realtime._client = lambda: SimpleNamespace(realtime=SimpleNamespace(client_secre
 app.dependency_overrides[get_store] = lambda: store
 app.dependency_overrides[get_extractor] = lambda: extract_persona
 app.dependency_overrides[get_prober] = lambda: answer_probe
+app.dependency_overrides[get_coverage_checker] = lambda: check_coverage
 app.dependency_overrides[get_debriefer] = lambda: extract_debrief
 app.dependency_overrides[get_reviewer] = lambda: review_guide

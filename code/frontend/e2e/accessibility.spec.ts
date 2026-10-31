@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import exampleCoverage from "../../shared/examples/coverage-report.json";
 import persona from "../../shared/examples/persona.json";
 import type { InsightReport } from "../src/lib/contracts";
 import { formatReportMarkdown, reportMarkdownFilename } from "../src/lib/reportMarkdown";
@@ -47,6 +48,7 @@ test.beforeEach(async ({ page, context, baseURL }) => {
       if (url.pathname === "/api/personas" && request.method() === "POST") return fulfill(persona);
       if (url.pathname === "/api/personas" && request.method() === "GET") return fulfill([]);
       if (url.pathname === "/api/faces") return fulfill([]);
+      if (url.pathname.endsWith("/coverage")) return fulfill(exampleCoverage);
       if (url.pathname === "/api/sessions" && request.method() === "POST") {
         return fulfill({ id: sessionId, personaId: persona.id, status: "created", provider: "openai-realtime" }, 201);
       }

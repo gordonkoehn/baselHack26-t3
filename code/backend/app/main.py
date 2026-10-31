@@ -4,12 +4,12 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.provider_log import request_id
-from app.routers import events, guides, insights, personas, sessions, sources
+from app.routers import events, guides, insights, mcp, personas, sessions, sources
 from app.store import StoreUnavailable
 
 REQUEST_ID_HEADER = "X-Request-Id"
 
-app = FastAPI(title="baselhack26 api")
+app = FastAPI(title="OpenTwin API")
 app.include_router(personas.router)
 app.include_router(personas.faces_router)
 app.include_router(sources.router)
@@ -17,6 +17,7 @@ app.include_router(guides.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
 app.include_router(insights.router)
+app.include_router(mcp.router)
 
 
 @app.middleware("http")
