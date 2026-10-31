@@ -73,17 +73,20 @@ class Store:
         """
         key = f"{PREFIX}:session:{session_id}:events"
         added = 0
-        for event in events:
-            if event.session_id != session_id:
-                raise ValueError("event belongs to another session")
-            value = _dump(event)
-            if self._call("hsetnx", key, str(event.seq), value):
-                added += 1
-                continue
-            existing = self._call("hget", key, str(event.seq))
-            if json.loads(existing) != json.loads(value):
-                raise EventConflict(f"seq {event.seq} already stored with different content")
-        if added:
+        try:
+            for event in events:
+                if event.session_id != session_id:
+                    raise ValueError("event belongs to another session")
+                value = _dump(event)
+                if self._call("hsetnx", key, str(event.seq), value):
+                    added += 1
+                    continue
+                existing = self._call("hget", key, str(event.seq))
+                if json.loads(existing) != json.loads(value):
+                    raise EventConflict(f"seq {event.seq} already stored with different content")
+        finally:
+            # Always (re)set: a conflict or a failed EXPIRE must not leave the hash without TTL,
+            # and an identical retry repairs it. EXPIRE on a missing key is a no-op.
             self._call("expire", key, TTL_SECONDS)
         return added
 
