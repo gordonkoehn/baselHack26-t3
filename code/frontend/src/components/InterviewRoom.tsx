@@ -22,7 +22,7 @@ type ServerEvent = {
   content_index?: number;
   transcript?: string;
   response?: { id?: string; status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
-  error?: { message?: string };
+  error?: { message?: string; event_id?: string };
 };
 
 export function InterviewRoom({ persona }: { persona: Persona }) {
@@ -125,6 +125,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         break;
       }
       case "error":
+        // A rejected response.create (e.g. one is already running) will never get a response:
+        // release its reservation so "End" doesn't wait for an answer that can't come.
+        if (e.error?.event_id?.startsWith("a:")) pending.current.delete(e.error.event_id);
         setError(e.error?.message ?? "Realtime error");
         break;
     }
@@ -259,8 +262,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     if (!dc || dc.readyState !== "open") return false;
     dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
-    pending.current.add(`a:${++asks.current}`);
-    dc.send(JSON.stringify({ type: "response.create" }));
+    const ask = `a:${++asks.current}`;
+    pending.current.add(ask);
+    // The id comes back in an "error" event if the provider rejects this request.
+    dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
     askedAt.current = performance.now();
     return true;
   }
