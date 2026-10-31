@@ -6,6 +6,10 @@ import { api } from "@/lib/api";
 
 export type AvatarControl = { clear: () => void };
 
+// Samples (16 kHz) Simli collects before it sends audio; the SDK default 3000 waits ~190 ms on every
+// reply's first words. 1024 (64 ms) cuts that; raise it again if the lip sync stutters (#159).
+const AUDIO_BUFFER_SAMPLES = 1024;
+
 // The persona's face: Simli lip-syncs the persona's voice (the Realtime audio track) and plays
 // it with the video. While it runs, the call's own <audio> is muted so the voice isn't doubled.
 // If the avatar can't start, the interview simply continues voice-only.
@@ -13,11 +17,14 @@ export function Avatar({
   sessionId,
   track,
   onActive,
+  onSpeaking,
 }: {
   sessionId: string;
   track: MediaStreamTrack;
   // Called with a control once the avatar speaks (to cut it short on interruption), null when off.
   onActive: (control: AvatarControl | null) => void;
+  // Called when the avatar starts to move its mouth (Simli "speaking"); used to measure reply delay.
+  onSpeaking?: () => void;
 }) {
   const video = useRef<HTMLVideoElement | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -48,8 +55,12 @@ export function Avatar({
       try {
         const { token } = await api.avatarToken(sessionId);
         if (cancelled || failed || !token || !video.current || !audio.current) return;
-        client = new SimliClient(token, video.current, audio.current, null, LogLevel.ERROR);
+        client = new SimliClient(
+          token, video.current, audio.current, null, LogLevel.ERROR, undefined, undefined, undefined,
+          AUDIO_BUFFER_SAMPLES,
+        );
         client.on("error", fail);
+        client.on("speaking", () => onSpeaking?.());
         client.on("stop", fail);
         await client.start();
         // An "error"/"stop" can arrive while start() is still pending; it wins.
