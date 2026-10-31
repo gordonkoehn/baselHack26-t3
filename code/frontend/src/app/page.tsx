@@ -393,7 +393,9 @@ export default function Home() {
       {result && (
         <>
           <div hidden={tab !== "persona"}>
+            {/* Keyed by persona, so an open edit or save error can't carry over to the next persona. */}
             <PersonaProfile
+              key={result.persona.id}
               {...result}
               coverage={current}
               onReport={setCoverage}

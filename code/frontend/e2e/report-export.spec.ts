@@ -112,6 +112,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
     }
     if (url.origin === "http://127.0.0.1:3165") {
       if (!url.pathname.startsWith("/api/")) return route.continue();
+      if (url.pathname === "/api/faces") return fulfill([]);
       if (url.pathname === "/api/personas") return fulfill({ ...examplePersona, name: personaName });
       if (url.pathname === "/api/sessions") return fulfill({ id: report.sessionId, personaId: examplePersona.id, status: "created", provider: "openai-realtime" }, 201);
       if (url.pathname === `/api/sessions/${report.sessionId}/token`) {

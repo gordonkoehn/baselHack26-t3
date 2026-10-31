@@ -10,6 +10,7 @@ async function openGuide(page: Page) {
   await expect(page.getByLabel("Source 2 text")).toContainText("SYNTHETIC INTERVIEW");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
   return page.getByLabel(guideLabel);
 }
 
