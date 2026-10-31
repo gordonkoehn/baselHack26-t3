@@ -2,7 +2,10 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
 import exampleReport from "../../shared/examples/insight-report.json";
 import exampleEvents from "../../shared/examples/session-events.json";
 import type { Persona, Session, SessionEvent, InsightReport } from "../src/lib/contracts";
+import { QUARTIER_BOERSE_GUIDE } from "../src/lib/sample";
 import { emit, installRealtime } from "./realtime";
+
+const guideLabel = "Interview questions, one per line (the debrief answers these)";
 
 const questions = exampleReport.questions.map((question) => question.question);
 const answers = exampleReport.questions.map((question) => question.insights[0].quote);
@@ -18,7 +21,7 @@ async function createPersona(page: Page) {
 
 async function startInterview(page: Page): Promise<Session> {
   await createPersona(page);
-  await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(questions.join("\n"));
+  await page.getByLabel(guideLabel).fill(questions.join("\n"));
   const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Start video interview" }).click();
   const response = await created;
@@ -289,8 +292,10 @@ test("a persona created earlier can be picked after a reload and interviewed", a
   await expect(card).not.toContainText("Ready in");
   await expect(page.getByRole("heading", { name: "Sources", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+  await expect(page.getByLabel(guideLabel)).toHaveValue("");
 
   const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByLabel(guideLabel).fill("What did you try last week?");
   await page.getByRole("button", { name: "Start video interview" }).click();
   const session: Session = await (await started).json();
   expect(session.personaId).toBe(persona.id);
@@ -348,6 +353,7 @@ test("a save that finishes after a library pick cannot bring the previous person
 
   await expect(card.getByText("Meant for the second persona")).toHaveCount(0);
   const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByLabel(guideLabel).fill("What did you try last week?");
   await page.getByRole("button", { name: "Start video interview" }).click();
   expect(((await (await started).json()) as Session).personaId).toBe(first.id);
 });
@@ -385,6 +391,8 @@ test("a call can't start while a library pick is loading, so the pick can't cut 
   await expect(start).toBeDisabled();
   release();
   await picking;
+  await expect(start).toBeDisabled();
+  await page.getByLabel(guideLabel).fill("What did you try last week?");
 
   const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await start.click();
@@ -405,6 +413,53 @@ test("the persona list sends the passcode and stays away when refused", async ({
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Edit sources" }).click();
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+});
+
+test("the sample sprint questions stay with the example, and a saved persona comes back without them", async ({ page }) => {
+  await createPersona(page);
+  const guide = page.getByLabel(guideLabel);
+  const start = page.getByRole("button", { name: "Start video interview" });
+  const sample = page.getByRole("button", { name: "Use sample interview" });
+  const room = page.getByTestId("interview-room");
+  await expect(guide).toHaveValue(QUARTIER_BOERSE_GUIDE.join("\n"));
+  await expect(room.getByTestId("guide-check")).toBeVisible();
+  await expect(start).toBeEnabled();
+  await expect(sample).toBeEnabled();
+  await expect(room).toContainText("not a real person");
+  await expect(room).toContainText("an image is sent to OpenAI every 15 seconds");
+
+  await page.reload();
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(guide).toHaveValue("");
+  await expect(room.getByTestId("guide-check")).toBeVisible();
+  await expect(room.getByRole("button", { name: "Check questions" })).toBeDisabled();
+  await expect(start).toBeDisabled();
+  await expect(sample).toBeDisabled();
+  await expect(room).toContainText("not a real person");
+
+  await guide.fill("What did you try last week?");
+  await expect(room.getByRole("button", { name: "Check questions" })).toBeEnabled();
+  await expect(start).toBeEnabled();
+  await expect(sample).toBeEnabled();
+});
+
+test("questions other than the sample sprint start empty, so neither interview can begin", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start blank", exact: true }).click();
+  await page.getByLabel("Source 1 text").fill("A neighbour said the bins are always full.");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+
+  const room = page.getByTestId("interview-room");
+  const guide = page.getByLabel(guideLabel);
+  await expect(guide).toHaveValue("");
+  await expect(room.getByTestId("guide-check")).toBeVisible();
+  await expect(room.getByRole("button", { name: "Check questions" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start video interview" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Use sample interview" })).toBeDisabled();
+  await expect(room).toContainText("not a real person");
+  await expect(room).toContainText("an image is sent to OpenAI every 15 seconds");
 });
 
 test("mute silences the microphone without ending the call; typing still works", async ({ page }) => {

@@ -14,9 +14,15 @@ import type {
   SourceKind,
 } from "@/lib/contracts";
 import { InterviewRoom } from "@/components/InterviewRoom";
-import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
+const KIND_LABEL: Record<SourceKind, string> = {
+  note: "Note · context",
+  transcript: "Transcript · can ground quotes",
+  miro: "Board export",
+  real_interview: "Real interview",
+};
 // Files the browser can read as plain text without any extra library; PDFs and images go through
 // the backend (text layer, or a transcription of the visible text).
 const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
@@ -25,7 +31,18 @@ const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
 type Draft = PersonaSource & { id: number };
 // seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
-type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
+// guide is empty for that same persona, so a saved interview never inherits the sample sprint questions.
+type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null; guide: string };
+
+const EXAMPLE_GUIDE = QUARTIER_BOERSE_GUIDE.join("\n");
+
+// The sample ships with its own questions. Any other material starts with an empty guide,
+// so the debrief cannot answer a sprint the sources never mentioned.
+function guideFor(sources: { text: string }[]): string {
+  const example =
+    sources.length === 2 && sources[0]?.text === QUARTIER_BOERSE && sources[1]?.text === SAMPLE_TRANSCRIPT;
+  return example ? EXAMPLE_GUIDE : "";
+}
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -147,7 +164,7 @@ export default function Home() {
     setError(null);
     try {
       const persona = await api.createPersona({ language, sources });
-      setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000 });
+      setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000, guide: guideFor(sources) });
       setEditing(false);
     } catch (e) {
       setError(errorMessage(e));
@@ -161,7 +178,7 @@ export default function Home() {
     setOpening(true);
     setError(null);
     try {
-      setResult({ persona: await api.getPersona(id), sources: [], seconds: null });
+      setResult({ persona: await api.getPersona(id), sources: [], seconds: null, guide: "" });
       setEditing(false);
     } catch (e) {
       setError(errorMessage(e));
@@ -198,13 +215,32 @@ export default function Home() {
           </span>
         </h1>
         <p className="mt-8 max-w-2xl text-lg text-muted">
-          Turn real interview material into an AI test user, talk to it live, and see which answers
-          the sources back up.
+          Three steps, in order. Add the sources, meet one test user, then interview them.
+          The debrief answers only the questions you write.
         </p>
-        <p className="mt-6 flex items-center gap-3 font-mono text-sm text-muted">
-          <span className="evidence-bar" data-grounded="true" aria-hidden /> on record
-          <span className="evidence-bar ml-3" data-grounded="false" aria-hidden /> guess
-        </p>
+        <ol className="mt-8 grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              ["1", "Sources", "Notes and interviews this person may quote."],
+              ["2", "Persona", "One test user. Each claim is on record or a guess."],
+              ["3", "Interview", "You talk. The debrief follows your questions."],
+            ] as const
+          ).map(([n, title, text]) => {
+            const done = Boolean(result) && n === "1";
+            const current = result ? n === "2" : n === "1";
+            return (
+              <li
+                key={n}
+                aria-current={current ? "step" : undefined}
+                className={`rounded-lg border p-3 ${current ? "border-accent bg-surface" : "border-line bg-surface/70"}`}
+              >
+                <p className="font-mono text-xs text-muted">{done ? "Done" : `Step ${n}`}</p>
+                <p className="font-semibold">{title}</p>
+                <p className="mt-1 text-sm leading-snug text-muted">{text}</p>
+              </li>
+            );
+          })}
+        </ol>
       </header>
 
       {/* Folds away with the sources, so a click here can't replace the persona being interviewed. */}
@@ -242,11 +278,14 @@ export default function Home() {
         className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-semibold">
-            Sources
-            {/* A saved persona's sources stay on the server; the drafts here are unrelated to it. */}
-            {!(picked && !editing) && <span className="font-normal text-muted"> ({filled.length})</span>}
-          </h2>
+          <div className="min-w-0">
+            <p className="font-mono text-xs text-muted">Step 1</p>
+            <h2 className="text-sm font-semibold">
+              Sources
+              {/* A saved persona's sources stay on the server; the drafts here are unrelated to it. */}
+              {!(picked && !editing) && <span className="font-normal text-muted"> ({filled.length})</span>}
+            </h2>
+          </div>
           {result && !editing && (
             <>
               <span className="min-w-0 flex-1 truncate text-sm text-muted">
@@ -265,6 +304,11 @@ export default function Home() {
           )}
         </div>
         <div hidden={result !== null && !editing} className="space-y-4">
+        <p className="text-sm text-muted">
+          {guideFor(filled)
+            ? "Example loaded: Quartier-Börse. Create the persona, then interview them with the three sprint questions."
+            : "Paste what you already know. A transcript can ground quotes. A note is context only."}
+        </p>
         {drafts.map((d, i) => (
           <div key={d.id} className="space-y-2 rounded-lg border border-line bg-background/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -284,7 +328,7 @@ export default function Home() {
               >
                 {KINDS.map((k) => (
                   <option key={k} value={k}>
-                    {k}
+                    {KIND_LABEL[k]}
                   </option>
                 ))}
               </select>
@@ -300,7 +344,7 @@ export default function Home() {
             </div>
             <textarea
               aria-label={`Source ${i + 1} text`}
-              className="h-40 w-full rounded-md border border-line bg-surface p-3 font-mono text-xs leading-relaxed"
+              className="h-28 w-full rounded-md border border-line bg-surface p-3 font-mono text-xs leading-relaxed"
               value={d.text}
               onChange={(e) => update(d.id, { text: e.target.value })}
               disabled={busy}
@@ -341,7 +385,25 @@ export default function Home() {
           <button
             type="button"
             className="ml-auto rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
-            onClick={() => setDrafts(SAMPLES())}
+            onClick={() => {
+              setDrafts([draft("transcript", "Past interview", ""), draft("note", "Sprint notes", "")]);
+              setResult(null);
+              setEditing(false);
+              setError(null);
+            }}
+            disabled={busy}
+          >
+            Start blank
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-muted hover:text-foreground disabled:opacity-30"
+            onClick={() => {
+              setDrafts(SAMPLES());
+              setResult(null);
+              setEditing(false);
+              setError(null);
+            }}
             disabled={busy}
           >
             Reset to example
@@ -387,18 +449,45 @@ export default function Home() {
         )}
       </section>
 
-      <div ref={card} className="scroll-mt-6">
+      <div ref={card} className="scroll-mt-6 space-y-8">
         {/* Keyed by persona, so an open fact edit can't be saved to the next persona. A save can
             also finish after a pick, and must not bring the previous persona back. */}
         {result && (
           <PersonaCard
             key={result.persona.id}
             {...result}
-            opening={opening}
             onPersona={(persona) =>
               setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
             }
           />
+        )}
+        {result && (
+          <section id="interview" className="scroll-mt-6" aria-labelledby="interview-heading">
+            <p className="font-mono text-xs text-muted">Step 3</p>
+            <h2 id="interview-heading" className="text-2xl font-semibold tracking-tight">
+              Interview {result.persona.name}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm text-muted">
+              One question per line. The debrief answers those lines and skips anything you leave out.
+              Then start the call.
+            </p>
+            {/* Keyed by persona so a new persona never inherits the previous call.
+                The picked persona replaces this room when it arrives, which would cut off a call started now. */}
+            <InterviewRoom
+              key={result.persona.id}
+              persona={result.persona}
+              startBlocked={opening}
+              initialGuide={result.guide}
+            />
+          </section>
+        )}
+        {!result && (
+          <section className="rounded-xl border border-dashed border-line p-5 text-sm text-muted">
+            <p className="font-mono text-xs">Steps 2 and 3</p>
+            <p className="mt-2">
+              Create the persona first. You will meet them here, then write the interview questions and talk.
+            </p>
+          </section>
         )}
       </div>
     </main>
@@ -421,9 +510,8 @@ function PersonaCard({
   persona,
   sources,
   seconds,
-  opening,
   onPersona,
-}: Result & { opening: boolean; onPersona: (p: Persona) => void }) {
+}: Result & { onPersona: (p: Persona) => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   // The server decides the labels: an edited or new fact always comes back as a guess.
   async function save(field: FactField, facts: Fact[]) {
@@ -442,6 +530,7 @@ function PersonaCard({
 
   return (
     <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
+      <p className="mb-2 font-mono text-xs text-muted">Step 2</p>
       <p className="mb-2 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
         {seconds !== null && `Ready in ${seconds.toFixed(1)} s · `}
         {grounded} grounded · {facts.length - grounded} guesses
@@ -452,12 +541,25 @@ function PersonaCard({
       <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
       {meta && <p className="text-sm text-muted">{meta}</p>}
       <p className="mt-3 leading-relaxed">{persona.summary}</p>
+      <p className="mt-4 text-sm text-muted">
+        Next, interview {persona.name}. Editing a line below marks it as a guess, because it no longer matches the sources.
+      </p>
+      <a
+        href="#interview"
+        className="mt-3 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90"
+      >
+        Go to the interview
+      </a>
 
       {saveError && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
           {saveError}
         </p>
       )}
+      <p className="mt-6 flex items-center gap-3 font-mono text-sm text-muted">
+        <span className="evidence-bar" data-grounded="true" aria-hidden /> on record
+        <span className="evidence-bar ml-3" data-grounded="false" aria-hidden /> guess
+      </p>
       <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} onSave={(f) => save("jobs", f)} />
       <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} onSave={(f) => save("pains", f)} />
       <FactList
@@ -467,9 +569,6 @@ function PersonaCard({
         sources={sources}
         onSave={(f) => save("objections", f)}
       />
-      {/* Keyed by persona so a new persona never inherits the previous call. */}
-      {/* The picked persona replaces this card when it arrives, which would cut off a call started now. */}
-      <InterviewRoom key={persona.id} persona={persona} startBlocked={opening} />
     </article>
   );
 }
