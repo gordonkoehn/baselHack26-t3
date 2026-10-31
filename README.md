@@ -9,9 +9,9 @@
 
 **It tells you what it knows. And what it's guessing.**
 
-Turn real interview material into an AI test user, talk to it live, and see which answers the sources back up.
+Turn real interview material into an AI test user, talk to it live, and see which findings rest on a quote from your sources.
 
-[Open the live app](https://baselhack26-t3-web.vercel.app) · creating personas needs the team passcode
+[Open the live app](https://baselhack26-t3-web.vercel.app) · creating personas, live interviews and debriefs need the team link
 
 </div>
 
@@ -44,12 +44,12 @@ Labels are checked in code. The model's own label is never trusted.
 
 | Label | Meaning |
 |---|---|
-| **grounded** | A source backs this, and the code found the quote. |
-| **guess** | Nothing backs this. It may still be useful, but treat it as a hypothesis. |
+| **grounded** | The code found the cited quote in a source. You still judge whether it supports the claim. |
+| **guess** | The code found no verified quote for this. It may still be useful, but treat it as a hypothesis. |
 
 - **Persona:** evidence is kept only if its quote really occurs in a source. A fact without kept evidence becomes a guess ([`ground_draft`](code/backend/app/routers/personas.py)).
 - **Debrief:** a finding stays grounded only if it restates a grounded persona fact and contains that fact's source quote. Otherwise it becomes a guess ([`_source_label`](code/backend/app/debrief.py)).
-- **Quotes:** a quote the persona did not say is dropped ([`_place_quote`](code/backend/app/debrief.py)).
+- **Quotes:** a finding whose quote the persona did not say is dropped ([`_place_quote`](code/backend/app/debrief.py)).
 
 ## Stack
 
@@ -62,11 +62,11 @@ Labels are checked in code. The model's own label is never trusted.
 | App | Next.js 16, React 19, Tailwind 4, FastAPI on Python 3.12 |
 | Storage and hosting | Upstash Redis, Vercel |
 
-The browser holds the call and connects straight to OpenAI and Simli. The backend only mints short-lived tokens, because serverless functions can't hold a live connection.
+The browser holds the call and connects straight to OpenAI and Simli. For the call, the backend only mints short-lived tokens and saves the transcript, because serverless functions can't hold a live connection.
 
 ## Run it locally
 
-You need Node 20+, [uv](https://docs.astral.sh/uv/) and make. On Windows, use WSL.
+You need Node 20.9+, [uv](https://docs.astral.sh/uv/) and make. On Windows, use WSL.
 
 ```bash
 cd code
@@ -83,7 +83,7 @@ API docs are at http://localhost:8000/docs.
 | `UPSTASH_REDIS_REST_URL` | Required | Storage; there is no in-memory fallback |
 | `UPSTASH_REDIS_REST_TOKEN` | Required | Storage |
 | `SIMLI_API_KEY` | Optional | Avatar; without it the call runs voice only |
-| `SIMLI_FACE_ID` | Optional | Default avatar face |
+| `SIMLI_FACE_ID` | Optional | Fallback face, used only when a persona has no usable face |
 | `DEMO_PASSCODE` | Optional | Locally, the app is open without it. On Vercel it must be set |
 | `OPENAI_MODEL` | Optional | Overrides the text model |
 | `OPENAI_REALTIME_MODEL` | Optional | Overrides the live voice model |
@@ -97,8 +97,8 @@ When deployed, the frontend also needs `BACKEND_URL`. Locally it defaults to htt
 ## Limits
 
 - This is a simulation, not real user feedback. Use it to sharpen questions and hypotheses, not to replace talking to people.
-- The demo data in this repo is synthetic.
-- Sources go to OpenAI, and the call goes directly from your browser to OpenAI and Simli. Stored data expires after 7 days.
+- The demo data in this repo is synthetic or anonymised.
+- Sources go to OpenAI, and the call goes directly from your browser to OpenAI and Simli. Camera stills go to OpenAI, and a persona photo goes to Simli if you make a custom face from it. That face stays with Simli. Data in our own store expires after 7 days.
 
 ## Contributing
 
