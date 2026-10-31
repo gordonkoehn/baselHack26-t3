@@ -75,7 +75,7 @@ async function pickFromLibrary(page: Page, request: APIRequestContext, id: strin
 async function completeInterview(page: Page): Promise<string> {
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(questions.join("\n"));
   const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: /^(Start voice interview|Start again)$/ }).click();
+  await page.getByRole("button", { name: /^(Start video interview|Start again)$/ }).click();
   const session: Session = await (await created).json();
   await expect(page.getByRole("dialog", { name: "Interview with Sandra" }).getByText("Live, speak now")).toBeVisible();
   for (const [index, quote] of answers.entries()) {
@@ -309,7 +309,7 @@ test("a persona created earlier can be picked after a reload and interviewed", a
   await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
 
   const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   const session: Session = await (await started).json();
   expect(session.personaId).toBe(persona.id);
   const dialog = page.getByRole("dialog", { name: "Interview with Sandra" });
@@ -366,7 +366,7 @@ test("a save that finishes after a library pick cannot bring the previous person
 
   await expect(card.getByText("Meant for the second persona")).toHaveCount(0);
   const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   expect(((await (await started).json()) as Session).personaId).toBe(first.id);
 });
 
@@ -391,7 +391,7 @@ test("an open fact edit and a failed save stay behind when another persona is pi
 
 test("a call can't start while a library pick is loading, so the pick can't cut it off", async ({ page, request }) => {
   const { first } = await twoPersonas(page);
-  const start = page.getByRole("button", { name: "Start voice interview" });
+  const start = page.getByRole("button", { name: "Start video interview" });
   let release = () => {};
   const released = new Promise<void>((resolve) => { release = resolve; });
   await page.route(`**/api/personas/${first.id}`, async (route) => {
@@ -539,7 +539,7 @@ test("starting an interview sends the passcode and a refusal says what to do", a
   const started = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/sessions"));
   await page.goto("/?code=team-pass");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   expect((await started).headers()["x-demo-passcode"]).toBe("team-pass");
   await expect(page.getByText(`Could not start (401): ${detail}`)).toBeVisible();
 });
