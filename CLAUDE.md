@@ -28,3 +28,12 @@ BaselHack structure, keep it: all code in `code/`, docs in `documentation/`, vid
 - After adding a Python dependency (`uv add x`), the `requirements.txt` export must be committed (`make check` does it).
 - Secrets only in `.env` (gitignored) and Vercel env vars. Never commit keys.
 - Next.js here is v16 — read `code/frontend/AGENTS.md` before using Next APIs you're unsure about.
+
+## Agent coordination (MCP Agent Mail)
+All agents (Claude, Codex, Gemini, Copilot, …) share one Agent Mail server. Use it; it is how the team's agents know what the others are doing.
+- **Project key is always `/Users/kollers/Documents/dev/baselHack26-t3`** (Johan's path, used as a shared name) — on every machine, never your own repo path, or you end up alone in your own project.
+- Session start: `register_agent(project_key="/Users/kollers/Documents/dev/baselHack26-t3", program=<your tool>, model=<your model>, task_description=<issue # + goal>)`, then `fetch_inbox` and read anything unread.
+- Before editing files: `file_reservation_paths(paths=[...], exclusive=true, ttl_seconds=3600, reason="#<issue>")`. On a conflict, message the holder instead of editing. Release when your PR is up.
+- `send_message` when you: change `code/shared/schema.json` or another contract (thread `contract`, to everyone), finish or block on a task, or need something from another area. Threads: `contract`, `backend`, `frontend`, `voice`, `vision`, `spec`.
+- Check `fetch_inbox` before each new task and before opening a PR; `acknowledge_message` when `ack_required`.
+- Humans watch and steer at http://192.168.20.52:8765/mail/ (messages from HumanOverseer take priority).
