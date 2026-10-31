@@ -75,7 +75,10 @@ describe("proxy paths", () => {
     ["avatarToken", (a) => a.avatarToken(ID), "POST", `/api/sessions/${ENCODED}/avatar-token`, true],
     ["postEvents", (a) => a.postEvents(ID, []), "POST", `/api/sessions/${ENCODED}/events`, false],
     ["debrief", (a) => a.debrief(ID), "POST", `/api/sessions/${ENCODED}/debrief`, true],
+    ["updatePersona", (a) => a.updatePersona(ID, { jobs: [] }), "PATCH", `/api/personas/${ENCODED}`, true],
     ["getPersona", (a) => a.getPersona(ID), "GET", `/api/personas/${ENCODED}`, false],
+    ["getSession", (a) => a.getSession(ID), "GET", `/api/sessions/${ENCODED}`, false],
+    ["getInsights", (a) => a.getInsights(ID), "GET", `/api/sessions/${ENCODED}/insights`, false],
   ];
 
   it.each(routes)("%s calls the right same-origin path", async (_name, call, method, path, paid) => {
@@ -90,6 +93,25 @@ describe("proxy paths", () => {
     expect(calledPath).toBe(path);
     expect(init?.method ?? "GET").toBe(method);
     expect(passcodeHeader(init)).toBe(paid ? "secret" : undefined);
+  });
+});
+
+describe("request deadline", () => {
+  it("gives up on a saved-transcript request whose answer never arrives, and aborts it", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn<(path: string, init?: RequestInit) => Promise<Response>>(() => new Promise(() => {}));
+      vi.stubGlobal("fetch", fetchMock);
+      const { api, RequestDeadlineError } = await load();
+
+      const result = api.postEvents(ID, []).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      expect(await result).toBeInstanceOf(RequestDeadlineError);
+      expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

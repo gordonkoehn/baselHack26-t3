@@ -95,6 +95,16 @@ describe("DebriefView", () => {
     expect(debrief).toHaveBeenCalledWith("s_1");
   });
 
+  it("shows a saved report read-only: no model call and no link to copy", async () => {
+    const debrief = vi.spyOn(api, "debrief").mockResolvedValue(REPORT);
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={REPORT} />);
+
+    await screen.findByTestId("debrief");
+
+    expect(debrief).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Copy link" })).toBeNull();
+  });
+
   it.each([
     [new ApiError(409, "turn 4 missing"), "The transcript is not complete yet: turn 4 missing"],
     [new ApiError(503, "down"), "The debrief model is unavailable right now. Try again in a moment."],
