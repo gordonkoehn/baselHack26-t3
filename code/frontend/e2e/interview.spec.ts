@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import exampleReport from "../../shared/examples/insight-report.json";
 import exampleEvents from "../../shared/examples/session-events.json";
 import type { Session, SessionEvent, InsightReport } from "../src/lib/contracts";
@@ -68,7 +68,7 @@ test.beforeEach(async ({ page, context }) => {
   await installRealtime(page);
 });
 
-test("sample sources to saved interview and exact-quote debrief", async ({ page, request }) => {
+test("sample sources to saved interview and exact-quote debrief", async ({ page, request, context, browser }) => {
   const session = await startInterview(page);
   if (process.env.E2E_FAIL_EVENT_SAVE === "1") {
     // Explicit negative control: the happy path MUST fail if persistence is broken.
@@ -140,6 +140,45 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   expect(report.questions.map((question) => question.insights.map((insight) => ({ quote: insight.quote, turn: insight.turnSeq })))).toEqual([
     [{ quote: answers[0], turn: 2 }], [{ quote: answers[1], turn: 4 }],
   ]);
+
+  // The shared link: a browser with no local state or passcode sees the same debrief, and nothing is generated.
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await debrief.getByRole("button", { name: "Copy link", exact: true }).click();
+  await expect(debrief.getByRole("status")).toContainText("Link copied");
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  expect(link).toBe(`http://127.0.0.1:3165/report/${session.id}`);
+
+  const fresh = await browser.newContext();
+  const apiCalls: string[] = [];
+  const passcodes: string[] = [];
+  await fresh.route("**/*", async (route) => {
+    const sent = route.request();
+    const url = new URL(sent.url());
+    if (url.origin !== "http://127.0.0.1:3165") {
+      unexpected.push(`${url.origin}${url.pathname}`);
+      return route.abort("blockedbyclient");
+    }
+    if (url.pathname.startsWith("/api/")) apiCalls.push(`${sent.method()} ${url.pathname}`);
+    const passcode = sent.headers()["x-demo-passcode"];
+    if (passcode) passcodes.push(passcode);
+    await route.continue();
+  });
+  const reader = await fresh.newPage();
+  await reader.goto(link);
+  const shared = reader.getByTestId("debrief");
+  await expect(shared).toBeVisible();
+  const content = (root: Locator) => Promise.all([root.locator("> p").first().innerText(), root.locator("ol").innerText()]);
+  expect(await content(shared)).toEqual(await content(debrief));
+  await expect(reader.getByText("Simulated interview with an AI persona", { exact: false })).toBeVisible();
+  await expect(reader.getByRole("button", { name: "Copy link", exact: true })).toHaveCount(0);
+  await expect(reader.getByRole("button", { name: "Create debrief", exact: true })).toHaveCount(0);
+  expect(apiCalls.sort()).toEqual([
+    `GET /api/personas/${session.personaId}`,
+    `GET /api/sessions/${session.id}`,
+    `GET /api/sessions/${session.id}/insights`,
+  ]);
+  expect(passcodes).toEqual([]);
+  await fresh.close();
 });
 
 test("backend unavailable is announced and the same sources can be retried", async ({ page }) => {
