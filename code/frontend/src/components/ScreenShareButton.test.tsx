@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { captureFrame } from "@/lib/screenFrames";
 import { ScreenShareButton } from "./ScreenShareButton";
@@ -133,6 +134,25 @@ describe("showing a frame", () => {
       { type: "input_text", text: "(Interviewer's shared screen, the prototype, right now.)" },
       { type: "input_image", image_url: IMAGE },
     ]);
+  });
+
+  it("keeps the stream and sends under StrictMode's double effect run", async () => {
+    vi.mocked(captureFrame).mockResolvedValueOnce(IMAGE);
+    const { track, stream } = fakeStream();
+    getDisplayMedia.mockResolvedValueOnce(stream);
+    render(
+      <StrictMode>
+        <ScreenShareButton pc={{ current: null }} ask={ask} />
+      </StrictMode>,
+    );
+
+    click("Share screen");
+    await screen.findByRole("button", { name: "Show screen to persona" });
+    click("Show screen to persona");
+
+    await screen.findByText("Shown to the persona.");
+    expect(ask).toHaveBeenCalledOnce();
+    expect(track.stop).not.toHaveBeenCalled();
   });
 
   it.each([

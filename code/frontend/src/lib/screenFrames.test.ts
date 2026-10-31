@@ -59,6 +59,7 @@ afterEach(() => {
 describe("frame bounds", () => {
   it.each([
     ["a large landscape screen", 2560, 1440, 1280, 720],
+    ["an ultrawide screen", 3840, 1080, 1280, 360],
     ["a tall portrait screen", 720, 1440, 360, 720],
     ["a small screen, never upscaled", 640, 360, 640, 360],
   ])("fits %s into 1280x720", async (_name, width, height, drawnWidth, drawnHeight) => {
@@ -70,11 +71,11 @@ describe("frame bounds", () => {
   });
 
   it("lowers JPEG quality before shrinking the picture", async () => {
-    jpegLength = (_width, quality) => (quality > 0.6 ? 1000 : 100);
+    jpegLength = (_width, quality) => (quality > 0.4 ? 1000 : 100);
 
     const frame = await captureFrame(fakeStream().stream, { maxBytes: 500 });
 
-    expect(qualities).toEqual([0.8, 0.6]);
+    expect(qualities).toEqual([0.8, 0.6, 0.4]);
     expect(drawImage).toHaveBeenCalledOnce();
     expect(frame.length).toBeLessThanOrEqual(500);
   });
@@ -143,10 +144,49 @@ describe("capture failures", () => {
     await assertion;
   });
 
+  it("rejects at once when playback can't start", async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new Error("blocked"));
+
+    await expect(captureFrame(fakeStream().stream)).rejects.toThrow("could not start playback");
+  });
+
   it("rejects an empty encoding", async () => {
     vi.mocked(HTMLCanvasElement.prototype.toDataURL).mockReturnValue("data:,");
 
     await expect(captureFrame(fakeStream().stream)).rejects.toThrow("nonempty JPEG");
+  });
+});
+
+// jsdom lacks requestVideoFrameCallback, so everything above takes the path for browsers without it.
+describe("in a browser with requestVideoFrameCallback", () => {
+  let presentFrame: () => void;
+
+  beforeEach(() => {
+    Object.assign(HTMLVideoElement.prototype, {
+      requestVideoFrameCallback: (callback: () => void) => {
+        presentFrame = callback;
+        return 1;
+      },
+      cancelVideoFrameCallback: () => {},
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback");
+    Reflect.deleteProperty(HTMLVideoElement.prototype, "cancelVideoFrameCallback");
+  });
+
+  it("captures only after a frame has been presented", async () => {
+    const capture = captureFrame(fakeStream().stream);
+
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(played).not.toBeNull();
+    expect(drawImage).not.toHaveBeenCalled();
+
+    presentFrame();
+
+    await expect(capture).resolves.toContain(PREFIX);
+    expect(drawImage).toHaveBeenCalledOnce();
   });
 });
 

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import schema from "../../../shared/schema.json";
 import type { InsightReport, Label, Language, Provider, Session, SessionUpdate, SourceKind } from "./contracts";
 
-// contracts.ts is types only, so this pairs the two checks that together keep its unions in step
-// with the schema: `satisfies` fails `tsc` if a key is missing from or unknown to the TS union, and
-// the test fails if the keys differ from the schema's enum.
+// contracts.ts is types only, so this pairs the two checks that together keep the unions listed here
+// in step with the schema: `satisfies` fails `tsc` if a key is missing from or unknown to the TS
+// union, and the test fails if the keys differ from the schema's enum. Not covered: the SessionEvent
+// and speechStyle enums, and PersonaCreate.language.
 const unions = {
   Label: { grounded: 1, guess: 1 } satisfies Record<Label, 1>,
   SourceKind: { transcript: 1, miro: 1, note: 1, real_interview: 1 } satisfies Record<SourceKind, 1>,

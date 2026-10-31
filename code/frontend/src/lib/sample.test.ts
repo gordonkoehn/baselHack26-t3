@@ -5,8 +5,7 @@ import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, SAMPLE_TRANSCRIPT } from "./sam
 
 describe("demo samples", () => {
   it("keeps the test case an exact copy of the documentation", () => {
-    // npm test runs from code/frontend.
-    const doc = resolve(process.cwd(), "../../documentation/testcase-quartier-boerse.md");
+    const doc = resolve(import.meta.dirname, "../../../../documentation/testcase-quartier-boerse.md");
 
     expect(QUARTIER_BOERSE).toBe(readFileSync(doc, "utf8"));
   });
