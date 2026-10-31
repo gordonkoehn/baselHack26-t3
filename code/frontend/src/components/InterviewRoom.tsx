@@ -395,7 +395,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           {metrics.inputTokens} / out {metrics.outputTokens}
         </p>
       )}
-      {phase === "ended" && ended && ended.questions > 0 && (
+      {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
