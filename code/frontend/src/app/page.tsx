@@ -20,7 +20,7 @@ import { CoverageCheck } from "@/components/CoverageCheck";
 import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/IdentityEditor";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
-import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
 // Files the browser can read as plain text without any extra library; PDFs and images go through
@@ -31,7 +31,18 @@ const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
 type Draft = PersonaSource & { id: number };
 // seconds is null for a persona picked from the library: nothing was built, its sources stay on the server.
-type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null };
+// guide is empty for that same persona, so a saved interview never inherits the sample sprint questions.
+type Result = { persona: Persona; sources: PersonaSource[]; seconds: number | null; guide: string };
+
+const EXAMPLE_GUIDE = QUARTIER_BOERSE_GUIDE.join("\n");
+
+// The sample ships with its own questions. Any other material starts with an empty guide,
+// so the debrief cannot answer a sprint the sources never mentioned.
+function guideFor(sources: { text: string }[]): string {
+  const example =
+    sources.length === 2 && sources[0]?.text === QUARTIER_BOERSE && sources[1]?.text === SAMPLE_TRANSCRIPT;
+  return example ? EXAMPLE_GUIDE : "";
+}
 
 let nextId = 0;
 const draft = (kind: SourceKind, title: string, text: string): Draft => ({
@@ -148,7 +159,12 @@ export default function Home() {
     setError(null);
     try {
       const persona = await api.createPersona({ language, sources });
-      setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000 });
+      setResult({
+        persona,
+        sources,
+        seconds: (Date.now() - startedAt.current) / 1000,
+        guide: guideFor(sources),
+      });
       setTab("persona");
     } catch (e) {
       setError(errorMessage(e));
@@ -171,7 +187,7 @@ export default function Home() {
     setOpening(true);
     setError(null);
     try {
-      setResult({ persona: await api.getPersona(id), sources: [], seconds: null });
+      setResult({ persona: await api.getPersona(id), sources: [], seconds: null, guide: "" });
       setTab("persona");
     } catch (e) {
       setError(errorMessage(e));
@@ -418,7 +434,12 @@ export default function Home() {
           </div>
           <div hidden={tab !== "interview"}>
             {/* Keyed by persona so a new persona never inherits the previous call. */}
-            <InterviewRoom key={result.persona.id} persona={result.persona} startBlocked={opening} />
+            <InterviewRoom
+              key={result.persona.id}
+              persona={result.persona}
+              startBlocked={opening}
+              initialGuide={result.guide}
+            />
           </div>
         </>
       )}
@@ -650,7 +671,14 @@ function PersonaProfile({
           hint={`Talk to ${persona.name} for a minute. Does this sound like your customer? No questions needed; this is not the interview.`}
         >
           {/* Its own room, keyed apart from the interview's, so a test never mixes into the real call. */}
-          {showTestCall && <InterviewRoom key={`test-${persona.id}`} persona={persona} startBlocked={opening} />}
+          {showTestCall && (
+            <InterviewRoom
+              key={`test-${persona.id}`}
+              persona={persona}
+              startBlocked={opening}
+              questionsRequired={false}
+            />
+          )}
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4 text-sm">
             <span className="font-medium">Your verdict:</span>
             <button

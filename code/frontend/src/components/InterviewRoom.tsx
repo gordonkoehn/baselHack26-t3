@@ -10,7 +10,7 @@ import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
-import { QUARTIER_BOERSE_GUIDE, sampleTurns } from "@/lib/sample";
+import { sampleTurns } from "@/lib/sample";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
@@ -39,13 +39,25 @@ type ServerEvent = {
   error?: { message?: string; event_id?: string };
 };
 
-export function InterviewRoom({ persona, startBlocked }: { persona: Persona; startBlocked: boolean }) {
+export function InterviewRoom({
+  persona,
+  startBlocked,
+  initialGuide = "",
+  questionsRequired = true,
+}: {
+  persona: Persona;
+  startBlocked: boolean;
+  /** Questions the debrief will answer. Empty for a saved persona, so the sample sprint questions never come back. */
+  initialGuide?: string;
+  /** False for the short test call on the persona tab: no debrief questions needed. */
+  questionsRequired?: boolean;
+}) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
-  const [guide, setGuide] = useState(QUARTIER_BOERSE_GUIDE.join("\n"));
+  const [guide, setGuide] = useState(initialGuide);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
@@ -447,6 +459,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   }
 
   async function start() {
+    if (startBlocked || (questionsRequired && guide.split("\n").every((q) => !q.trim()))) return;
     hangUp();
     setPhase("connecting");
     startupFailure.current = null;
@@ -608,6 +621,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   // Demo fallback when the live call can't run: save the scripted transcript as an ended session
   // marked sample, then show its debrief. No token, microphone or provider call is involved.
   async function runSample() {
+    if (startBlocked || (questionsRequired && guide.split("\n").every((q) => !q.trim()))) return;
     hangUp();
     gen.current += 1;
     const g = gen.current;
@@ -787,6 +801,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
     : null;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
+  const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
+  const canStart = !questionsRequired || questionCount > 0;
 
   const btn = "rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted";
   const avatarSwitch = (
@@ -811,22 +827,42 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   );
 
   return (
-    <section className="mt-8 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
-      <div className="flex flex-wrap items-center gap-3">
+    <section className="mt-4 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
+        <label className="mb-1 block text-sm">
+          <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
+          <textarea
+            className="mt-1 h-24 w-full rounded-md border border-line bg-surface p-2 text-sm"
+            value={guide}
+            onChange={(e) => setGuide(e.target.value)}
+          />
+        </label>
+      )}
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
+        <p className="-mt-2 mb-1 text-xs text-muted">
+          {questionCount === 0
+            ? "Add at least one question. The interview can start once the debrief has something to answer."
+            : `${questionCount} ${questionCount === 1 ? "question" : "questions"}. End the call and the debrief answers each line.`}
+        </p>
+      )}
+      {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
+        <GuideCheck guide={guide} language={persona.language} onGuideChange={setGuide} />
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Video interview</h3>
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <button
             type="button"
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-40"
             onClick={start}
-            disabled={startBlocked}
+            disabled={startBlocked || !canStart}
           >
             {phase === "idle" || ended?.sample ? "Start video interview" : "Start again"}
           </button>
         )}
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <>
-            <button type="button" className={btn} onClick={runSample}>
+            <button type="button" className={btn} onClick={runSample} disabled={startBlocked || !canStart}>
               Use sample interview
             </button>
             {avatarSwitch}
@@ -871,19 +907,6 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
         </p>
-      )}
-      {(phase === "idle" || phase === "ended" || phase === "error") && (
-        <label className="mt-3 block text-sm">
-          <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
-          <textarea
-            className="mt-1 h-20 w-full rounded-md border border-line bg-surface p-2 text-sm"
-            value={guide}
-            onChange={(e) => setGuide(e.target.value)}
-          />
-        </label>
-      )}
-      {(phase === "idle" || phase === "ended" || phase === "error") && (
-        <GuideCheck guide={guide} language={persona.language} onGuideChange={setGuide} />
       )}
       {!inCall && phase === "ending" && <p role="status">{finalStage} · {endSeconds}s elapsed</p>}
       {!inCall && saveLine}
@@ -1031,10 +1054,13 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
         </details>
       )}
       {(metrics.latenciesMs.length > 0 || metrics.outputTokens > 0) && (
-        <p className="mt-3 text-xs tabular-nums text-muted" data-testid="metrics">
-          Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
-          {metrics.inputTokens} / out {metrics.outputTokens}
-        </p>
+        <details className="mt-3 text-xs text-muted">
+          <summary className="cursor-pointer">Call diagnostics</summary>
+          <p className="mt-1 tabular-nums" data-testid="metrics">
+            Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
+            {metrics.inputTokens} / out {metrics.outputTokens}
+          </p>
+        </details>
       )}
       {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
