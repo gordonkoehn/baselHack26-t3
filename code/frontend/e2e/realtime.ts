@@ -3,12 +3,20 @@ import type { Page } from "@playwright/test";
 type WireEvent = {
   type: string;
   item_id?: string;
+  response_id?: string;
   content_index?: number;
   transcript?: string;
-  response?: { id: string; status?: string };
+  response?: {
+    id: string;
+    status?: string;
+    output?: { id: string; content: { type: string; transcript?: string; text?: string }[] }[];
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+  error?: { event_id?: string; message?: string };
 };
 type SentEvent = {
   type: string;
+  event_id?: string;
   item?: { content: { type: string; text?: string }[] };
 };
 
@@ -16,10 +24,13 @@ declare global {
   interface Window {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
+      lose: () => void;
+      stale: (() => void)[];
       sent: SentEvent[];
       closed: boolean;
       channelClosed: boolean;
       microphones: MediaStreamTrack[];
+      audioConstraints: (boolean | MediaTrackConstraints | undefined)[];
       cameraRequests: number;
     };
   }
@@ -29,7 +40,8 @@ export async function installRealtime(page: Page) {
   await page.addInitScript(({ keepMicrophoneLive }) => {
     const state: Window["e2eRealtime"] = {
       emit: () => { throw new Error("No realtime channel yet"); },
-      sent: [], closed: false, channelClosed: false, microphones: [], cameraRequests: 0,
+      lose: () => {}, stale: [],
+      sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
     };
     window.e2eRealtime = state;
     class Channel extends EventTarget {
@@ -48,12 +60,20 @@ export async function installRealtime(page: Page) {
       channel = new Channel();
       addTrack() {}
       createDataChannel() {
+        state.lose = () => {
+          this.channel.readyState = "closed";
+          this.channel.dispatchEvent(new Event("close"));
+        };
         state.emit = (event) => this.channel.onmessage?.(new MessageEvent("message", { data: JSON.stringify(event) }));
         return this.channel;
       }
       async createOffer() { return { type: "offer", sdp: "e2e-offer" }; }
       async setLocalDescription() {}
       async setRemoteDescription() {
+        const callback = this.channel.onmessage;
+        state.stale.push(() => callback?.(new MessageEvent("message", { data: JSON.stringify({
+          type: "conversation.item.input_audio_transcription.completed", item_id: "stale-input", transcript: "Stale turn must not leak",
+        }) })));
         this.channel.readyState = "open";
         this.channel.dispatchEvent(new Event("open"));
       }
@@ -69,6 +89,7 @@ export async function installRealtime(page: Page) {
           throw new DOMException("Camera is deliberately unavailable in this test", "NotAllowedError");
         }
         if (!constraints.audio) throw new Error("Expected an audio request");
+        state.audioConstraints.push(constraints.audio);
         // A silent synthetic track; no OS microphone or screen permission is requested.
         const audio = new AudioContext();
         const stream = audio.createMediaStreamDestination().stream;

@@ -28,6 +28,7 @@ from app.contracts import (
     SpeechStyle,
 )
 from app.faces import FaceName, Gender, catalog
+from app.provider_log import provider_call
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 TIMEOUT_SECONDS = 90
@@ -165,7 +166,7 @@ def _provider_errors() -> Iterator[None]:
 
 
 def extract_persona(request: PersonaCreate) -> PersonaDraft:
-    with _provider_errors():
+    with _provider_errors(), provider_call("openai", "extract_persona"):
         response = _client().responses.parse(
             model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
             instructions=INSTRUCTIONS.format(
@@ -174,11 +175,10 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
             input=_format_sources(request),
             text_format=PersonaDraft,
         )
-
-    draft = response.output_parsed
-    if draft is None:
-        # No parsed output means a refusal or an incomplete answer.
-        raise ExtractionFailed(f"no persona in response (status {response.status})")
+        draft = response.output_parsed
+        if draft is None:
+            # No parsed output means a refusal or an incomplete answer.
+            raise ExtractionFailed(f"no persona in response (status {response.status})")
     return draft
 
 
@@ -198,23 +198,23 @@ def transcribe(data: bytes, mime: str) -> str:
         if mime == "application/pdf"
         else {"type": "input_image", "image_url": url}
     )
-    with _provider_errors():
+    with _provider_errors(), provider_call("openai", "transcribe"):
         response = _client().responses.create(
             model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
             instructions=TRANSCRIBE,
             input=[{"role": "user", "content": [part]}],
         )
-    if (
-        response.status != "completed"
-        or response.error is not None
-        or any(
-            content.type == "refusal"
-            for item in response.output
-            if item.type == "message"
-            for content in item.content
-        )
-    ):
-        raise ExtractionFailed("transcription failed")
+        if (
+            response.status != "completed"
+            or response.error is not None
+            or any(
+                content.type == "refusal"
+                for item in response.output
+                if item.type == "message"
+                for content in item.content
+            )
+        ):
+            raise ExtractionFailed("transcription failed")
     return response.output_text.strip()
 
 
@@ -265,7 +265,7 @@ itself a verbatim substring of the insight quote. Otherwise keep guess/null.
 
 
 def extract_debrief(session: Session, persona: Persona, events: list[SessionEvent]) -> DebriefDraft:
-    with _provider_errors():
+    with _provider_errors(), provider_call("openai", "extract_debrief", session.id):
         try:
             response = _client().responses.parse(
                 model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
@@ -283,17 +283,16 @@ def extract_debrief(session: Session, persona: Persona, events: list[SessionEven
         except (AttributeError, TypeError, ValueError):
             # Malformed successful responses can fail inside the SDK parser before validation.
             raise ExtractionFailed("invalid debrief output") from None
-
-    if (
-        response.status != "completed"
-        or response.error is not None
-        or response.incomplete_details is not None
-        or any(
-            item.status != "completed" or any(part.type == "refusal" for part in item.content)
-            for item in response.output
-            if item.type == "message"
-        )
-        or response.output_parsed is None
-    ):
-        raise ExtractionFailed("unusable debrief response")
+        if (
+            response.status != "completed"
+            or response.error is not None
+            or response.incomplete_details is not None
+            or any(
+                item.status != "completed" or any(part.type == "refusal" for part in item.content)
+                for item in response.output
+                if item.type == "message"
+            )
+            or response.output_parsed is None
+        ):
+            raise ExtractionFailed("unusable debrief response")
     return response.output_parsed
