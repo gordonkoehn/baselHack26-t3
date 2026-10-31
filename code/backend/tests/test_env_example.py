@@ -8,13 +8,15 @@ ENV_EXAMPLE = BACKEND.parent / ".env.example"
 ENV_READ = re.compile(r"""os\.(?:environ\.get\(|environ\[|getenv\()\s*["']([A-Z0-9_]+)["']""")
 # Read by Redis.from_env() in store.py, not by name in our code.
 READ_BY_LIBRARIES = {"UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"}
+# Set by the platform, so nobody configures them.
+SET_BY_PLATFORM = {"VERCEL"}
 
 
 def keys_read_by_backend() -> set[str]:
     keys = set(READ_BY_LIBRARIES)
     for path in (BACKEND / "app").rglob("*.py"):
         keys.update(ENV_READ.findall(path.read_text()))
-    return keys
+    return keys - SET_BY_PLATFORM
 
 
 def example_lines() -> list[str]:
