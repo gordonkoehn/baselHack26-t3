@@ -59,7 +59,7 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
       <h3 className="text-sm font-semibold uppercase tracking-wide opacity-60">Debrief</h3>
       <p className="mt-1 text-xs opacity-60">
         Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-        findings.
+        findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
       </p>
       <ol className="mt-3 space-y-5">
         {report.questions.map((q) => (
@@ -81,14 +81,19 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
                     {i.label === "grounded" ? "grounded" : "guess"}
                   </span>
                   {i.theme}
-                  {i.label === "grounded" && (
-                    <blockquote className="mt-1 border-l-2 border-green-300 pl-3 opacity-80">
-                      “{i.quote}”
-                      <span className="block text-xs opacity-50">
-                        {personaName} · interview turn {i.turnSeq}
-                      </span>
-                    </blockquote>
-                  )}
+                  {/* The quote is always verbatim from the interview; the label says whether the
+                      persona's real sources back it too. */}
+                  <blockquote
+                    className={`mt-1 border-l-2 pl-3 opacity-80 ${
+                      i.label === "grounded" ? "border-green-300" : "border-current/20"
+                    }`}
+                  >
+                    “{i.quote}”
+                    <span className="block text-xs opacity-50">
+                      {personaName} · interview turn {i.turnSeq}
+                      {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
+                    </span>
+                  </blockquote>
                 </li>
               ))}
             </ul>
