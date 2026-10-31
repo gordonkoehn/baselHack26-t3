@@ -76,6 +76,8 @@ export type Session = {
 
 export type SessionCreate = { personaId: string; interviewGuide?: string[] };
 
+export type SessionUpdate = { status: "live" | "ended" };
+
 export type SessionToken = {
   provider: Provider;
   token?: string | null;
