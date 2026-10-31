@@ -1,12 +1,19 @@
 import base64
+import hashlib
+import io
 
 import pytest
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
+from PIL import Image
 
 from app import rate_limit
+from app.contracts import PersonaCreate
+from app.extract import ProviderUnavailable
 from app.main import app
+from app.routers import sources
 from app.routers.personas import get_extractor, get_prober
+from app.store import get_store
 from tests.test_personas import REQUEST, SOURCE, draft, no_probes
 from tests.test_sources import fake_transcribe, make_pdf
 
@@ -112,7 +119,8 @@ def test_add_source_text_pdf_and_image(client, monkeypatch):
 def test_tools_share_the_routes_rate_limits(client, monkeypatch):
     monkeypatch.setitem(rate_limit.LIMITS, "personas", (1, 100))
     assert call(client, "create_persona", REQUEST)["isError"] is False
-    res = rpc(client, "tools/call", {"name": "create_persona", "arguments": REQUEST})
+    other = {**REQUEST, "sprintId": "sprint_other"}  # the same arguments would return the first
+    res = rpc(client, "tools/call", {"name": "create_persona", "arguments": other})
     assert res.status_code == 429 and res.headers["retry-after"]
     # The route and the tool count in the same bucket.
     assert client.post("/api/personas", json=REQUEST).status_code == 429
@@ -166,3 +174,59 @@ def test_tool_schemas_compile_and_check_nested_facts(client):
     assert not update.is_valid({"personaId": "p_1a2b3c", "changes": {"pains": [{"label": 1}]}})
     assert not update.is_valid({"personaId": "p_1:sources", "changes": {"name": "X"}})
     assert not update.is_valid({"personaId": "p_1a2b3c", "changes": {}})
+
+
+def test_files_count_against_the_sources_limit_and_text_does_not(client, monkeypatch):
+    monkeypatch.setitem(rate_limit.LIMITS, "sources", (1, 100))
+    pdf = base64.b64encode(make_pdf("I want to see the money arrive.")).decode()
+    assert call(client, "add_source", {"text": "Notes"})["isError"] is False
+    assert call(client, "add_source", {"data": pdf})["isError"] is False
+    res = rpc(client, "tools/call", {"name": "add_source", "arguments": {"data": pdf}})
+    assert res.status_code == 429
+
+
+def test_transparent_images_are_put_on_white_like_the_upload_page(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        sources.extract, "transcribe", lambda data, mime: sent.append((data, mime)) or "ok"
+    )
+    png = io.BytesIO()
+    Image.new("RGBA", (4096, 64), (0, 0, 0, 0)).save(png, "PNG")
+    assert (
+        call(client, "add_source", {"data": base64.b64encode(png.getvalue()).decode()})[
+            "structuredContent"
+        ]["text"]
+        == "ok"
+    )
+    [(data, mime)] = sent
+    image = Image.open(io.BytesIO(data))
+    assert mime == "image/jpeg" and image.size == (2048, 32)
+    assert image.getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_a_retried_create_returns_the_first_persona(client):
+    built = []
+    app.dependency_overrides[get_extractor] = lambda: lambda _req: built.append(1) or draft()
+    first = call(client, "create_persona", REQUEST)["structuredContent"]
+    again = call(client, "create_persona", REQUEST)["structuredContent"]
+    assert again == first and len(built) == 1
+    assert [p["id"] for p in client.get("/api/personas").json()] == [first["id"]]
+
+
+def test_a_create_still_running_is_not_started_twice(client):
+    store = app.dependency_overrides[get_store]()
+    body = PersonaCreate.model_validate(REQUEST).model_dump_json(by_alias=True)
+    assert store.claim_creation(hashlib.sha256(body.encode()).hexdigest()) is None
+    result = call(client, "create_persona", REQUEST)
+    assert result["isError"] is True and "still being built" in result["content"][0]["text"]
+    assert client.get("/api/personas").json() == []
+
+
+def test_a_failed_create_can_be_retried(client):
+    def down(_req):
+        raise ProviderUnavailable("down")
+
+    app.dependency_overrides[get_extractor] = lambda: down
+    assert call(client, "create_persona", REQUEST)["isError"] is True
+    app.dependency_overrides[get_extractor] = lambda: lambda _req: draft()
+    assert call(client, "create_persona", REQUEST)["isError"] is False

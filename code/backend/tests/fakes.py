@@ -12,13 +12,20 @@ class FakeRedis:
         self.ttl: dict = {}
         self.lock = threading.Lock()
 
-    def set(self, key, value, ex=None, xx=False, keepttl=False):
+    def set(self, key, value, ex=None, xx=False, nx=False, keepttl=False):
         with self.lock:
-            if xx and key not in self.data:
-                return
+            if (xx and key not in self.data) or (nx and key in self.data):
+                return False  # as Upstash
             self.data[key] = value
             if not keepttl:
                 self.ttl[key] = ex
+            return True
+
+    def delete(self, *keys):
+        with self.lock:
+            for key in keys:
+                self.data.pop(key, None)
+                self.ttl.pop(key, None)
 
     def get(self, key):
         return self.data.get(key)

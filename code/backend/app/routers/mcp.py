@@ -8,10 +8,13 @@ https://modelcontextprotocol.io/specification/2025-06-18/basic/transports.
 
 import base64
 import binascii
+import hashlib
+import io
 import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from PIL import Image
 from pydantic import BaseModel, ValidationError
 
 from app.auth import require_passcode
@@ -45,8 +48,7 @@ TOOLS = [
             "Turn one piece of sprint material into source text for create_persona. Pass `text` "
             "for notes or transcripts (returned as is), or `data` with a base64 PDF, PNG, JPEG, "
             "WebP or GIF (about 3 MB at most: the request limit counts the base64); scans and "
-            "images are transcribed. Put transparent images on a white background first, or "
-            "dark text can read as black on black. Quotes in the persona are later checked "
+            "images are transcribed. Quotes in the persona are later checked "
             "against exactly this text."
         ),
         "inputSchema": {
@@ -60,8 +62,9 @@ TOOLS = [
     {
         "name": "create_persona",
         "description": (
-            "Build a test persona from sources (use add_source first for files). Takes about a "
-            "minute. Returns the persona with its readiness score; it then shows up in the "
+            "Build a test persona from sources (use add_source first for files). Takes up to two "
+            "minutes; calling again with the same arguments returns the same persona instead of "
+            "building a second one. Returns the persona with its readiness score; it then shows up in the "
             "OpenTwin persona library like an uploaded one."
         ),
         "inputSchema": PersonaCreate.model_json_schema(by_alias=True),
@@ -116,7 +119,49 @@ def _add_source(args: dict, request: Request, store: StoreDep) -> ExtractedText:
     except (binascii.Error, ValueError):
         raise ToolError("data is not valid base64") from None
     rate_limit("sources")(request, store)
-    return read_pdf(body) if body.startswith(b"%PDF") else read_image(body)
+    return read_pdf(body) if body.startswith(b"%PDF") else read_image(_on_white(body))
+
+
+def _on_white(body: bytes) -> bytes:
+    """The upload page's onWhite: a transparent image reads as black on black, so flatten it."""
+    try:
+        with Image.open(io.BytesIO(body)) as image:
+            image.thumbnail((2048, 2048))
+            rgba = image.convert("RGBA")
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return body  # not an image Pillow reads: read_image refuses or sends it as it is
+    flat = Image.new("RGB", rgba.size, "white")
+    flat.paste(rgba, mask=rgba.getchannel("A"))
+    out = io.BytesIO()
+    flat.save(out, "JPEG", quality=92)
+    return out.getvalue()
+
+
+def _create_once(
+    body: PersonaCreate,
+    request: Request,
+    store: StoreDep,
+    extractor: ExtractorDep,
+    prober: ProberDep,
+) -> BaseModel:
+    # A client that gives up before the persona is built and retries must not pay for a second one.
+    digest = hashlib.sha256(body.model_dump_json(by_alias=True).encode()).hexdigest()
+    earlier = store.claim_creation(digest)
+    if earlier == "pending":
+        raise ToolError(
+            "this persona is still being built; call create_persona again with the same "
+            "arguments in a minute to get it"
+        )
+    if earlier:
+        return personas.read_persona(earlier, store)
+    try:
+        rate_limit("personas")(request, store)
+        persona = personas.create_persona(body, store, extractor, prober)
+    except BaseException:
+        store.finish_creation(digest, None)
+        raise
+    store.finish_creation(digest, persona.id)
+    return persona
 
 
 def _call(
@@ -130,9 +175,7 @@ def _call(
     if name == "add_source":
         return _add_source(args, request, store)
     if name == "create_persona":
-        body = _parse(PersonaCreate, args)
-        rate_limit("personas")(request, store)
-        return personas.create_persona(body, store, extractor, prober)
+        return _create_once(_parse(PersonaCreate, args), request, store, extractor, prober)
     if name == "get_persona":
         return personas.read_persona(_persona_id(args, {"personaId"}), store)
     if name == "update_persona":

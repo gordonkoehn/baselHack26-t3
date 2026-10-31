@@ -27,6 +27,9 @@ from app.contracts import (
 TTL_SECONDS = 7 * 24 * 3600
 PREFIX = "ot"
 PERSONA_LIST_SIZE = 20
+# create_persona runs up to ~2 min; a claim left by a killed call must not block retries for long.
+CREATION_PENDING_SECONDS = 180
+CREATION_DONE_SECONDS = 600
 
 
 # KEYS[1] = events hash, ARGV = ttl, then seq/value pairs.
@@ -259,6 +262,21 @@ class Store:
         raw = self._call("hgetall", f"{PREFIX}:session:{session_id}:events") or {}
         events = [SessionEvent.model_validate_json(v) for v in raw.values()]
         return sorted(events, key=lambda e: e.seq)
+
+    def claim_creation(self, digest: str) -> str | None:
+        """None if this call may build the persona, else "pending" or the id an earlier call made."""
+        key = f"{PREFIX}:creating:{digest}"
+        if self._call("set", key, "pending", ex=CREATION_PENDING_SECONDS, nx=True):
+            return None
+        return self._call("get", key) or "pending"
+
+    def finish_creation(self, digest: str, persona_id: str | None) -> None:
+        """Records the persona a claim made, or frees the claim when building failed."""
+        key = f"{PREFIX}:creating:{digest}"
+        if persona_id is None:
+            self._call("delete", key)
+        else:
+            self._call("set", key, persona_id, ex=CREATION_DONE_SECONDS)
 
     def count_hit(self, name: str, window_seconds: int) -> tuple[int, int]:
         """Counts one hit in a fixed window, returns (hits so far, seconds until it resets)."""

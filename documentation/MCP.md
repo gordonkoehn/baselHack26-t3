@@ -36,8 +36,8 @@ Restart Claude Desktop afterwards.
 
 | Tool | What it does |
 | --- | --- |
-| `add_source` | One piece of material in, source text out. `text` for notes or transcripts (returned as is), or `data` with a base64 PDF, PNG, JPEG, WebP or GIF. On Vercel the request limit (4.5 MB) counts the base64, so files can be about 3 MB. Scans and images are transcribed; put transparent images (Miro exports) on white first, since the upload page does that and the tool does not. |
-| `create_persona` | Builds a persona from sources (same body as `POST /api/personas`). Takes about a minute and returns the persona with its readiness score. |
+| `add_source` | One piece of material in, source text out. `text` for notes or transcripts (returned as is), or `data` with a base64 PDF, PNG, JPEG, WebP or GIF. On Vercel the request limit (4.5 MB) counts the base64, so files can be about 3 MB. Scans and images are transcribed; images are put on white and shrunk to 2048 px first, like on the upload page. |
+| `create_persona` | Builds a persona from sources (same body as `POST /api/personas`). Takes up to two minutes and returns the persona with its readiness score. The same arguments again within 10 minutes return that persona instead of building a second one (a client that timed out can simply retry). |
 | `get_persona` | Reads one persona by `personaId`. |
 | `update_persona` | Changes a persona: `personaId` plus `changes` with only the fields to change (same body as `PATCH /api/personas/{id}`). Edited facts become guesses and the readiness score is cleared. |
 
