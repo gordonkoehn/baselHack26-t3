@@ -349,7 +349,7 @@ function FactItem({
       </span>
       {fact.text}
       {isGrounded && (
-        <blockquote className="mt-1.5 border-l-2 border-accent/40 pl-3 text-foreground/80">
+        <blockquote className="mt-1.5 border-l-2 border-accent/40 pl-3 text-foreground/80 wrap-anywhere">
           “{evidence.quote}”
           <span className="mt-0.5 block text-xs text-muted">
             {evidence.kind}
