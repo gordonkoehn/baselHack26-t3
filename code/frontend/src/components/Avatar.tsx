@@ -28,6 +28,8 @@ export function Avatar({
     let cancelled = false;
     const fail = () => {
       if (cancelled) return;
+      // A failed or ended session still holds a connection: release it.
+      void client?.stop();
       onActive(null);
       setState("off");
     };
