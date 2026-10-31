@@ -20,7 +20,7 @@ import { CoverageCheck } from "@/components/CoverageCheck";
 import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/IdentityEditor";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
-import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import { LUMEN_PERSONAS, QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
 // Files the browser can read as plain text without any extra library; PDFs and images go through
@@ -29,17 +29,8 @@ const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
 const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
 const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
-// The Lumen case's persona stack (documentation/usecases/lumen-ipp). Once one of them has been built,
-// the library shows the Lumen case: built ones open, the rest are listed as examples.
-const LUMEN_PERSONAS = [
-  { surname: "Kessler", name: "Dr. Miriam Kessler", role: "Open Access Coordinator, University of Rheinfeld" },
-  { surname: "Hollmann", name: "Dr. Rainer Hollmann", role: "Director, University Library, Rheinfeld" },
-  { surname: "Aigner", name: "Prof. Dr. Sabine Aigner", role: "Vice-President for Research, Rheinfeld" },
-  { surname: "Ferreira", name: "Dr. Ana Ferreira", role: "Junior Group Leader and guest editor, Rheinfeld" },
-  { surname: "Brändli", name: "Jonas Brändli", role: "Data Steward, Aaretal University of Applied Sciences" },
-  { surname: "Sandmann", name: "Ulrike Sandmann", role: "Head of Licensing, Southern Library Consortium" },
-];
-
+// Once a Lumen persona has been built, the library shows the Lumen case: built ones open, the rest
+// are listed as examples.
 function library(recent: PersonaSummary[]) {
   const built = LUMEN_PERSONAS.map((l) => recent.find((p) => p.name.includes(l.surname))).filter(
     (p): p is PersonaSummary => p !== undefined,

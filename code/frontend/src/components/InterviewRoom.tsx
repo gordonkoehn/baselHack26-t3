@@ -10,7 +10,7 @@ import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
-import { QUARTIER_BOERSE_GUIDE, sampleTurns } from "@/lib/sample";
+import { LUMEN_GUIDE, QUARTIER_BOERSE_GUIDE, isLumenPersona, sampleTurns } from "@/lib/sample";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
@@ -45,7 +45,9 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   const [turns, setTurns] = useState<Turn[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
-  const [guide, setGuide] = useState(QUARTIER_BOERSE_GUIDE.join("\n"));
+  const [guide, setGuide] = useState(() =>
+    (isLumenPersona(persona.name) ? LUMEN_GUIDE : QUARTIER_BOERSE_GUIDE).join("\n"),
+  );
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
