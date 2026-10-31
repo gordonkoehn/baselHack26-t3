@@ -297,11 +297,14 @@ def apply_answers(persona: Persona, n: int, body: PersonaAnswers, draft: Answers
     """
     answers = [_norm(a.answer) for a in body.answers]
     ids = {e.id for e in persona.evidence}
-    seen = {f.text.casefold() for f in persona.jobs + persona.pains + persona.objections}
-    evidence = list(persona.evidence)
+    # The team knows the real customers: a fact they contradict goes, wherever it is listed.
+    replaced = {_norm(f.replaces).casefold() for f in draft.facts if f.replaces.strip()}
     facts: dict[str, list[Fact]] = {
-        k: list(getattr(persona, k)) for k in ("jobs", "pains", "objections")
+        k: [f for f in getattr(persona, k) if _norm(f.text).casefold() not in replaced]
+        for k in ("jobs", "pains", "objections")
     }
+    seen = {f.text.casefold() for fs in facts.values() for f in fs}
+    evidence = list(persona.evidence)
     for f in draft.facts[:8]:
         text = f.text.strip()
         if not text or text.casefold() in seen:
@@ -323,8 +326,18 @@ def apply_answers(persona: Persona, n: int, body: PersonaAnswers, draft: Answers
         facts[f.field].append(
             Fact(text=text, label="grounded" if evidence_id else "guess", evidence_id=evidence_id)
         )
+    basics: dict = {}
+    if draft.age is not None and 0 <= draft.age <= 120:
+        basics["age"] = draft.age
+    if draft.location.strip():
+        basics["location"] = draft.location.strip()
+    context = {
+        k: v.strip() for k, v in (("job", draft.job), ("household", draft.household)) if v.strip()
+    }
+    if context:
+        basics["context"] = persona.context.model_copy(update=context)
     return persona.model_copy(
-        update={"version": persona.version + 1, "evidence": evidence, **facts}
+        update={"version": persona.version + 1, "evidence": evidence, **facts, **basics}
     )
 
 
@@ -530,7 +543,11 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             changes[name] = relabel(new, getattr(persona, name))
     if body.speech_style is not None:
         changes["speech_style"] = persona.speech_style.model_copy(
-            update={"notes": body.speech_style.notes}
+            update={k: getattr(body.speech_style, k) for k in body.speech_style.model_fields_set}
+        )
+    if body.attitudes is not None:
+        changes["attitudes"] = persona.attitudes.model_copy(
+            update={k: getattr(body.attitudes, k) for k in body.attitudes.model_fields_set}
         )
     persona = persona.model_copy(update=changes)
     store.save_persona(persona)

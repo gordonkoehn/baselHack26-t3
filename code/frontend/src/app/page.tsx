@@ -540,6 +540,11 @@ function PersonaProfile({
         sources={sources}
         coverage={coverage}
         onVerify={() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" })}
+        onSave={(update) => void save(update, "identity")}
+        onEditProfile={() => {
+          setEditing(true);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       />
 
       <Card title="What drives them" hint="Jobs, pains and objections. Edit, downgrade or remove anything that is wrong.">

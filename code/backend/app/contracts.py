@@ -100,6 +100,10 @@ class Persona(Model):
 
 
 class SpeechNotes(Model):
+    # Only fields sent are changed.
+    register_: Literal["formal", "informal"] | None = Field(default=None, alias="register")
+    verbosity: Literal["short", "medium", "long"] | None = None
+    fillers: bool | None = None
     notes: str | None = None
 
 
@@ -117,6 +121,7 @@ class PersonaUpdate(Model):
     pains: list[Fact] | None = None
     objections: list[Fact] | None = None
     speech_style: SpeechNotes | None = None
+    attitudes: Attitudes | None = None
 
 
 class PersonaSource(Model):

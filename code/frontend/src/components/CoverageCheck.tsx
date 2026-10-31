@@ -84,22 +84,28 @@ export function CoverageCheck({
 
   // The persona keeps its id and gains facts; then the same test is checked again, so the score
   // change shows without another click (the backend keeps weights and still-backed rows).
-  async function submit() {
+  // Gap answers and row edits take the same way: the team's words become facts (or correct them).
+  async function submit(list: { question: string; answer: string }[]) {
     setSubmitting(true);
     setError(null);
     try {
-      const patched = await api.answerGaps(persona.id, { answers: given });
+      const patched = await api.answerGaps(persona.id, { answers: list });
       // Same layout as the backend's stored source; the card only shows its title.
-      const text = given.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n");
+      const text = list.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n");
       onAnswered(patched, { kind: "note", title: "Answers to gap questions", text });
     } catch (e) {
       setError(errorMessage(e));
       setSubmitting(false);
-      return;
+      return false;
     }
     setSubmitting(false);
     await check();
+    return true;
   }
+
+  // The row being edited and what the team writes for it.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [rowText, setRowText] = useState("");
 
   // A rebuild makes a new persona; edits and answers bump the version.
   const stale = report !== null && (report.personaId !== persona.id || report.personaVersion !== persona.version);
@@ -203,10 +209,61 @@ export function CoverageCheck({
                   {"●".repeat(c.weight)}
                   {"○".repeat(3 - c.weight)}
                 </span>
+                {editing !== c.name && (
+                  <button
+                    type="button"
+                    className="ml-auto text-xs text-muted hover:text-foreground disabled:opacity-40"
+                    aria-label={`Edit: ${c.name}`}
+                    onClick={() => {
+                      setEditing(c.name);
+                      setRowText("");
+                    }}
+                    disabled={busy}
+                  >
+                    edit
+                  </button>
+                )}
                 <span className="basis-full pl-[4.5rem] text-muted">
                   {c.note}
                   {c.evidenceIds.length > 0 && ` · ${c.evidenceIds.join(", ")}`}
                 </span>
+                {editing === c.name && (
+                  <form
+                    className="basis-full space-y-2 pt-2 pl-[4.5rem]"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const answer = rowText.trim();
+                      if (!answer || busy) return;
+                      if (await submit([{ question: `${c.name}: ${c.note}`, answer }])) setEditing(null);
+                    }}
+                  >
+                    <textarea
+                      aria-label={`What you know about real customers: ${c.name}`}
+                      className="h-20 w-full rounded-md border border-line bg-surface p-2"
+                      placeholder={
+                        c.status === "covered"
+                          ? "Correct or add to this, from what you know about real customers…"
+                          : "What do you know about real customers here?"
+                      }
+                      value={rowText}
+                      onChange={(e) => setRowText(e.target.value)}
+                      disabled={busy}
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        className="rounded-md border border-line bg-surface px-3 py-1.5 hover:border-muted disabled:opacity-40"
+                        disabled={busy || !rowText.trim()}
+                      >
+                        {submitting ? "Adding to persona…" : "Save to persona"}
+                      </button>
+                      <button type="button" className="px-2 text-muted hover:text-foreground" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
@@ -229,7 +286,7 @@ export function CoverageCheck({
                 <button
                   type="button"
                   className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted disabled:opacity-40"
-                  onClick={submit}
+                  onClick={() => submit(given)}
                   disabled={busy || given.length === 0}
                 >
                   {submitting ? "Adding to persona…" : "Add answers to persona"}

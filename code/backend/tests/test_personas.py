@@ -355,6 +355,24 @@ def test_photo_rejects_other_files(client, monkeypatch):
     assert client.delete("/api/personas/p_missing/photo").status_code == 404
 
 
+def test_patch_attitudes_and_speech_style_change_only_what_is_sent(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}"
+    body = client.patch(
+        url,
+        json={
+            "attitudes": {"techAffinity": 5},
+            "speechStyle": {"register": "formal", "fillers": False},
+        },
+    ).json()
+    assert body["attitudes"] == {**created["attitudes"], "techAffinity": 5}
+    assert body["speechStyle"]["register"] == "formal"
+    assert body["speechStyle"]["fillers"] is False
+    assert body["speechStyle"]["notes"] == created["speechStyle"]["notes"]
+    assert body["speechStyle"]["verbosity"] == created["speechStyle"]["verbosity"]
+    assert client.patch(url, json={"attitudes": {"techAffinity": 9}}).status_code == 422
+
+
 def test_faces_have_photos(client):
     faces = client.get("/api/faces").json()
     assert {f["id"] for f in faces} == {f[0] for f in FACES.values()}

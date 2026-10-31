@@ -200,10 +200,42 @@ def use_answerer(fn):
     app.dependency_overrides[get_answerer] = lambda: fn
 
 
-def answer_draft(*facts):
+def answer_draft(*facts, replaces="", **basics):
     return AnswersDraft.model_validate(
-        {"facts": [{"field": f, "text": t, "quote": q} for f, t, q in facts]}
+        {
+            "facts": [
+                {"field": f, "text": t, "quote": q, "replaces": replaces} for f, t, q in facts
+            ],
+            "age": None,
+            "location": "",
+            "job": "",
+            "household": "",
+            **basics,
+        }
     )
+
+
+def test_a_correction_replaces_the_fact_and_updates_the_basics(client):
+    old = PERSONA.objections[0]
+    use_answerer(
+        lambda *_: answer_draft(
+            (
+                "objections",
+                "Gives shares gladly if she sees the project",
+                "photo of the finished project",
+            ),
+            replaces=f"  {old.text} ",  # whitespace from the model is tolerated
+            age=55,
+            location="Kriens",
+            job="",
+        )
+    )
+    body = Persona.model_validate(answer(client).json())
+    assert old.text not in [f.text for f in body.objections]
+    assert body.objections[-1].label == "grounded"
+    assert body.age == 55 and body.location == "Kriens"
+    assert body.context.job == PERSONA.context.job  # empty means unchanged
+    assert body.pains == PERSONA.pains
 
 
 def answer(client, body=ANSWERS, persona_id=PERSONA.id):

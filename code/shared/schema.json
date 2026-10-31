@@ -113,7 +113,22 @@
         "objections": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
         "speechStyle": {
           "type": "object",
-          "properties": { "notes": { "type": ["string", "null"] } }
+          "description": "Only fields sent are changed.",
+          "properties": {
+            "register": { "enum": ["formal", "informal"] },
+            "verbosity": { "enum": ["short", "medium", "long"] },
+            "fillers": { "type": "boolean" },
+            "notes": { "type": ["string", "null"] }
+          }
+        },
+        "attitudes": {
+          "type": "object",
+          "description": "Only fields sent are changed.",
+          "properties": {
+            "techAffinity": { "$ref": "#/$defs/Scale5" },
+            "priceSensitivity": { "$ref": "#/$defs/Scale5" },
+            "trustInNewBrands": { "$ref": "#/$defs/Scale5" }
+          }
         }
       }
     },

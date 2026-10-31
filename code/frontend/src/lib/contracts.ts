@@ -74,7 +74,15 @@ export type PersonaUpdate = {
   jobs?: Fact[];
   pains?: Fact[];
   objections?: Fact[];
-  speechStyle?: { notes?: string | null };
+  /** Only fields sent are changed. */
+  speechStyle?: {
+    register?: "formal" | "informal";
+    verbosity?: "short" | "medium" | "long";
+    fillers?: boolean;
+    notes?: string | null;
+  };
+  /** Only fields sent are changed. */
+  attitudes?: { techAffinity?: Scale5; priceSensitivity?: Scale5; trustInNewBrands?: Scale5 };
 };
 
 /** Plain text pulled from an uploaded file (POST /api/sources/pdf). */
