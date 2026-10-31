@@ -6,6 +6,7 @@ import { DebriefView } from "@/components/DebriefView";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
+import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 
@@ -18,7 +19,6 @@ type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
-// shortcut: every frame stays in the Realtime context (~30 min = 120 frames), lower the rate if it gets too long.
 const CAMERA_FRAME_MS = 15_000;
 
 // Realtime server events we act on (subset of the GA event list).
@@ -60,12 +60,23 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const asks = useRef(0);
   const [lastTurnMissing, setLastTurnMissing] = useState(false);
   const giveUp = useRef(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const callLost = useRef(false);
+  const callClosed = useRef(true);
+  const finalizing = useRef(false);
+  const finishing = useRef(false);
+  const stopWatching = useRef<(() => void) | null>(null);
+  const callAbort = useRef<AbortController | null>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
+  const cameraItem = useRef<string | null>(null);
+  const cameraSeq = useRef(0);
+  const cameraPaused = useRef(false);
+  const cameraDelete = useRef<{ itemId: string; eventId: string; resolve: (removed: boolean) => void } | null>(null);
   const camView = useRef<HTMLVideoElement>(null);
   const [camNote, setCamNote] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -74,6 +85,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [avatarOn, setAvatarOn] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
+  const sessionLive = useRef<Promise<void> | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
 
@@ -82,10 +94,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [liveSeconds, setLiveSeconds] = useState(0);
 
   // Never leave the microphone or the call open when the card goes away.
-  useEffect(() => () => hangUp(), []);
+  useEffect(() => () => {
+    gen.current += 1;
+    hangUp();
+  }, []);
 
   // The call runs in a popup; it closes once the call is over and the result shows on the page.
-  const inCall = phase === "connecting" || phase === "live" || phase === "ending" || phase === "waiting";
+  const inCall = !connectionLost && (phase === "connecting" || phase === "live" || phase === "ending" || phase === "waiting");
   useEffect(() => {
     const d = dialog.current;
     if (inCall && !d?.open) d?.showModal();
@@ -100,15 +115,52 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // (no response.create), so it shapes the next answer without making the persona talk.
   useEffect(() => {
     if (phase !== "live" || !cam) return;
+    const g = gen.current;
+    let cancelled = false;
+    let busy = false;
+    const current = () => !cancelled && g === gen.current && !callClosed.current && camStream.current === cam;
     const send = async () => {
+      if (busy || cameraPaused.current || !current()) return;
+      busy = true;
       try {
         const image = await captureFrame(cam);
+        if (!current()) return;
         const dc = channel.current;
         if (dc?.readyState !== "open") return;
+        const previous = cameraItem.current;
+        if (previous) {
+          // Do not add another image until the old one is confirmed gone. A failed/slow
+          // deletion pauses camera updates instead of growing the context indefinitely.
+          const eventId = `cam_delete_${g}_${++cameraSeq.current}`;
+          const removed = await new Promise<boolean>((resolve) => {
+            const done = (ok: boolean) => {
+              clearTimeout(timer);
+              if (cameraDelete.current?.eventId === eventId) cameraDelete.current = null;
+              resolve(ok);
+            };
+            const timer = setTimeout(() => done(false), 5_000);
+            cameraDelete.current = { itemId: previous, eventId, resolve: done };
+            try {
+              dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous, event_id: eventId }));
+            } catch {
+              done(false);
+            }
+          });
+          if (!current()) return;
+          if (!removed) {
+            cameraPaused.current = true;
+            setCamNote("Camera updates paused: the previous image could not be removed. Voice still works.");
+            return;
+          }
+          cameraItem.current = null;
+        }
+        const itemId = `cam_${g}_${++cameraSeq.current}`;
+        cameraItem.current = itemId;
         dc.send(
           JSON.stringify({
             type: "conversation.item.create",
             item: {
+              id: itemId,
               type: "message",
               role: "user",
               content: [
@@ -120,11 +172,17 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         );
       } catch {
         // A missed frame is fine; the next one follows.
+      } finally {
+        busy = false;
       }
     };
     void send();
     const id = setInterval(send, CAMERA_FRAME_MS);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      cameraDelete.current?.resolve(false);
+    };
   }, [phase, cam]);
 
   // A visible clock while live (interviews run 20–30 min).
@@ -141,16 +199,39 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   }, [turns.length]);
 
   function hangUp() {
+    callClosed.current = true;
+    cameraDelete.current?.resolve(false);
+    stopWatching.current?.();
+    stopWatching.current = null;
+    callAbort.current?.abort();
+    callAbort.current = null;
+    if (channel.current) channel.current.onmessage = null;
+    if (pc.current) pc.current.ontrack = null;
     mic.current?.getTracks().forEach((t) => t.stop());
     camStream.current?.getTracks().forEach((t) => t.stop());
     channel.current?.close();
     pc.current?.close();
     mic.current = camStream.current = channel.current = pc.current = null;
+    if (audio.current) audio.current.srcObject = null;
+    setVoice(null);
     setCam(null);
+  }
+
+  function loseConnection(g: number) {
+    if (g !== gen.current || callClosed.current) return;
+    callLost.current = true;
+    setConnectionLost(true);
+    // Freeze the transcript before another queued callback can claim a missing turn arrived.
+    if (pending.current.size > 0) lost.current = true;
+    hangUp();
+    void end();
   }
 
   function onEvent(e: ServerEvent) {
     switch (e.type) {
+      case "conversation.item.deleted":
+        if (e.item_id === cameraDelete.current?.itemId) cameraDelete.current?.resolve(true);
+        break;
       case "input_audio_buffer.speech_stopped":
         askedAt.current = performance.now();
         break;
@@ -203,12 +284,21 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         }
         break;
       }
-      case "error":
+      case "error": {
+        const removal = cameraDelete.current;
+        if (removal && e.error?.event_id === removal.eventId) {
+          // Only an explicitly missing camera item is benign; other errors stay visible.
+          const message = e.error.message ?? "";
+          const missing = new RegExp(`^(?:Conversation )?Item(?: with ID)? ['"]?${removal.itemId}['"]? (?:not found|does not exist|already deleted)[.!]?$`, "i").test(message);
+          removal.resolve(missing);
+          if (missing) break;
+        }
         // A rejected response.create (e.g. one is already running) will never get a response:
         // release its reservation so "End" doesn't wait for an answer that can't come.
         if (e.error?.event_id?.startsWith("a:")) pending.current.delete(e.error.event_id);
         setError(e.error?.message ?? "Realtime error");
         break;
+      }
     }
   }
 
@@ -273,6 +363,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   }
 
   async function start() {
+    hangUp();
     setPhase("connecting");
     setError(null);
     setTurns([]);
@@ -280,6 +371,19 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
     gen.current += 1;
     const g = gen.current;
+    callClosed.current = false;
+    callLost.current = false;
+    finalizing.current = finishing.current = false;
+    setConnectionLost(false);
+    const abort = new AbortController();
+    callAbort.current = abort;
+    const current = () => g === gen.current && !callClosed.current;
+    sessionId.current = null;
+    sessionLive.current = null;
+    liveSince.current = Date.now();
+    cameraItem.current = null;
+    cameraSeq.current = 0;
+    cameraPaused.current = false;
     events.current = [];
     saved.current = 0;
     setEnded(null);
@@ -297,46 +401,82 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         .filter(Boolean);
       questions.current = interviewGuide.length;
       const session = await api.createSession({ personaId: persona.id, interviewGuide });
+      if (!current()) return;
       sessionId.current = session.id;
       const token = await api.sessionToken(session.id);
+      if (!current()) return;
       if (!token.token || !token.url) throw new Error("no realtime token");
 
       const conn = new RTCPeerConnection();
       pc.current = conn;
       conn.ontrack = (ev) => {
+        if (!current()) return;
         if (audio.current) audio.current.srcObject = ev.streams[0];
         setVoice(ev.track);
       };
-      mic.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!current()) {
+        microphone.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      mic.current = microphone;
       mic.current.getTracks().forEach((t) => conn.addTrack(t, mic.current!));
       // The camera is a bonus: without it the interview still runs, voice only.
       setCamNote(null);
       try {
-        camStream.current = await navigator.mediaDevices.getUserMedia({ video: true });
-        setCam(camStream.current);
+        const camera = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (!current()) {
+          camera.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        camStream.current = camera;
+        setCam(camera);
       } catch {
+        if (!current()) return;
         setCamNote("Camera is off (blocked or not available). The persona only hears you.");
       }
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
-      dc.onmessage = (m) => g === gen.current && onEvent(JSON.parse(m.data));
+      dc.onmessage = (m) => current() && onEvent(JSON.parse(m.data));
+      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g));
+      if (!current()) return;
 
       const offer = await conn.createOffer();
+      if (!current()) return;
       await conn.setLocalDescription(offer);
+      if (!current()) return;
       const answer = await fetch(token.url, {
         method: "POST",
         body: offer.sdp,
         headers: { Authorization: `Bearer ${token.token}`, "Content-Type": "application/sdp" },
+        signal: abort.signal,
       });
       if (!answer.ok) throw new Error(`OpenAI refused the call (${answer.status})`);
-      await conn.setRemoteDescription({ type: "answer", sdp: await answer.text() });
+      const sdp = await answer.text();
+      if (!current()) return;
+      await conn.setRemoteDescription({ type: "answer", sdp });
+      if (!current()) return;
       // Only "live" once events can flow both ways, so an early typed question isn't dropped.
-      if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
-      await api.updateSession(session.id, { status: "live" });
+      if (dc.readyState !== "open") await new Promise<void>((resolve, reject) => {
+        const opened = () => { cleanup(); resolve(); };
+        const cancelled = () => { cleanup(); reject(new Error("Call closed")); };
+        const cleanup = () => {
+          dc.removeEventListener("open", opened);
+          abort.signal.removeEventListener("abort", cancelled);
+        };
+        dc.addEventListener("open", opened, { once: true });
+        abort.signal.addEventListener("abort", cancelled, { once: true });
+        if (abort.signal.aborted) cancelled();
+      });
+      if (!current()) return;
+      sessionLive.current = api.updateSession(session.id, { status: "live" }).then(() => {});
+      await sessionLive.current;
+      if (!current()) return;
       liveSince.current = Date.now();
       setLiveSeconds(0);
       setPhase("live");
     } catch (e) {
+      if (!current()) return;
       hangUp();
       setPhase("error");
       if (e instanceof DOMException && e.name === "NotAllowedError") setError("Microphone access was denied.");
@@ -369,18 +509,23 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   }
 
   async function end() {
+    if (finalizing.current) return;
+    finalizing.current = true;
+    const g = gen.current;
     setPhase("ending");
     // Mic off first, then wait until the provider has finished every transcript and answer it
     // started; only then close the call, so the last turn can't be cut off.
     mic.current?.getTracks().forEach((t) => t.stop());
-    for (let waited = 0; pending.current.size > 0 && waited < 10_000; waited += 200) {
+    for (let waited = 0; pending.current.size > 0 && !callLost.current && g === gen.current && waited < 10_000; waited += 200) {
       await new Promise((r) => setTimeout(r, 200));
     }
-    if (pending.current.size > 0) {
+    if (g !== gen.current) return;
+    if (pending.current.size > 0 && !callLost.current) {
       // Still not done: keep the call open and let the interviewer decide, never guess "complete".
       setPhase("waiting");
-      while (pending.current.size > 0 && !giveUp.current) await new Promise((r) => setTimeout(r, 500));
+      while (pending.current.size > 0 && !giveUp.current && !callLost.current && g === gen.current) await new Promise((r) => setTimeout(r, 500));
     }
+    if (g !== gen.current) return;
     const incomplete = pending.current.size > 0 || lost.current;
     setLastTurnMissing(incomplete);
     hangUp();
@@ -393,23 +538,36 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
 
   // The session is only marked ended once the whole transcript, marker included, is stored.
   async function finish() {
+    if (finishing.current) return;
+    finishing.current = true;
+    const g = gen.current;
+    const sid = sessionId.current;
     setPhase("ending");
     setError(null);
     let ok = false;
     for (let attempt = 0; attempt < 3 && !ok; attempt++) {
       if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      if (g !== gen.current) return;
       ok = await flush();
     }
+    if (g !== gen.current) return;
     try {
       if (!ok) throw new Error("transcript not saved");
-      if (sessionId.current) {
-        await api.updateSession(sessionId.current, { status: "ended" });
-        setEnded({ id: sessionId.current, questions: questions.current });
+      if (sid) {
+        // A loss while startup's PATCH is in flight must not let "live" overtake "ended".
+        await sessionLive.current?.catch(() => {});
+        if (g !== gen.current) return;
+        await api.updateSession(sid, { status: "ended" });
+        if (g !== gen.current) return;
+        if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
       }
       setPhase("ended");
     } catch {
+      if (g !== gen.current) return;
       setPhase("unsaved");
-      setError(`Transcript not fully saved (${saved.current}/${events.current.length} events). The call is closed.`);
+      setError(`Could not finish saving (${saved.current}/${events.current.length} events stored). The call is closed. Choose Save again to retry.`);
+    } finally {
+      if (g === gen.current) finishing.current = false;
     }
   }
 
@@ -462,7 +620,17 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       </div>
       <p className="mt-2 text-xs text-muted">
         You are talking to an AI persona ({persona.name}), not a real person. It hears you and sees your camera.
+        {" "}If you allow camera access, an image is sent to OpenAI every 15 seconds so the persona can see you.
       </p>
+      {connectionLost && (
+        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
+          Connection lost. Microphone, camera and screen sharing are off.
+          {lastTurnMissing ? " This transcript is incomplete; no debrief will be generated." : ""}
+          {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
+            ? " Save the captured turns before starting again."
+            : " Start again begins a new conversation."}
+        </p>
+      )}
       {(phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mt-3 block text-sm">
           <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
@@ -577,8 +745,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         {inCall && errorBox}
       </dialog>
 
-      {phase === "ended" && turns.length > 0 && (
-        <details className="mt-4 text-sm">
+      {(phase === "ended" || (connectionLost && !inCall)) && turns.length > 0 && (
+        <details className="mt-4 text-sm" open={connectionLost}>
           <summary className="cursor-pointer text-muted">Transcript ({turns.length} turns)</summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
