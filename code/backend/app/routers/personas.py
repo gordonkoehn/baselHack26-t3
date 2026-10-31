@@ -1,6 +1,6 @@
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -9,7 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app import avatar, extract
 from app.auth import require_passcode
 from app.contracts import (
+    CoverageCategory,
+    CoverageCategoryName,
     CoverageCriterion,
+    CoverageLevel,
     CoverageReport,
     CoverageRequest,
     CustomFace,
@@ -22,9 +25,12 @@ from app.contracts import (
     PersonaSource,
     PersonaSummary,
     PersonaUpdate,
+    SourceDiversity,
 )
 from app.extract import (
+    CATEGORY_CRITERIA,
     DEFAULT_CRITERIA,
+    SOURCE_CRITERIA,
     AnswersDraft,
     CoverageDraft,
     ExtractionFailed,
@@ -59,7 +65,9 @@ def get_extractor() -> Callable[[PersonaCreate], PersonaDraft]:
 
 ExtractorDep = Annotated[Callable[[PersonaCreate], PersonaDraft], Depends(get_extractor)]
 
-CoverageChecker = Callable[[Persona, CoverageRequest, list[str]], CoverageDraft]
+CoverageChecker = Callable[
+    [Persona, CoverageRequest, list[str], list[PersonaSource]], CoverageDraft
+]
 
 
 def get_coverage_checker() -> CoverageChecker:
@@ -183,6 +191,12 @@ STATUS_VALUE = {"covered": 1.0, "guessed": 0.5, "missing": 0.0}
 # One quote is a thin basis for a whole criterion.
 THIN_VALUE = 0.75
 READY_SCORE = 0.7
+# Category levels: the share of its criteria that are covered.
+GREEN_FROM = 0.7
+YELLOW_FROM = 0.4
+MIN_SOURCES = 2
+# More gaps than this are counted, not named: the reason must stay one short sentence.
+NAMED_GAPS = 2
 
 
 def _value(c: CoverageCriterion) -> float:
@@ -191,12 +205,55 @@ def _value(c: CoverageCriterion) -> float:
     return STATUS_VALUE[c.status]
 
 
+def level_for(share: float) -> CoverageLevel:
+    if share >= GREEN_FROM:
+        return "green"
+    return "yellow" if share >= YELLOW_FROM else "red"
+
+
+def score_category(
+    name: CoverageCategoryName, criteria: list[CoverageCriterion]
+) -> CoverageCategory:
+    wanted = {n.casefold() for n in CATEGORY_CRITERIA[name]}
+    rows = [c for c in criteria if c.name.casefold() in wanted]
+    # Most important gap first, so the recommendation names what matters most for this test.
+    gaps = sorted((c for c in rows if c.status != "covered"), key=lambda c: -c.weight)
+    covered = len(rows) - len(gaps)
+    share = covered / len(rows)
+    level = level_for(share)
+    reason = f"Evidence backs {covered} of {len(rows)} points"
+    if gaps:
+        named = ", ".join(c.name.lower() for c in gaps[:NAMED_GAPS])
+        more = len(gaps) - NAMED_GAPS
+        reason += f"; open: {named}" + (f" and {more} more" if more > 0 else "")
+    return CoverageCategory(
+        category=name,
+        level=level,
+        score=round(share, 2),
+        covered=covered,
+        total=len(rows),
+        reason=f"{reason}.",
+        recommendation=(
+            None if level == "green" else f"Add a source that covers: {gaps[0].name.lower()}."
+        ),
+    )
+
+
+def source_diversity(sources: Sequence[PersonaSource]) -> SourceDiversity:
+    """The same text pasted twice is one source; no model involved."""
+    distinct = {_norm(s.text).casefold(): s.kind for s in sources}
+    kinds = list(dict.fromkeys(distinct.values()))
+    count = len(distinct)
+    return SourceDiversity(count=count, kinds=kinds, minimum=MIN_SOURCES, met=count >= MIN_SOURCES)
+
+
 def score_coverage(
     persona: Persona,
     request: CoverageRequest,
     names: list[str],
     draft: CoverageDraft,
     previous: CoverageReport | None = None,
+    sources: Sequence[PersonaSource] = (),
 ) -> CoverageReport:
     """Turn the model's rows into the report; the checks and the score never trust the model.
 
@@ -206,15 +263,21 @@ def score_coverage(
     previous report for the same test, weights stay and no row drops below its previous value
     while the evidence behind it is still there, so answering gap questions can't make the score
     fall because the model re-rolled other rows.
+
+    Challenge and solution criteria may also cite a source (source:N): they are about the problem
+    and the product, which a persona needn't have absorbed. Criteria about the person may not.
     """
     quotes = {e.id: _norm(e.quote or "").casefold() for e in persona.evidence}
-    known = set(quotes)
+    passages = {f"source:{i}": _norm(s.text).casefold() for i, s in enumerate(sources, start=1)}
+    from_sources = {n.casefold() for n in SOURCE_CRITERIA}
     rows = {_norm(r.name).casefold(): r for r in draft.criteria}
     before = {c.name.casefold(): c for c in previous.criteria} if previous else {}
     criteria = []
     for i, name in enumerate(names):
         row = rows.get(_norm(name).casefold())
         custom = i >= len(DEFAULT_CRITERIA)
+        citable = {**quotes, **passages} if name.casefold() in from_sources else quotes
+        known = set(citable)
         if row is None:
             current = CoverageCriterion(
                 name=name,
@@ -227,7 +290,7 @@ def score_coverage(
         else:
             ids = [x for x in dict.fromkeys(row.evidence_ids) if x in known]
             support = _norm(row.support).casefold()
-            backed = len(support.split()) >= 2 and any(support in quotes[x] for x in ids)
+            backed = len(support.split()) >= 2 and any(support in citable[x] for x in ids)
             status = row.status
             if status == "covered" and not backed:
                 status = "guessed"
@@ -253,12 +316,18 @@ def score_coverage(
     blocked = any(c.weight == 3 and c.status == "missing" for c in criteria)
     # Questions only while something that matters is still guessed or missing.
     gaps = any(c.weight >= 2 and c.status != "covered" for c in criteria)
+    categories = [score_category(name, criteria) for name in CATEGORY_CRITERIA]
+    diversity = source_diversity(sources)
+    good = diversity.met and all(c.level != "red" for c in categories)
     return CoverageReport(
         persona_id=persona.id,
         persona_version=persona.version,
         test_goal=request.test_goal,
         score=score,
         recommendation="ready" if score >= READY_SCORE and not blocked else "needs_input",
+        overall="good_enough" if good else "add_more",
+        categories=categories,
+        source_diversity=diversity,
         criteria=criteria,
         questions=[q.strip() for q in draft.questions if q.strip()][:5] if gaps else [],
     )
@@ -285,8 +354,10 @@ def check_coverage(
             seen.add(c.casefold())
             custom.append(c)
     names = DEFAULT_CRITERIA + custom
+    stored = store.get_persona_sources(persona.id)
+    sources = stored.sources if stored else []
     try:
-        draft = checker(persona, body, names)
+        draft = checker(persona, body, names, sources)
     except ProviderUnavailable:
         raise HTTPException(503, "coverage provider unavailable") from None
     except ExtractionFailed as exc:
@@ -297,7 +368,7 @@ def check_coverage(
         names,
     ):
         previous = None
-    report = score_coverage(persona, body, names, draft, previous)
+    report = score_coverage(persona, body, names, draft, previous, sources)
     store.save_coverage(report)
     return report
 

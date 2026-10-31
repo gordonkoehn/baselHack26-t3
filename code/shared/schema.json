@@ -421,16 +421,44 @@
         "custom": { "type": "boolean", "description": "Added by the user, not part of the default checklist." }
       }
     },
+    "CoverageCategory": {
+      "type": "object",
+      "description": "One of the three things the demo opens on, computed by the server from the default criteria of that category, never by the model. Custom criteria belong to no category.",
+      "required": ["category", "level", "score", "covered", "total", "reason", "recommendation"],
+      "properties": {
+        "category": { "enum": ["persona", "challenge", "solution"] },
+        "level": { "enum": ["red", "yellow", "green"], "description": "From score: green >= 0.7, yellow >= 0.4, otherwise red." },
+        "score": { "type": "number", "minimum": 0, "maximum": 1, "description": "covered / total, unweighted. A row backed by a single quote counts as covered." },
+        "covered": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "description": "One sentence." },
+        "recommendation": { "type": ["string", "null"], "description": "null when green." }
+      }
+    },
+    "SourceDiversity": {
+      "type": "object",
+      "description": "Counted in code, without a model, and not a quality category. Sources with the same text count once.",
+      "required": ["count", "kinds", "minimum", "met"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "kinds": { "type": "array", "items": { "$ref": "#/$defs/SourceKind" } },
+        "minimum": { "type": "integer", "minimum": 1 },
+        "met": { "type": "boolean" }
+      }
+    },
     "CoverageReport": {
       "type": "object",
-      "description": "Is this persona good enough for this test? score is computed by the server from the criteria (covered 1, covered by a single quote 0.75, guessed 0.5, missing 0, weighted), never by the model. covered needs the model's support words verbatim in a cited quote. questions is empty when no criterion of weight >= 2 is guessed or missing.",
-      "required": ["personaId", "personaVersion", "testGoal", "score", "recommendation", "criteria", "questions"],
+      "description": "Is this persona good enough for this test? score is computed by the server from the criteria (covered 1, covered by a single quote 0.75, guessed 0.5, missing 0, weighted), never by the model. covered needs the model's support words verbatim in a cited quote, or for challenge and solution criteria in a cited source (evidenceIds then holds source:N). questions is empty when no criterion of weight >= 2 is guessed or missing.",
+      "required": ["personaId", "personaVersion", "testGoal", "score", "recommendation", "overall", "categories", "sourceDiversity", "criteria", "questions"],
       "properties": {
         "personaId": { "type": "string" },
         "personaVersion": { "type": "integer", "minimum": 1 },
         "testGoal": { "type": "string" },
         "score": { "type": "number", "minimum": 0, "maximum": 1 },
         "recommendation": { "enum": ["ready", "needs_input"], "description": "ready = score >= 0.7 and no weight-3 criterion missing." },
+        "overall": { "enum": ["good_enough", "add_more"], "description": "The one line on the score screen: good_enough = no red category and source diversity met. Advice only, it never blocks an interview." },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/CoverageCategory" }, "description": "persona, challenge, solution, in that order." },
+        "sourceDiversity": { "$ref": "#/$defs/SourceDiversity" },
         "criteria": { "type": "array", "items": { "$ref": "#/$defs/CoverageCriterion" } },
         "questions": { "type": "array", "maxItems": 5, "items": { "type": "string" }, "description": "Gap questions for the team; answers go back in as a note source and the persona is rebuilt." }
       }

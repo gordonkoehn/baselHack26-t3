@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.contracts import Persona, PersonaCreate, PersonaSource
 from app.extract import (
+    CATEGORY_CRITERIA,
     DEFAULT_CRITERIA,
     AnswersDraft,
     CoverageDraft,
@@ -13,8 +14,8 @@ from app.extract import (
     ProviderUnavailable,
 )
 from app.main import app
-from app.routers.personas import get_answerer, get_coverage_checker
-from app.store import Store, get_store
+from app.routers.personas import get_answerer, get_coverage_checker, level_for
+from app.store import PREFIX, Store, get_store
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -73,7 +74,7 @@ def post(client, **body):
 def test_all_covered_is_ready_and_custom_criteria_follow_the_defaults(client):
     seen = {}
 
-    def checker(_persona, _request, names):
+    def checker(_persona, _request, names, _sources):
         seen["names"] = names
         return draft([row(n) for n in names], ["  ", "Q1"])
 
@@ -128,13 +129,13 @@ def test_covered_without_real_evidence_becomes_guessed(client):
 
 
 def test_score_is_weighted_and_a_missing_must_have_blocks_ready(client):
-    # 7 covered at weight 1, one missing at weight 3: 7/10 = 0.7, but the must-have blocks.
+    # 14 covered at weight 1, one missing at weight 3: 14/17 = 0.82, but the must-have blocks.
     # (Two cited quotes each, so none counts as thin.)
     rows = [row(n, weight=1) for n in DEFAULT_CRITERIA[:-1]]
     rows.append(row(DEFAULT_CRITERIA[-1], status="missing", weight=3, ids=()))
     use_checker(lambda *_: draft(rows))
     body = post(client).json()
-    assert body["score"] == 0.7 and body["recommendation"] == "needs_input"
+    assert body["score"] == 0.82 and body["recommendation"] == "needs_input"
 
 
 def test_rows_the_model_skipped_count_as_missing_and_weights_are_clamped(client):
@@ -294,3 +295,169 @@ def test_answers_errors(client):
 
     use_answerer(down)
     assert answer(client).status_code == 503
+
+
+def rows_for(category, covered, status="missing"):
+    """The first `covered` criteria of a category covered, the rest with `status`."""
+    names = CATEGORY_CRITERIA[category]
+    return [row(n) if i < covered else row(n, status=status, ids=()) for i, n in enumerate(names)]
+
+
+def category(body, name):
+    return next(c for c in body["categories"] if c["category"] == name)
+
+
+def with_sources(client, *sources):
+    store = app.dependency_overrides[get_store]()
+    store.save_persona_sources(
+        PERSONA.id,
+        PersonaCreate(language="de", sources=[PersonaSource(**s) for s in sources]),
+    )
+
+
+NOTE = {
+    "kind": "note",
+    "title": "Guide",
+    "text": "Schritt eins: der Kunde bucht die Abholung online.",
+}
+TRANSCRIPT = {"kind": "transcript", "title": "Call", "text": "Ich zahle fast alles mit TWINT."}
+
+
+@pytest.mark.parametrize(
+    ("share", "level"),
+    [
+        (1.0, "green"),
+        (0.7, "green"),
+        (0.69, "yellow"),
+        (0.4, "yellow"),
+        (0.39, "red"),
+        (0.0, "red"),
+    ],
+)
+def test_level_thresholds(share, level):
+    assert level_for(share) == level
+
+
+def test_every_default_criterion_has_exactly_one_category():
+    mapped = [n for names in CATEGORY_CRITERIA.values() for n in names]
+    assert sorted(mapped) == sorted(DEFAULT_CRITERIA)
+    assert len(set(mapped)) == len(mapped)
+    assert list(CATEGORY_CRITERIA) == ["persona", "challenge", "solution"]
+    # A single row would make a category jump from red to green.
+    assert all(len(names) >= 4 for names in CATEGORY_CRITERIA.values())
+
+
+def test_categories_are_computed_from_the_covered_share(client):
+    with_sources(client, NOTE, TRANSCRIPT)
+    rows = rows_for("persona", 5) + rows_for("challenge", 2, "guessed") + rows_for("solution", 1)
+    use_checker(lambda *_: draft(rows))
+    body = post(client).json()
+
+    assert [c["category"] for c in body["categories"]] == ["persona", "challenge", "solution"]
+    persona, challenge, solution = body["categories"]
+    assert (persona["level"], persona["score"], persona["covered"], persona["total"]) == (
+        "green",
+        0.71,
+        5,
+        7,
+    )
+    assert persona["recommendation"] is None
+    assert (challenge["level"], challenge["score"]) == ("yellow", 0.5)
+    assert challenge["recommendation"].startswith("Add a source that covers: ")
+    assert (solution["level"], solution["score"]) == ("red", 0.25)
+    assert solution["recommendation"]
+    assert body["overall"] == "add_more"
+
+
+def test_a_row_the_quote_check_downgrades_does_not_count_as_covered(client):
+    """The model says covered, the quote isn't there: the level follows the check, not the model."""
+    rows = [row(n, support="steht so nirgends") for n in CATEGORY_CRITERIA["solution"]]
+    use_checker(lambda *_: draft(rows))
+    assert category(post(client).json(), "solution")["level"] == "red"
+
+
+def test_custom_criteria_do_not_move_a_category(client):
+    rows = rows_for("solution", 3) + [row("Cares about design", status="missing", ids=())]
+    use_checker(lambda *_: draft(rows))
+    solution = category(post(client, criteria=["Cares about design"]).json(), "solution")
+    assert (solution["covered"], solution["total"], solution["level"]) == (3, 4, "green")
+
+
+def test_the_reason_stays_one_short_sentence(client):
+    use_checker(lambda *_: draft([]))
+    reason = category(post(client).json(), "persona")["reason"]
+    assert reason.count(".") == 1 and reason.endswith("and 5 more.")
+
+
+def test_the_recommendation_names_the_gap_that_matters_most(client):
+    names = CATEGORY_CRITERIA["challenge"]
+    rows = [
+        row(names[0], status="guessed", weight=1, ids=()),
+        row(names[1], status="missing", weight=3, ids=()),
+    ]
+    use_checker(lambda *_: draft(rows))
+    assert names[1].lower() in category(post(client).json(), "challenge")["recommendation"]
+
+
+def test_challenge_and_solution_may_cite_a_source_but_the_person_may_not(client):
+    with_sources(client, NOTE, TRANSCRIPT)
+    support = "bucht die Abholung"
+    rows = [
+        row(CATEGORY_CRITERIA["solution"][0], ids=("source:1",), support=support),
+        row(CATEGORY_CRITERIA["challenge"][1], ids=("source:1",), support=support),
+        row(CATEGORY_CRITERIA["persona"][0], ids=("source:1",), support=support),
+    ]
+    use_checker(lambda *_: draft(rows))
+    criteria = {c["name"]: c for c in post(client).json()["criteria"]}
+    assert criteria[rows[0]["name"]]["status"] == "covered"
+    assert criteria[rows[0]["name"]]["evidenceIds"] == ["source:1"]
+    assert criteria[rows[1]["name"]]["status"] == "covered"
+    assert criteria[rows[2]["name"]]["status"] == "guessed"
+
+
+def test_the_checker_gets_the_stored_sources(client):
+    with_sources(client, NOTE)
+    seen = {}
+
+    def checker(_persona, _request, _names, sources):
+        seen["sources"] = sources
+        return draft([])
+
+    use_checker(checker)
+    post(client)
+    assert [s.title for s in seen["sources"]] == ["Guide"]
+
+
+def test_source_diversity_counts_distinct_sources_and_kinds(client):
+    with_sources(client, NOTE, {**NOTE, "text": "  " + NOTE["text"].upper()}, TRANSCRIPT)
+    use_checker(lambda *_: draft([]))
+    assert post(client).json()["sourceDiversity"] == {
+        "count": 2,
+        "kinds": ["note", "transcript"],
+        "minimum": 2,
+        "met": True,
+    }
+
+
+def test_too_few_sources_is_add_more_even_when_all_is_green(client):
+    with_sources(client, NOTE)
+    use_checker(lambda *_: draft([row(n) for n in DEFAULT_CRITERIA]))
+    body = post(client).json()
+    assert {c["level"] for c in body["categories"]} == {"green"}
+    assert body["sourceDiversity"]["met"] is False
+    assert body["overall"] == "add_more"
+
+
+def test_no_red_and_enough_sources_is_good_enough(client):
+    with_sources(client, NOTE, TRANSCRIPT)
+    rows = rows_for("persona", 3) + rows_for("challenge", 2) + rows_for("solution", 4)
+    use_checker(lambda *_: draft(rows))
+    assert post(client).json()["overall"] == "good_enough"
+
+
+def test_a_report_saved_before_the_categories_is_ignored(client):
+    store = app.dependency_overrides[get_store]()
+    old = json.dumps({"personaId": PERSONA.id, "personaVersion": 1, "testGoal": GOAL, "score": 1})
+    store._call("set", f"{PREFIX}:coverage:{PERSONA.id}", old)
+    use_checker(lambda *_: draft([row(n) for n in DEFAULT_CRITERIA]))
+    assert post(client).status_code == 200

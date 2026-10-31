@@ -11,6 +11,12 @@
   --accent: #0f7a5c;
   --accent-soft: #e2f2eb;
   --signal: #14a37f;
+  --on-tint: #0b5a44;
+  --warn-tint: #fbf1df;
+  --on-warn: #8a5a12;
+  /* Not in the brand book, which has no red: only for a Red score, as agreed with the challenge owner. */
+  --alert-tint: #fbe9e6;
+  --on-alert: #a8281a;
   /* The dark ground, for the live interview. */
   --room: #0b0f0e;
   --room-raised: #121a18;
@@ -31,6 +37,11 @@
   --color-room-text: var(--room-text);
   --color-room-muted: var(--room-muted);
   --color-signal: var(--signal);
+  --color-on-tint: var(--on-tint);
+  --color-warn-tint: var(--warn-tint);
+  --color-on-warn: var(--on-warn);
+  --color-alert-tint: var(--alert-tint);
+  --color-on-alert: var(--on-alert);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }

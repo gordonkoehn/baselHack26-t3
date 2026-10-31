@@ -20,7 +20,9 @@ import { CoverageCheck } from "@/components/CoverageCheck";
 import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/IdentityEditor";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
+import { PersonaScore } from "@/components/PersonaScore";
 import { QUARTIER_BOERSE, QUARTIER_BOERSE_GUIDE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
+import { useCoverage } from "@/lib/useCoverage";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
 // Files the browser can read as plain text without any extra library; PDFs and images go through
@@ -165,7 +167,7 @@ export default function Home() {
         seconds: (Date.now() - startedAt.current) / 1000,
         guide: guideFor(sources),
       });
-      setTab("persona");
+      setTab("score");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -188,7 +190,7 @@ export default function Home() {
     setError(null);
     try {
       setResult({ persona: await api.getPersona(id), sources: [], seconds: null, guide: "" });
-      setTab("persona");
+      setTab("score");
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -390,7 +392,7 @@ export default function Home() {
             <button
               type="button"
               className="ml-auto rounded-md px-2 py-1 text-sm text-muted hover:text-foreground"
-              onClick={() => setTab("persona")}
+              onClick={() => setTab("score")}
             >
               Back to {result.persona.name} →
             </button>
@@ -408,17 +410,19 @@ export default function Home() {
       {/* Hidden, not unmounted: a running call and an unfinished check survive switching tabs. */}
       {result && (
         <>
-          <div hidden={tab !== "persona"}>
+          <div hidden={tab === "interview"}>
             {/* Keyed by persona, so an open edit or save error can't carry over to the next persona. */}
             <PersonaProfile
               key={result.persona.id}
               {...result}
+              tab={tab}
+              onTab={setTab}
               coverage={current}
               onReport={setCoverage}
               verdict={currentVerdict}
               onVerdict={(ok) => setVerdict({ personaId: result.persona.id, ok })}
               // Mounted only while visible, so the page never holds two call rooms' controls at once.
-              showTestCall={tab === "persona"}
+              showTestCall={tab === "verify"}
               opening={opening}
               // A save can finish after a pick, and must not bring the previous persona back.
               onPersona={(persona) =>
@@ -448,10 +452,13 @@ export default function Home() {
   );
 }
 
-type Tab = "sources" | "persona" | "interview";
+// One idea per screen, and each screen has one clear button to the next.
+type Tab = "sources" | "score" | "persona" | "verify" | "interview";
 const TABS: { id: Tab; label: string }[] = [
   { id: "sources", label: "Sources" },
+  { id: "score", label: "Score" },
   { id: "persona", label: "Persona" },
+  { id: "verify", label: "Add more" },
   { id: "interview", label: "Interview" },
 ];
 
@@ -507,13 +514,9 @@ function WorkspaceBar({
           })}
         </nav>
         <div className="flex flex-1 justify-end gap-1.5 text-sm">
-          {persona && (
-            <button
-              type="button"
-              onClick={() => {
-                onTab("persona");
-                requestAnimationFrame(() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" }));
-              }}
+          {/* Not on the score screen: it shows the categories and no overall number. */}
+          {persona && tab !== "score" && (
+            <button type="button" onClick={() => onTab("verify")}
               className="flex gap-1.5"
               aria-label="Go to verification"
             >
@@ -544,11 +547,23 @@ function SaveError({ text }: { text: string }) {
   );
 }
 
+function NextButton({ onClick, children }: { onClick: () => void; children: string }) {
+  return (
+    <div className="flex justify-end">
+      <button type="button" className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-surface hover:opacity-90" onClick={onClick}>
+        {children}
+      </button>
+    </div>
+  );
+}
+
 function PersonaProfile({
   persona,
   sources,
   seconds,
-  coverage,
+  tab,
+  onTab,
+  coverage: currentReport,
   onReport,
   verdict,
   onVerdict,
@@ -557,6 +572,8 @@ function PersonaProfile({
   onPersona,
   onAnswered,
 }: Result & {
+  tab: Tab;
+  onTab: (tab: Tab) => void;
   coverage: CoverageReport | null;
   onReport: (report: CoverageReport) => void;
   verdict: boolean | null;
@@ -566,6 +583,8 @@ function PersonaProfile({
   onPersona: (p: Persona) => void;
   onAnswered: (p: Persona, source: PersonaSource) => void;
 }) {
+  // Here, not on a screen: the score screen and Add more show the same single check.
+  const coverage = useCoverage({ persona, sources, initial: currentReport, onReport, onAnswered });
   // Shown next to what failed: the identity editor or the fact lists.
   const [saveError, setSaveError] = useState<{ at: "identity" | "facts"; text: string } | null>(null);
   const [editing, setEditing] = useState(false);
@@ -591,7 +610,19 @@ function PersonaProfile({
     .join(" · ");
 
   return (
+    <>
+    <div hidden={tab !== "score"}>
+      <PersonaScore
+        persona={persona}
+        sources={sources}
+        coverage={coverage}
+        onInterview={() => onTab("interview")}
+        onAddMore={() => onTab("verify")}
+      />
+    </div>
+    <div hidden={tab !== "persona"}>
     <article className="space-y-4" data-testid="persona-card">
+      <NextButton onClick={() => onTab("verify")}>Next: add more</NextButton>
       <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
         {editing ? (
           <IdentityEditor
@@ -636,8 +667,8 @@ function PersonaProfile({
       <PersonaOverview
         persona={persona}
         sources={sources}
-        coverage={coverage}
-        onVerify={() => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" })}
+        coverage={coverage.current}
+        onVerify={() => onTab("verify")}
         onSave={(update) => void save(update, "identity")}
         onEditProfile={() => {
           setEditing(true);
@@ -658,14 +689,18 @@ function PersonaProfile({
         />
       </Card>
 
-      <section id="verify" className="scroll-mt-20 space-y-4">
-        <div className="pt-4">
-          <h2 className="text-xl font-semibold tracking-tight">Verify before you interview</h2>
+    </article>
+    </div>
+    <div hidden={tab !== "verify"}>
+      <section id="verify" className="space-y-4" data-testid="verify">
+        <NextButton onClick={() => onTab("score")}>Back to the score</NextButton>
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Add more before you interview.</h2>
           <p className="text-sm text-muted">
             Two checks: the AI compares what {persona.name} knows with what you test, and you talk to them yourself.
           </p>
         </div>
-        <CoverageCheck persona={persona} onReport={onReport} onAnswered={onAnswered} />
+        <CoverageCheck coverage={coverage} />
         <Card
           title="Test call"
           hint={`Talk to ${persona.name} for a minute. Does this sound like your customer? No questions needed; this is not the interview.`}
@@ -701,7 +736,8 @@ function PersonaProfile({
           </div>
         </Card>
       </section>
-    </article>
+    </div>
+    </>
   );
 }
 

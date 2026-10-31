@@ -176,7 +176,12 @@ class Store:
         self._put(f"{PREFIX}:coverage:{report.persona_id}", report)
 
     def get_coverage(self, persona_id: str) -> CoverageReport | None:
-        return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        try:
+            return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
+        except ValidationError:
+            # Saved before the report had categories. It only keeps a re-check from losing
+            # ground, and its criteria differ anyway, so it is as good as no report.
+            return None
 
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:
