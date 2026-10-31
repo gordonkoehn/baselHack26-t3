@@ -15,6 +15,7 @@ declare global {
 const complete = "Ended. Microphone and camera are off, transcript saved.";
 const incomplete = "Ended without the last turn. This transcript is incomplete, so there is no debrief for it.";
 const startupIncomplete = "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry.";
+const gaps = "Ended. Microphone and camera are off. This transcript has gaps: at least one turn was not captured.";
 const sentence = exampleEvents[6].data.text!;
 
 async function start(page: Page, waitForLive = true, beforeStart?: () => Promise<void>): Promise<Session> {
@@ -52,6 +53,24 @@ async function expectIncomplete(page: Page, request: APIRequestContext, session:
   await expect(page.getByTestId("debrief")).toHaveCount(0);
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
   expect(await (await request.get(`/api/sessions/${session.id}`)).json()).toMatchObject({ status: "ended" });
+}
+
+// A live call with a lost turn: still ended and marked, and the debrief can't look complete.
+async function expectGaps(page: Page, request: APIRequestContext, session: Session) {
+  await expect(page.getByText(gaps, { exact: true })).toBeVisible();
+  const events = await stored(request, session);
+  expect(events.filter((event) => event.type === "session.ended")).toHaveLength(1);
+  expect(events.at(-1)).toMatchObject({ type: "session.ended", data: { transcriptGaps: true } });
+  expect(await (await request.get(`/api/sessions/${session.id}`)).json()).toMatchObject({ status: "ended" });
+  const spoke = events.some((event) => event.type === "utterance" && event.data.speaker === "persona" && event.data.text !== "(interrupted)");
+  if (spoke) await expect(page.getByTestId("debrief").getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
+  else await expectNothingToDebrief(page);
+}
+
+async function expectNothingToDebrief(page: Page) {
+  await expect(page.getByTestId("interview-room").getByRole("alert").filter({ hasText: "the persona never answered" })).toBeVisible();
+  await expect(page.getByTestId("debrief")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Try again", exact: true })).toHaveCount(0);
 }
 
 async function stallPersistence(page: Page, target: "events" | "patch", body: boolean) {
@@ -126,6 +145,79 @@ test.beforeEach(async ({ page, context }) => {
   await installRealtime(page);
 });
 
+// The persona's words arrive with response.done; the audio can outlast them by much more.
+async function answerStillPlaying(page: Page) {
+  await page.getByLabel("Type a question").fill(exampleEvents[1].data.text!);
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await emit(page, { type: "response.created", response: { id: "playing" } });
+  await emit(page, { type: "output_audio_buffer.started", response_id: "playing" });
+  await emit(page, { type: "response.done", response: { id: "playing", status: "completed", output: [
+    { id: "playing-item", content: [{ type: "output_audio", transcript: exampleReport.questions[0].insights[0].quote }] },
+  ] } });
+}
+
+async function expectCompleteWithDebrief(page: Page, request: APIRequestContext, session: Session) {
+  await expect(page.getByText(complete, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("debrief").locator("blockquote")).toHaveCount(1);
+  await expect(page.getByTestId("transcript-gaps")).toHaveCount(0);
+  const events = await stored(request, session);
+  expect(events.at(-1)).toMatchObject({ type: "session.ended" });
+  expect(events.at(-1)?.data).not.toHaveProperty("transcriptGaps");
+}
+
+test("ending mid-answer: audio outlasting the wait limit closes on its own with a complete debrief", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await end(page);
+  await settle(page);
+  await expect(page.getByRole("status")).toContainText("Waiting for the persona response");
+  await page.clock.runFor(10_000);
+  await expect(page.getByRole("button", { name: "Close without it", exact: true })).toHaveCount(0);
+  await expectCompleteWithDebrief(page, request, session);
+});
+
+test("a connection drop while the saved last answer is still playing loses nothing", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await page.evaluate(() => window.e2eRealtime.lose());
+  await expectCompleteWithDebrief(page, request, session);
+  await expect(page.getByTestId("connection-lost")).not.toContainText("gaps");
+});
+
+test("ending mid-answer with the response cut off by a drop keeps the debrief, marked as gaps", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "response.created", response: { id: "cut-off" } });
+  await end(page);
+  await page.evaluate(() => window.e2eRealtime.lose());
+  await settle(page);
+  await expectGaps(page, request, session);
+});
+
+test("the last item arriving after the wait limit finishes the call: nothing is left to close without", async ({ page, request }) => {
+  const session = await start(page);
+  await answerStillPlaying(page);
+  await emit(page, { type: "output_audio_buffer.stopped", response_id: "playing" });
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "late-input" });
+  await end(page);
+  await page.clock.runFor(10_000);
+  const close = page.getByRole("button", { name: "Close without it", exact: true });
+  await expect(close).toBeVisible();
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "late-input", transcript: sentence });
+  await emit(page, { type: "response.done", response: { id: "late-answer", status: "completed", output: [] } });
+  await settle(page);
+  await expect(close).toHaveCount(0);
+  await expectCompleteWithDebrief(page, request, session);
+});
+
+test("a call where the persona never spoke says so instead of offering a retry that cannot work", async ({ page }) => {
+  await start(page);
+  await end(page);
+  await settle(page);
+  await expect(page.getByText(complete, { exact: true })).toBeVisible();
+  await expectNothingToDebrief(page);
+});
+
 test("End during speech conditionally commits once, preserves the sentence and waits for playback", async ({ page, request }) => {
   const session = await start(page);
   await page.getByLabel("Type a question").fill(exampleEvents[1].data.text!);
@@ -183,7 +275,7 @@ for (const retainedId of [false, true]) {
       // Manual commit only requests transcription. No response.created/done is injected.
       await settle(page);
       expect(await page.evaluate(() => window.e2eRealtime.sent.some((event) => event.type === "response.create"))).toBe(false);
-      if (outcome === "failed") await expectIncomplete(page, request, session);
+      if (outcome === "failed") await expectGaps(page, request, session);
       else {
         await expect(page.getByText(complete, { exact: true })).toBeVisible();
         const events = await stored(request, session);
@@ -304,7 +396,7 @@ for (const confirmation of ["commit-before-done", "transcription-after-done", "s
 }
 
 for (const missing of ["transcript", "terminal"] as const) {
-  test(`manual-first missing ${missing} keeps completion and debrief blocked`, async ({ page, request }) => {
+  test(`manual-first missing ${missing} waits, then closes with gaps`, async ({ page, request }) => {
     const session = await start(page);
     await emit(page, { type: "input_audio_buffer.speech_started", item_id: "vad" });
     await end(page);
@@ -322,7 +414,7 @@ for (const missing of ["transcript", "terminal"] as const) {
     expect((await stored(request, session)).some((event) => event.type === "session.ended")).toBe(false);
     await expect(page.getByTestId("debrief")).toHaveCount(0);
     await page.getByRole("button", { name: "Close without it", exact: true }).click();
-    await expectIncomplete(page, request, session);
+    await expectGaps(page, request, session);
   });
 }
 
@@ -483,7 +575,7 @@ test("transcription more than 300ms before an automatic response cannot finalize
   expect(events[1].data).toEqual({ speaker: "persona", text: "The final automatic answer" });
 });
 
-test("a missing automatic response after successful transcription reaches incomplete recovery", async ({ page, request }) => {
+test("a missing automatic response after successful transcription reaches recovery, then closes with gaps", async ({ page, request }) => {
   const session = await start(page);
   await emit(page, { type: "input_audio_buffer.speech_started", item_id: "unanswered" });
   await emit(page, { type: "input_audio_buffer.committed", item_id: "unanswered" });
@@ -495,8 +587,8 @@ test("a missing automatic response after successful transcription reaches incomp
   expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
   expect((await stored(request, session)).some((event) => event.type === "session.ended")).toBe(false);
   await page.getByRole("button", { name: "Close without it", exact: true }).click();
-  await expectIncomplete(page, request, session);
-  expect((await stored(request, session)).map((event) => event.data)).toEqual([{ speaker: "interviewer", text: sentence }]);
+  await expectGaps(page, request, session);
+  expect((await stored(request, session)).filter((event) => event.type === "utterance").map((event) => event.data)).toEqual([{ speaker: "interviewer", text: sentence }]);
 });
 
 for (const manualFirst of [false, true]) {
@@ -556,13 +648,13 @@ test("missing transcription exposes recovery by ten seconds and each explicit co
   expect((await stored(request, session)).flatMap((event) => event.type === "utterance" ? [event.data.text] : [])).toEqual([sentence]);
 });
 
-test("closing missing speech stays incomplete and stale callbacks cannot contaminate a new generation", async ({ page, request }) => {
+test("closing missing speech is marked as gaps and stale callbacks cannot contaminate a new generation", async ({ page, request }) => {
   const session = await start(page);
   await emit(page, { type: "input_audio_buffer.speech_started", item_id: "missing" });
   await end(page);
   await page.clock.runFor(10_000);
   await page.getByRole("button", { name: "Close without it", exact: true }).click();
-  await expectIncomplete(page, request, session);
+  await expectGaps(page, request, session);
   await page.getByRole("button", { name: "Start again", exact: true }).click();
   await expect(page.getByText("Live, speak now")).toBeVisible();
   await page.evaluate(() => window.e2eRealtime.stale[0]());
@@ -570,7 +662,7 @@ test("closing missing speech stays incomplete and stale callbacks cannot contami
   await end(page);
   await settle(page);
   await expect(page.getByText(complete, { exact: true })).toBeVisible();
-  expect(await stored(request, session)).toEqual([]);
+  expect((await stored(request, session)).map((event) => event.type)).toEqual(["session.ended"]);
 });
 
 for (const outcome of ["empty", "failed", "cancelled", "response-failed", "response-incomplete"] as const) {
@@ -596,7 +688,7 @@ for (const outcome of ["empty", "failed", "cancelled", "response-failed", "respo
       await emit(page, { type: "response.output_audio_transcript.done", item_id: "partial-answer", content_index: 0, transcript: "A captured partial answer" });
     }
     await settle(page);
-    if (outcome === "failed" || outcome.startsWith("response-")) await expectIncomplete(page, request, session);
+    if (outcome === "failed" || outcome.startsWith("response-")) await expectGaps(page, request, session);
     else {
       await expect(page.getByText(complete, { exact: true })).toBeVisible();
       expect((await stored(request, session)).filter((event) => event.type === "session.ended")).toHaveLength(1);
@@ -608,15 +700,15 @@ for (const outcome of ["empty", "failed", "cancelled", "response-failed", "respo
 }
 
 for (const waiting of [false, true]) {
-  test(`connection loss ${waiting ? "at recovery" : "during drain"} preserves the incomplete gate`, async ({ page, request }) => {
+  test(`connection loss ${waiting ? "at recovery" : "during drain"} still closes, marked as gaps`, async ({ page, request }) => {
     const session = await start(page);
     await emit(page, { type: "input_audio_buffer.committed", item_id: "lost-input" });
     await end(page);
     if (waiting) await page.clock.runFor(10_000);
     await page.evaluate(() => window.e2eRealtime.lose());
     await settle(page);
-    await expectIncomplete(page, request, session);
-    await expect(page.getByTestId("connection-lost")).toBeVisible();
+    await expectGaps(page, request, session);
+    await expect(page.getByTestId("connection-lost")).toContainText("This transcript has gaps");
     expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(true);
   });
 }
@@ -688,7 +780,7 @@ test("an empty-buffer commit error never silently clears unresolved speech", asy
   await page.clock.runFor(10_000);
   await expect(page.getByRole("status")).toContainText("Transcribing the last sentence");
   await page.getByRole("button", { name: "Close without it", exact: true }).click();
-  await expectIncomplete(page, request, session);
+  await expectGaps(page, request, session);
 });
 
 for (const failure of ["microphone", "token", "sdp"] as const) {

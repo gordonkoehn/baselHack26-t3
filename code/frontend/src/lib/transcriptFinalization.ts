@@ -119,6 +119,12 @@ export class TranscriptWork {
     } else if (!this.playbackDone.has(id)) this.pending.add(`p:${id}`);
   }
 
+  // Whether closing now could lose a turn. Audio still playing can't: the words of a finished
+  // response are already in the transcript. Every other open key is a turn that may not arrive.
+  get missingTurns(): boolean {
+    return [...this.pending].some((key) => !key.startsWith("p:") || !this.responseDone.has(key.slice(2)));
+  }
+
   private expectResponse(id: string) {
     this.suspendedResponses.delete(id);
     if (this.expectedResponses.has(id)) return;

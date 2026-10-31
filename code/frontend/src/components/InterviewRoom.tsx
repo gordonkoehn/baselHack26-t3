@@ -71,7 +71,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   const [finalStage, setFinalStage] = useState("Checking the final provider events");
   const [endSeconds, setEndSeconds] = useState(0);
   const retryBatch = useRef<{ events: SessionEvent[]; attempts: number } | null>(null);
-  // A provider turn that failed (not cancelled) leaves a hole: the transcript then counts as incomplete.
+  // A provider turn that failed (not cancelled) leaves a hole: the saved transcript is marked as having gaps.
   const lost = useRef(false);
   // Finalized provider items already recorded; the same item must never become two seqs.
   const seen = useRef(new Set<string>());
@@ -265,7 +265,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     callLost.current = true;
     setConnectionLost(true);
     // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    if (!liveEstablished.current || pending.current.size > 0) lost.current = true;
+    if (!liveEstablished.current || work.current.missingTurns) lost.current = true;
     hangUp();
     if (finalizing.current) {
       if (!draining.current) void closeDrained(false);
@@ -359,7 +359,11 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
         break;
       }
     }
-    if (finalizing.current) finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+    if (finalizing.current) {
+      finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+      // Past the wait limit nothing else rechecks: the last item arriving must still finish the call.
+      if (!work.current.missingTurns) void drain();
+    }
   }
 
   // True the first time a provider item is seen. Events without an id are always new.
@@ -711,6 +715,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       // grace only lets already completed work finish dispatching queued events.
       if (pending.current.size === 0 && Date.now() - providerActivity.current >= 300) break;
       if (Date.now() >= until) {
+        if (!work.current.missingTurns) break; // Only audio is left and its words are saved: don't ask.
         draining.current = false;
         setPhase("waiting");
         measure("provider-drain", drainStarted.current, "waiting");
@@ -724,15 +729,16 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
   }
 
   async function closeDrained(incomplete: boolean) {
-    if (finishing.current) return;
-    if (incomplete || pending.current.size > 0) lost.current = true;
+    if (finishing.current || draining.current) return;
+    if (incomplete || work.current.missingTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
     await finish();
   }
 
-  // Create the terminal marker once, only after all captured turns are stored.
+  // Create the terminal marker once, only after all captured turns are stored. A call that went live
+  // always gets one, so it always reaches a debrief; lost turns are stated on it, never hidden.
   // Failed POST/PATCH attempts keep the exact events for an explicit Save again.
   async function finish(retry = false) {
     if (finishing.current) return;
@@ -747,8 +753,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     try {
       if (!await flush()) throw new Error("TranscriptSaveError");
       if (g !== gen.current) return;
-      if (!lost.current && pending.current.size === 0 && !events.current.some((event) => event.type === "session.ended")) {
-        record("session.ended", { durationSeconds: durationSeconds.current });
+      if (liveEstablished.current && !events.current.some((event) => event.type === "session.ended")) {
+        record("session.ended", { durationSeconds: durationSeconds.current, ...(lost.current && { transcriptGaps: true }) });
         if (!await flush()) throw new Error("TranscriptSaveError");
       }
       if (g !== gen.current) return;
@@ -768,7 +774,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
           }
         }
         if (g !== gen.current) return;
-        if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
+        if (liveEstablished.current) setEnded({ id: sid, questions: questions.current });
       }
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
@@ -847,6 +853,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
               ? "Sample interview loaded: a scripted transcript. No live call took place and nobody was interviewed."
               : startupFailure.current
               ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
+              : lastTurnMissing && ended
+              ? "Ended. Microphone and camera are off. This transcript has gaps: at least one turn was not captured."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
@@ -866,7 +874,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       {connectionLost && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
           Connection lost. Microphone, camera and screen sharing are off.
-          {lastTurnMissing ? " This transcript is incomplete; no debrief will be generated." : ""}
+          {lastTurnMissing ? (liveEstablished.current ? " This transcript has gaps." : " This transcript is incomplete; no debrief will be generated.") : ""}
           {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
@@ -944,11 +952,11 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
           )}
           {phase === "waiting" && (
             <>
-              <span className="text-sm text-muted">The wait limit was reached. Capture is off.</span>
+              <span className="text-sm text-muted">The wait limit was reached. Capture is off. Closing now marks the transcript as having gaps.</span>
               {channel.current?.readyState === "open" && (
                 <button type="button" className={btn} onClick={drain}>Continue waiting (10 seconds)</button>
               )}
-              <button type="button" className={btn} onClick={() => closeDrained(true)}>
+              <button type="button" className={btn} onClick={() => closeDrained(false)}>
                 Close without it
               </button>
             </>
@@ -1019,7 +1027,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
         <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">
-            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns)
+            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", has gaps" : ""})
           </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
@@ -1036,7 +1044,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
           {metrics.inputTokens} / out {metrics.outputTokens}
         </p>
       )}
-      {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
+      {phase === "ended" && ended && ended.questions > 0 && (
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (

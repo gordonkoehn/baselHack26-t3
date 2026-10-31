@@ -131,7 +131,14 @@ export type SessionEvent = EventBase &
           turnSeq?: number | null;
         };
       }
-    | { type: "session.ended"; data: { durationSeconds?: number } }
+    | {
+        type: "session.ended";
+        data: {
+          durationSeconds?: number;
+          /** True when at least one turn of a live call was lost. Absent means none are known. */
+          transcriptGaps?: boolean;
+        };
+      }
   );
 
 export type Insight = {
@@ -147,6 +154,8 @@ export type Insight = {
 export type InsightReport = {
   sessionId: string;
   generatedAt: string;
+  /** Set by the server from the session.ended marker, never by the model. */
+  transcriptGaps?: boolean;
   questions: {
     question: string;
     signal: "supports" | "contradicts" | "unclear";

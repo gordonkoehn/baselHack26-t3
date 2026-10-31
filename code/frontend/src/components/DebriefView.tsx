@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
-import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
+import { TRANSCRIPT_GAPS, formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
   supports: { text: "supports", className: "bg-accent-soft text-accent" },
@@ -29,6 +29,8 @@ export function DebriefView({
   const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The backend will always refuse this session the same way, so a retry can't help.
+  const [nothingToDebrief, setNothingToDebrief] = useState(false);
   const [copying, setCopying] = useState(false);
   const [exportStatus, setExportStatus] = useState<{ error: boolean; text: string } | null>(null);
   const downloads = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -69,7 +71,10 @@ export function DebriefView({
       if (!(e instanceof ApiError)) setError("Backend not reachable.");
       else if (e.status === 409) setError(`The transcript is not complete yet: ${e.detail}`);
       else if (e.status === 503) setError("The debrief model is unavailable right now. Try again in a moment.");
-      else setError(`Debrief failed (${e.status}): ${e.detail}`);
+      else if (e.status === 422) {
+        setNothingToDebrief(true);
+        setError("No debrief for this call: the persona never answered, so there is nothing to quote. Start again for a new interview.");
+      } else setError(`Debrief failed (${e.status}): ${e.detail}`);
     } finally {
       setLoading(false);
     }
@@ -132,14 +137,16 @@ export function DebriefView({
       </p>
       {!report ? (
         <div className="mt-4">
-          <button
-            type="button"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
-            onClick={create}
-            disabled={loading}
-          >
-            {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
-          </button>
+          {!nothingToDebrief && (
+            <button
+              type="button"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
+              onClick={create}
+              disabled={loading}
+            >
+              {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
+            </button>
+          )}
           {error && (
             <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
               {error}
@@ -149,6 +156,11 @@ export function DebriefView({
       ) : (
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          {report.transcriptGaps && (
+            <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="transcript-gaps">
+              {TRANSCRIPT_GAPS}
+            </p>
+          )}
           {sample ? (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not

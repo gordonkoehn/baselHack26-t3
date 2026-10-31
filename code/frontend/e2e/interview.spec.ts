@@ -254,7 +254,7 @@ test("rate limit is announced with the backend's wait time and keeps the sources
   await expect(page.getByLabel("Source 2 text")).toHaveValue(source);
 });
 
-test("failed last transcription cannot claim a complete transcript or show debrief", async ({ page, request }) => {
+test("a failed turn still reaches a debrief that says the transcript has gaps, and only quotes saved turns", async ({ page, request }) => {
   const session = await startInterview(page);
   await page.getByLabel("Type a question").fill(typedQuestion);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -263,13 +263,23 @@ test("failed last transcription cannot claim a complete transcript or show debri
   await emit(page, { type: "conversation.item.input_audio_transcription.failed", item_id: "lost-1" });
   await emit(page, { type: "response.done", response: { id: "lost-response", status: "completed", output: [] } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
-  await expect(page.getByText("Ended without the last turn. This transcript is incomplete, so there is no debrief for it.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create debrief", exact: true })).toHaveCount(0);
-  await expect(page.getByTestId("debrief")).toHaveCount(0);
+  await expect(page.getByText("This transcript has gaps", { exact: false }).first()).toBeVisible();
+  const details = page.getByTestId("interview-room").locator("details");
+  await expect(details.locator("summary")).toContainText("has gaps");
+  const debrief = page.getByTestId("debrief");
+  await expect(debrief.getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
+  // The fixed fake debrief quotes both fixture answers; the persona only said the first.
+  await expect(debrief.locator("blockquote")).toHaveCount(1);
+  await expect(debrief.locator("blockquote")).toContainText(answers[0]);
+  await expect(debrief).not.toContainText(answers[1]);
   const events: SessionEvent[] = await (await request.get(`/api/sessions/${session.id}/events`)).json();
-  expect(events.map((event) => event.type)).toEqual(["utterance", "utterance"]);
-  // This is only a negative read of the real debrief gate; no events are manufactured via HTTP.
-  expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+  expect(events.map((event) => event.type)).toEqual(["utterance", "utterance", "session.ended"]);
+  expect(events[2].data).toMatchObject({ transcriptGaps: true });
+  // The shared link can't look complete either.
+  const report: InsightReport = await (await request.get(`/api/sessions/${session.id}/insights`)).json();
+  expect(report.transcriptGaps).toBe(true);
+  await page.goto(`/report/${session.id}`);
+  await expect(page.getByTestId("transcript-gaps")).toContainText("This transcript has gaps");
 });
 
 test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {

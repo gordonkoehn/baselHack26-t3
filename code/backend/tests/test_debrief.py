@@ -51,7 +51,12 @@ def test_preserves_guide_quotes_followups_and_assigns_server_metadata(inputs):
     assert report.questions[2].signal == "unclear" and report.questions[2].insights == []
     assert [q.follow_ups for q in report.questions] == [q.follow_ups for q in draft.questions]
     assert report.questions[0].insights[0].quote == draft.questions[0].insights[0].quote
-    assert set(report.model_dump(by_alias=True)) == {"sessionId", "generatedAt", "questions"}
+    assert set(report.model_dump(by_alias=True)) == {
+        "sessionId",
+        "generatedAt",
+        "transcriptGaps",
+        "questions",
+    }
 
 
 @pytest.mark.parametrize("signal", ["supports", "contradicts", "unclear"])
@@ -163,8 +168,8 @@ def test_insight_ids_must_be_unique_across_the_report(inputs, same_question):
         debrief.build_report(session, persona, events, draft)
 
 
-@pytest.mark.parametrize("change", ["missing", "extra", "reordered", "reworded"])
-def test_questions_must_match_the_entire_saved_guide(inputs, change):
+@pytest.mark.parametrize("change", ["missing", "extra", "reordered", "reordered_and_retyped"])
+def test_questions_that_cannot_be_matched_by_position_still_fail(inputs, change):
     session, persona, events, draft = inputs
     if change == "missing":
         draft.questions.pop()
@@ -173,9 +178,67 @@ def test_questions_must_match_the_entire_saved_guide(inputs, change):
     elif change == "reordered":
         draft.questions.reverse()
     else:
-        draft.questions[0].question += " altered"
+        draft.questions.reverse()
+        draft.questions[0].question = f"  {draft.questions[0].question.upper().rstrip('?')} "
     with pytest.raises(ExtractionFailed, match="questions"):
         debrief.build_report(session, persona, events, draft)
+
+
+@pytest.mark.parametrize(
+    "reworded",
+    [
+        lambda q: q + " altered",
+        lambda q: q.rstrip("?") + ".",
+        lambda q: "Completely different words",
+        lambda q: "",
+    ],
+)
+def test_reworded_question_matches_by_position_and_keeps_the_guides_text(inputs, reworded):
+    session, persona, events, draft = inputs
+    answer = draft.questions[0]
+    draft.questions[0].question = reworded(answer.question)
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+    # The answer stays with its own question: same signal, same quotes, same follow-ups.
+    assert report.questions[0].signal == answer.signal
+    assert report.questions[0].insights[0].quote == answer.insights[0].quote
+    assert report.questions[0].follow_ups == answer.follow_ups
+
+
+def test_reworded_question_does_not_loosen_quote_verification(inputs):
+    session, persona, events, draft = inputs
+    draft.questions[0].question += " altered"
+    draft.questions[0].insights[0].quote = "Nobody said this."
+    report = debrief.build_report(session, persona, events, draft)
+    assert report.questions[0].insights == [] and report.questions[0].signal == "unclear"
+
+
+@pytest.mark.parametrize("gaps", [True, False, None])
+def test_report_gap_flag_comes_only_from_the_end_marker(inputs, gaps):
+    session, persona, events, draft = inputs
+    events[-1].data.pop("transcriptGaps", None)
+    if gaps is not None:
+        events[-1].data["transcriptGaps"] = gaps
+    assert debrief.build_report(session, persona, events, draft).transcript_gaps is (gaps is True)
+
+
+def test_quotes_stay_verified_on_a_transcript_with_gaps(inputs):
+    session, persona, events, draft = inputs
+    events[-1].data["transcriptGaps"] = True
+    draft.questions[0].insights[0].quote = "Nobody said this."
+    good = draft.questions[1].insights[0]
+    report = debrief.build_report(session, persona, events, draft)
+    assert report.transcript_gaps is True
+    assert report.questions[0].insights == []
+    assert report.questions[1].insights[0].quote == good.quote
+
+
+@pytest.mark.parametrize("quote", ["(interrupted)", "interrupted"])
+def test_the_interrupted_placeholder_is_not_something_the_persona_said(inputs, quote):
+    session, persona, events, draft = inputs
+    events[5].data["text"] = "(interrupted)"
+    draft.questions[0].insights[0].quote = quote
+    assert debrief.build_report(session, persona, events, draft).questions[0].insights == []
 
 
 def prepare_grounded(inputs):

@@ -74,6 +74,40 @@ describe("TranscriptWork", () => {
   });
 });
 
+describe("TranscriptWork.missingTurns", () => {
+  it("does not count audio still playing once its response has finished: the words are saved", () => {
+    const work = new TranscriptWork();
+    work.created("answer");
+    work.playback("answer", false);
+    expect(work.missingTurns).toBe(true);
+
+    work.done("answer");
+    expect(pendingOf(work)).toEqual(["p:answer"]);
+    expect(work.missingTurns).toBe(false);
+  });
+
+  it("counts audio from a response with no terminal event: its words have not arrived", () => {
+    const work = new TranscriptWork();
+    work.playback("answer", false);
+    expect(work.missingTurns).toBe(true);
+  });
+
+  it.each([
+    ["speech not committed", (work: TranscriptWork) => work.speech("one")],
+    ["a transcript not arrived", (work: TranscriptWork) => work.commit("one")],
+    ["a response not finished", (work: TranscriptWork) => work.created("answer")],
+    ["a typed question not answered", (work: TranscriptWork) => work.pending.add("a:1")],
+  ])("counts %s", (_name, open) => {
+    const work = new TranscriptWork();
+    open(work);
+    expect(work.missingTurns).toBe(true);
+  });
+
+  it("is false when nothing is open", () => {
+    expect(new TranscriptWork().missingTurns).toBe(false);
+  });
+});
+
 describe("drainDescription", () => {
   it.each([
     [["s:one"], "Transcribing the last sentence"],
