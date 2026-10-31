@@ -13,7 +13,7 @@ function errorMessage(e: unknown): string {
   if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
   if (e.status === 422) return `The input was rejected: ${e.detail}`;
   if (e.status === 502) return "The model's answer couldn't be used. Try again.";
-  if (e.status === 503) return "Backend not ready (OpenAI key or store missing in backend/.env).";
+  if (e.status === 503) return "The persona service is temporarily unavailable. Try again in a moment.";
   // The Next proxy answers 500 when the backend process isn't running at all.
   if (e.status >= 500) return `Backend not reachable (${e.status}). Is \`make dev\` running?`;
   return `Unexpected error ${e.status}: ${e.detail}`;
