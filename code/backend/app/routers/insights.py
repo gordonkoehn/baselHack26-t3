@@ -7,6 +7,7 @@ from app import debrief, extract
 from app.auth import require_passcode
 from app.contracts import InsightReport, Persona, Session, SessionEvent
 from app.extract import DebriefDraft, ExtractionFailed, ProviderUnavailable
+from app.rate_limit import rate_limit
 from app.routers.sessions import StoreDep, _load
 
 router = APIRouter(prefix="/api/sessions", tags=["insights"])
@@ -31,7 +32,9 @@ def read_insights(session_id: str, store: StoreDep) -> InsightReport:
 
 
 @router.post(
-    "/{session_id}/debrief", response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+    "/{session_id}/debrief",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("debrief"))],
 )
 def create_debrief(session_id: str, store: StoreDep, debriefer: DebrieferDep) -> InsightReport:
     session = _load(store, session_id)
