@@ -291,7 +291,8 @@ jobs/pains/objections fact: then the theme is that fact's text copied word for w
 finding, and evidenceId equals that fact's evidenceId. Any other wording comes back from code as a
 guess, and so does a fact labelled guess. The quote stays the persona's own words and need not
 repeat the fact's source passage. Never cite a fact only because it shares the topic, and never
-make up an evidenceId. Otherwise keep guess/null.
+make up an evidenceId. Otherwise keep guess/null. A grounded theme follows this rule, not the theme
+rules above: never reword it or merge another finding into it.
 """
 
 

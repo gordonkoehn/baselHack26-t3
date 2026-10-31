@@ -1,6 +1,5 @@
 """Finalization and quote validation for synthetic interview debriefs."""
 
-import re
 from datetime import UTC, datetime
 
 from pydantic import ValidationError
@@ -46,25 +45,27 @@ def validate_inputs(session: Session, events: list[SessionEvent]) -> dict[int, s
     return turns
 
 
-def _words(text: str) -> list[str]:
-    return re.findall(r"\w+", text.casefold())
+def _comparable(text: str) -> str:
+    # Only differences that can't change the meaning: a symbol like "¬" or "-5" still counts.
+    return " ".join(text.casefold().split()).rstrip(".!,;")
 
 
 def _source_label(insight: Insight, persona: Persona) -> Insight:
-    # Grounded means the theme IS a source-backed fact, so the label only ever sits on text with a
-    # source. Comparing a reworded theme can't work: word overlap sees neither negation nor which
-    # fact is meant, and facts on one evidence id share vocabulary. A miss only costs a guess label.
+    # Grounded means the theme IS a fact that cites the sources, so the label only ever sits on that
+    # fact's text. Whether the passage supports the fact is the extraction model's word, not checked.
+    # Comparing a reworded theme can't work: word overlap sees neither negation nor which fact is
+    # meant, and facts on one evidence id share vocabulary. A miss only costs a guess label.
     # The quote is the persona's synthetic speech, so it may reword the source and is never
     # evidence of real-customer validation; _place_quote verifies it against the saved turns.
     evidence = [e for e in persona.evidence if e.id == insight.evidence_id]
-    words = _words(insight.theme)
+    theme = _comparable(insight.theme)
     fact = next(
         (
             f
             for f in persona.jobs + persona.pains + persona.objections
             if f.label == "grounded"
             and f.evidence_id == insight.evidence_id
-            and _words(f.text) == words
+            and _comparable(f.text) == theme
         ),
         None,
     )
@@ -74,7 +75,7 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
         and len(evidence) == 1
         and evidence[0].quote is not None
         and evidence[0].quote.strip()
-        and words
+        and theme
         and fact is not None
     ):
         return insight.model_copy(update={"theme": fact.text})

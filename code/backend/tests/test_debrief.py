@@ -151,6 +151,25 @@ def test_quote_from_a_different_persona_turn_is_moved_there(inputs):
     assert report.questions[0].insights[0].turn_seq == other.seq
 
 
+def test_quote_in_several_turns_with_a_wrong_turn_is_dropped_not_guessed(inputs):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    other = next(
+        e for e in events if e.seq != insight.turn_seq and e.data.get("speaker") == "persona"
+    )
+    other.data["text"] = insight.quote
+    insight.turn_seq = 999
+    assert debrief.build_report(session, persona, events, draft).questions[0].insights == []
+
+
+def test_duplicate_id_on_a_dropped_insight_still_rejects_the_report(inputs):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    draft.questions[0].insights.append(insight.model_copy(update={"quote": "Nobody said this."}))
+    with pytest.raises(ExtractionFailed, match="duplicate"):
+        debrief.build_report(session, persona, events, draft)
+
+
 @pytest.mark.parametrize("same_question", [False, True])
 def test_insight_ids_must_be_unique_across_the_report(inputs, same_question):
     session, persona, events, draft = inputs
@@ -267,11 +286,11 @@ def test_citing_a_grounded_fact_stays_grounded_with_the_personas_own_quote(input
 @pytest.mark.parametrize(
     "theme",
     [
-        "get rid of paper PET and aluminium without  driving to the COLLECTION POINT.",
+        "get rid of paper, PET and aluminium without  driving to the COLLECTION POINT.",
         "Get rid of paper, PET and aluminium without driving to the collection point!",
     ],
 )
-def test_case_space_and_punctuation_are_ignored_and_the_facts_own_text_is_shown(inputs, theme):
+def test_case_space_and_end_punctuation_are_ignored_and_the_facts_text_is_shown(inputs, theme):
     session, persona, events, draft = prepare_citation(inputs)
     result = insight_with_theme(session, persona, events, draft, theme)
     assert result.label == "grounded" and result.theme == persona.jobs[0].text
@@ -285,22 +304,22 @@ FACT = "Get rid of paper, PET and aluminium without driving to the collection po
     [
         # Same topic, different finding.
         (FACT, "Unsure about the collection point fee"),
-        (FACT, "The bakery collection point looks like advertising"),
-        (FACT, "Collection point staff were rude to him"),
-        # A reworded finding stays a guess too: code can't tell it from the ones above.
+        # A reworded finding stays a guess too: code can't tell it from the one above.
         (FACT, "Wants the collection point off her to-do list"),
         # Opposite meaning, including with every word of the fact present.
         (FACT, "Loves driving to the collection point"),
         (FACT, f"Never wants to {FACT[0].lower()}{FACT[1:]}"),
-        ("Never trusts insurance renewals", "Always trusts insurance renewals"),
         ("Never trusts insurance renewals", "Trusts insurance renewals"),
         ("Zu teuer", "Nicht zu teuer"),
-        # Part of a fact, one shared word, or only function words.
+        # Part of a fact, or the same words in another order.
         (FACT, "Get rid of paper, PET and aluminium"),
-        ("Zu teuer", "Findet das Angebot teuer"),
-        ("Zu teuer", "Das neue Velo ist teuer"),
-        ("Will das alles wieder selber machen", "Hat alles wieder vergessen"),
-        ("She never trusts brands that always advertise", "She would never buy what people always"),
+        ("Dog bites man", "Man bites dog"),
+        # A symbol can carry the meaning, and only end punctuation that doesn't is ignored.
+        (FACT, f"¬ {FACT}"),
+        (FACT, f"🚫 {FACT}"),
+        ("Pays 5 CHF", "Pays -5 CHF"),
+        ("Uses C++", "Uses C#"),
+        ("Zu teuer", "Zu teuer?"),
     ],
 )
 def test_theme_that_is_not_the_fact_is_a_guess(inputs, fact, theme):
@@ -335,7 +354,7 @@ def test_fact_text_without_a_real_matching_citation_is_a_guess(inputs, change):
         insight.evidence_id = "e_made_up"
     elif change == "no_words":
         persona.jobs[0].text = "..."
-        insight.theme = "?!"
+        insight.theme = "..."
     elif change == "fact_is_guess":
         persona.jobs[0].label = "guess"
     elif change == "fact_on_other_id":
@@ -351,7 +370,7 @@ def test_fact_text_without_a_real_matching_citation_is_a_guess(inputs, change):
 
 def test_label_says_nothing_about_the_quote_which_only_has_to_be_the_personas(inputs):
     # Known limit, stated in the caption: no code compares the quote's meaning to the fact. The
-    # label still sits on the fact's own text, never on a claim the sources don't make.
+    # label still sits only on the text of a fact that cites the sources.
     session, persona, events, draft = prepare_citation(inputs)
     insight = draft.questions[0].insights[0]
     assert "collection" not in insight.quote.casefold()
@@ -371,6 +390,7 @@ def test_prompt_matches_the_source_label_rule():
     assert "exactly equals" not in prompt
     assert "substring of the insight quote" not in prompt
     assert "the theme is that fact's text copied word for word" in prompt
+    assert "never reword it or merge another finding into it" in prompt
     assert "Any other wording comes back from code as a guess" in prompt
     assert "never make up an evidenceId" in prompt
 
