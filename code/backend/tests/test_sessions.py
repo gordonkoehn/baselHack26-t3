@@ -135,6 +135,14 @@ def test_model_and_voice_configurable(client, secrets, monkeypatch):
     )
 
 
+def test_voice_comes_from_persona():
+    p = Persona.model_validate(PERSONA)
+    p.voice_id = "cedar"
+    assert realtime.voice_for(p) == "cedar"
+    p.voice_id = "stock_f_01"
+    assert realtime.voice_for(p) == realtime.DEFAULT_VOICE
+
+
 def test_no_token_after_end(client, secrets):
     sid = new_session(client)["id"]
     client.patch(f"/api/sessions/{sid}", json={"status": "ended"})

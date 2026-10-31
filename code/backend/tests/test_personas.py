@@ -28,7 +28,7 @@ def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
     }
-    return PersonaDraft.model_validate({**data, **changes})
+    return PersonaDraft.model_validate({**data, "face": "Sophie", **changes})
 
 
 @pytest.fixture
@@ -53,6 +53,14 @@ def test_create_then_read(client):
     assert body["voiceId"] and body["faceId"]
     assert body["sprintId"] == "sprint_quartier_boerse"
     assert client.get(f"/api/personas/{body['id']}").json() == body
+
+
+def test_face_and_voice_follow_the_chosen_face(client):
+    use_extractor(lambda _req: draft(name="Marco Keller", face="Victor"))
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert body["faceId"] == "3bad681f-1b4a-4507-bc54-fbc675c191b7"
+    assert body["voiceId"] == "cedar"
+    assert "face" not in body
 
 
 def test_unknown_persona_404(client):

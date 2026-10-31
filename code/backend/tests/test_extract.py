@@ -15,6 +15,7 @@ EXAMPLE = json.loads(
 )
 DRAFT = PersonaDraft.model_validate(
     {k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"}
+    | {"face": "Sophie"}
 )
 REQUEST = PersonaCreate.model_validate(
     {"language": "de", "sources": [{"kind": "miro", "title": "Leitfaden", "text": "Quelle eins."}]}
