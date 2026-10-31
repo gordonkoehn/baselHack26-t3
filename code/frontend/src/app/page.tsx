@@ -7,9 +7,11 @@ import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
-// Files the browser can read as plain text without any extra library; PDFs go through the backend.
+// Files the browser can read as plain text without any extra library; PDFs and images go through
+// the backend (text layer, or a transcription of the visible text).
 const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
-const ACCEPTED = `${TEXT_FILES},.pdf`;
+const IMAGE_FILES = ".png,.jpg,.jpeg,.webp,.gif";
+const ACCEPTED = `${TEXT_FILES},.pdf,${IMAGE_FILES}`;
 
 type Draft = PersonaSource & { id: number };
 type Result = { persona: Persona; sources: PersonaSource[]; seconds: number };
@@ -26,6 +28,23 @@ const SAMPLES = (): Draft[] => [
   draft("note", "Interview guide Quartier-Börse", QUARTIER_BOERSE),
   draft("transcript", "Interview transcript (synthetic)", SAMPLE_TRANSCRIPT),
 ];
+
+// Draw the image on white: the vision model reads text on a transparent PNG as black on black.
+// Also shrink to 2048 px (the model downsizes anyway), so phone photos stay far below 10 MB.
+async function onWhite(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/jpeg", 0.92),
+  );
+}
 
 function errorMessage(e: unknown): string {
   if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
@@ -73,6 +92,9 @@ export default function Home() {
           const { text, pages } = await api.extractPdf(file);
           const title = `${file.name} (${pages} ${pages === 1 ? "page" : "pages"})`;
           setDrafts((ds) => [...ds, draft("note", title, text)]);
+        } else if (IMAGE_FILES.split(",").includes(ext)) {
+          const { text } = await api.extractImage(await onWhite(file));
+          setDrafts((ds) => [...ds, draft("note", `${file.name} (image, transcribed)`, text)]);
         } else if (TEXT_FILES.split(",").includes(ext)) {
           const text = await file.text();
           setDrafts((ds) => [...ds, draft("note", file.name, text)]);
@@ -196,7 +218,7 @@ export default function Home() {
             />
           </label>
           <span className="opacity-60">
-            {reading ? "Reading files…" : "or drop text, CSV or PDF files anywhere"}
+            {reading ? "Reading files…" : "or drop text, CSV, PDF or image files anywhere"}
           </span>
           <button
             type="button"

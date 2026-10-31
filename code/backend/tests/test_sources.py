@@ -93,3 +93,59 @@ def test_unsupported_stream_filter_is_422_json():
         "/api/sources/pdf", content=make_pdf("x", "ReviewUnsupportedFilter"), headers=PDF
     )
     assert res.status_code == 422 and res.headers["content-type"] == "application/json"
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+
+
+def fake_transcribe(monkeypatch, result: str | Exception):
+    calls = []
+
+    def transcribe(data: bytes, mime: str) -> str:
+        calls.append(mime)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(sources.extract, "transcribe_image", transcribe)
+    return calls
+
+
+def test_image_returns_transcribed_text(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "Zu wenig Punkte\nWill sehen, wohin das Geld geht")
+    r = client.post("/api/sources/image", content=PNG, headers={"Content-Type": "image/png"})
+    assert r.status_code == 200
+    assert r.json() == {"text": "Zu wenig Punkte\nWill sehen, wohin das Geld geht", "pages": 1}
+    assert calls == ["image/png"]
+
+
+def test_image_type_comes_from_bytes_not_header(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "x")
+    jpeg = b"\xff\xd8\xff\xe0" + b"\0" * 16
+    assert client.post("/api/sources/image", content=jpeg, headers=PDF).status_code == 200
+    assert calls == ["image/jpeg"]
+
+
+def test_image_rejects_non_images(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "x")
+    r = client.post("/api/sources/image", content=make_pdf("hi"), headers=PDF)
+    assert r.status_code == 422
+    assert calls == []
+
+
+def test_image_too_large(monkeypatch):
+    fake_transcribe(monkeypatch, "x")
+    r = client.post("/api/sources/image", content=PNG + b"\0" * MAX_BYTES)
+    assert r.status_code == 413
+
+
+def test_image_without_text(monkeypatch):
+    fake_transcribe(monkeypatch, "")
+    assert client.post("/api/sources/image", content=PNG).status_code == 422
+
+
+def test_image_provider_errors(monkeypatch):
+    fake_transcribe(monkeypatch, sources.extract.ProviderUnavailable("down"))
+    assert client.post("/api/sources/image", content=PNG).status_code == 503
+    fake_transcribe(monkeypatch, sources.extract.ExtractionFailed("refusal"))
+    assert client.post("/api/sources/image", content=PNG).status_code == 502

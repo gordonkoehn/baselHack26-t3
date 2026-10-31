@@ -48,6 +48,13 @@ export const api = {
       headers: { "Content-Type": "application/pdf" },
       body: file,
     }).then(json<ExtractedText>),
+  // The backend sniffs the format from the bytes; the header is only a hint.
+  extractImage: (image: Blob) =>
+    fetch("/api/sources/image", {
+      method: "POST",
+      headers: { "Content-Type": image.type || "application/octet-stream" },
+      body: image,
+    }).then(json<ExtractedText>),
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",
