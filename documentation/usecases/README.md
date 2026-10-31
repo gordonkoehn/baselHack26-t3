@@ -13,6 +13,9 @@ Copy `_template/` to a new folder with a short name, then fill it in:
 | `sources/` | Stakeholder and expert interviews, notes, exports |
 | `personas/` | Persona data, images and voice references |
 | `test-object/` | The mockup, as screenshots, PDF or HTML, plus a note on how to open it |
+| `interview/` | `guide.md` for the script, and `real-transcript.md` to check persona quality |
 | `links.md` | Miro board and other links that stay outside the repo |
+
+Start with `brief.md`, and keep text in Markdown where you can, as agents read it best. Add a short description to each image. Never put `real-transcript.md` in `sources/`, or the persona gets tested on what it already learned.
 
 Name files so their order is clear, such as `01-stakeholder-interview.md`. Keep each file under 10 MB.
