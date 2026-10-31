@@ -220,3 +220,9 @@ def test_route_needs_no_passcode_like_reading_one_report(client, store, monkeypa
 def test_route_answers_503_when_the_store_is_down(client, store, monkeypatch):
     monkeypatch.setattr(store, "get_debriefs", Mock(side_effect=StoreUnavailable("store down")))
     assert client.post(URL, json={"sessionIds": ["s_1"]}).status_code == 503
+
+
+def test_summary_names_interviews_with_transcript_gaps():
+    gapped = report("s_2", question(Q1, "supports")).model_copy(update={"transcript_gaps": True})
+    summary = summarize([report("s_1", question(Q1, "unclear")), gapped])
+    assert summary.transcript_gap_session_ids == ["s_2"]

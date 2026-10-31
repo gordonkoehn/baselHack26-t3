@@ -88,8 +88,16 @@ export function CompareView({ sessionIds }: { sessionIds: string[] }) {
     );
   }
 
+  const gaps = state.summary.transcriptGapSessionIds.map((id) => sessionIds.indexOf(id) + 1);
+
   return (
     <>
+      {gaps.length > 0 && (
+        <p className="mb-4 rounded-md border-2 border-foreground bg-surface p-3 text-sm font-bold text-foreground" data-testid="compare-gaps">
+          {gaps.length === 1 ? `The transcript of Interview ${gaps[0]} may have gaps` : `The transcripts of Interviews ${gaps.join(", ")} may have gaps`}: part
+          of those calls may not have been captured, so these counts only cover what was saved.
+        </p>
+      )}
       <p className="mb-4 text-sm text-muted">
         Each count is one interview. Quotes are verbatim from the simulated interviews, and open their source interview.
         &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.

@@ -318,7 +318,10 @@
           "if": { "properties": { "type": { "const": "session.ended" } } },
           "then": { "properties": { "data": {
             "type": "object",
-            "properties": { "durationSeconds": { "type": "number" } }
+            "properties": {
+              "durationSeconds": { "type": "number" },
+              "transcriptGaps": { "type": "boolean", "description": "True when part of a live call may not have been captured: failed transcription or response, rejected question or provider error tied to no request, connection trouble (a drop, a disconnect even if it recovered, or not healthy at End or close), closed before it arrived, heard audio with no saved words, or saved words answering speech that transcribed blank. Some of these can warn falsely. Absent means no gap is known." }
+            }
           } } }
         }
       ]
@@ -342,6 +345,7 @@
       "properties": {
         "sessionId": { "type": "string" },
         "generatedAt": { "type": "string", "format": "date-time" },
+        "transcriptGaps": { "type": "boolean", "description": "Set by the server from the session.ended marker, never by the model. True: the debrief rests on a transcript with lost turns and must say so." },
         "questions": {
           "type": "array",
           "items": {
@@ -373,8 +377,9 @@
     "InsightSummary": {
       "type": "object",
       "description": "Saved debriefs side by side, computed without a model. Questions are grouped by exact text, in order of first appearance.",
-      "required": ["questions"],
+      "required": ["transcriptGapSessionIds", "questions"],
       "properties": {
+        "transcriptGapSessionIds": { "type": "array", "items": { "type": "string" }, "description": "Compared interviews whose debrief is marked transcriptGaps, so the comparison can say its counts rest on them too." },
         "questions": {
           "type": "array",
           "items": {
@@ -469,16 +474,44 @@
         "custom": { "type": "boolean", "description": "Added by the user, not part of the default checklist." }
       }
     },
+    "CoverageCategory": {
+      "type": "object",
+      "description": "One of the three things the demo opens on, computed by the server from the default criteria of that category, never by the model. Custom criteria belong to no category.",
+      "required": ["category", "level", "score", "covered", "total", "reason", "recommendation"],
+      "properties": {
+        "category": { "enum": ["persona", "challenge", "solution"] },
+        "level": { "enum": ["red", "yellow", "green"], "description": "From score: green >= 0.7, yellow >= 0.4, otherwise red." },
+        "score": { "type": "number", "minimum": 0, "maximum": 1, "description": "covered / total, unweighted. A row backed by a single quote counts as covered." },
+        "covered": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "description": "One sentence." },
+        "recommendation": { "type": ["string", "null"], "description": "null when green." }
+      }
+    },
+    "SourceDiversity": {
+      "type": "object",
+      "description": "Counted in code, without a model, and not a quality category. Sources with the same text count once; the team's own answers to gap questions are not a source.",
+      "required": ["count", "kinds", "minimum", "met"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "kinds": { "type": "array", "items": { "$ref": "#/$defs/SourceKind" } },
+        "minimum": { "type": "integer", "minimum": 1 },
+        "met": { "type": "boolean" }
+      }
+    },
     "CoverageReport": {
       "type": "object",
-      "description": "Is this persona good enough for this test? score is computed by the server from the criteria (covered 1, covered by a single quote 0.75, guessed 0.5, missing 0, weighted), never by the model. covered needs the model's support words verbatim in a cited quote. questions is empty when no criterion of weight >= 2 is guessed or missing.",
-      "required": ["personaId", "personaVersion", "testGoal", "score", "recommendation", "criteria", "questions"],
+      "description": "Is this persona good enough for this test? score is computed by the server from the criteria (covered 1, covered by a single quote 0.75, guessed 0.5, missing 0, weighted), never by the model. covered needs the model's support words verbatim in a cited quote, or for challenge and solution criteria in a cited source (evidenceIds then holds source:N). questions is empty when no criterion of weight >= 2 is guessed or missing.",
+      "required": ["personaId", "personaVersion", "testGoal", "score", "recommendation", "overall", "categories", "sourceDiversity", "criteria", "questions"],
       "properties": {
         "personaId": { "type": "string" },
         "personaVersion": { "type": "integer", "minimum": 1 },
         "testGoal": { "type": "string" },
         "score": { "type": "number", "minimum": 0, "maximum": 1 },
         "recommendation": { "enum": ["ready", "needs_input"], "description": "ready = score >= 0.7 and no weight-3 criterion missing." },
+        "overall": { "enum": ["good_enough", "add_more"], "description": "The one line on the score screen: good_enough = recommendation ready, no red category and source diversity met. Advice only, it never blocks an interview." },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/CoverageCategory" }, "description": "persona, challenge, solution, in that order." },
+        "sourceDiversity": { "$ref": "#/$defs/SourceDiversity" },
         "criteria": { "type": "array", "items": { "$ref": "#/$defs/CoverageCriterion" } },
         "questions": { "type": "array", "maxItems": 5, "items": { "type": "string" }, "description": "Gap questions for the team; answers go back in as a note source and the persona is rebuilt." }
       }
@@ -491,7 +524,7 @@
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
     "GET /api/personas/{id}/sessions": { "response": "Session[]", "note": "A persona's interviews, newest first, max 50, each with debriefReady. Includes sessions that never started (startedAt null). Needs the demo passcode (X-Demo-Passcode, 401 without it): a shared report link reveals its persona id, and this list would hand over the ids of that persona's other interviews. 404 unknown persona, 503 store unavailable." },
-    "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers can't lose ground: same test goal keeps weights and still-backed covered rows. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
+    "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers (a newer persona version) can't lose ground: same test goal keeps weights and still-backed covered rows. A re-check of the same version scores fresh. A report is not saved if the persona changed during the check. An edit (PATCH) drops that report, so a check after it starts fresh. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
     "GET /api/faces": { "response": "Face[]" },
     "PUT /api/personas/{id}/photo": { "body": "raw PNG, JPEG or WebP bytes (max 2 MB, sniffed)", "response": "Persona", "note": "Sets photoUrl (a new URL each upload); version unchanged, since a picture is not persona content. 404 unknown persona; 413 too large; 422 not a supported image." },
     "DELETE /api/personas/{id}/photo": { "response": "Persona", "note": "Clears photoUrl; version unchanged. 404 unknown persona." },

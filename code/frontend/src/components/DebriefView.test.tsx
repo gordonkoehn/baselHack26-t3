@@ -67,6 +67,43 @@ describe("DebriefView", () => {
     expect(debrief.textContent).toContain("Anna, an AI persona: hypotheses to check with real users, not findings.");
   });
 
+  it("shows the gaps banner on a report whose transcript may have gaps, generated or saved", async () => {
+    vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, transcriptGaps: true });
+    const { unmount } = show();
+    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript may have gaps");
+    unmount();
+
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} />);
+    expect((await screen.findByTestId("transcript-gaps")).textContent).toContain("This transcript may have gaps");
+  });
+
+  it("opens a gapped report with the warning, before the summary", async () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} />);
+    const position = screen.getByTestId("transcript-gaps").compareDocumentPosition(screen.getByTestId("debrief-summary"));
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows no gaps banner when none are known", async () => {
+    vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, transcriptGaps: false });
+    show();
+    await screen.findByTestId("debrief");
+    expect(screen.queryByTestId("transcript-gaps")).toBeNull();
+  });
+
+  it("explains a call with nothing to debrief and offers no retry that cannot succeed", async () => {
+    const debrief = vi.spyOn(api, "debrief").mockRejectedValue(new ApiError(422, "finalized transcript needs a nonblank persona utterance"));
+    show();
+
+    const alert = await screen.findByRole("alert");
+
+    expect(alert.textContent).toContain("no persona answer was saved");
+    expect(alert.textContent).not.toContain("422");
+    expect(alert.textContent).not.toContain("nonblank");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create debrief" })).toBeNull();
+    expect(debrief).toHaveBeenCalledOnce();
+  });
+
   it("renders an empty report without questions or errors", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, questions: [] });
     const { container } = show();

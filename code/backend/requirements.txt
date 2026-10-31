@@ -47,6 +47,8 @@ openai==3.42.0
     # via backend
 opentelemetry-api==1.45.2
     # via fastapi
+pillow==13.0.0
+    # via backend
 pydantic==2.14.2
     # via
     #   fastapi

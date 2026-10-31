@@ -1,7 +1,14 @@
+import json
 import re
 import threading
 
-from app.store import APPEND_EVENTS, COUNT_HIT, INDEX_PERSONA, TRANSITION_SESSION
+from app.store import (
+    APPEND_EVENTS,
+    COUNT_HIT,
+    INDEX_PERSONA,
+    SAVE_COVERAGE,
+    TRANSITION_SESSION,
+)
 
 
 class FakeRedis:
@@ -12,13 +19,20 @@ class FakeRedis:
         self.ttl: dict = {}
         self.lock = threading.Lock()
 
-    def set(self, key, value, ex=None, xx=False, keepttl=False):
+    def set(self, key, value, ex=None, xx=False, nx=False, keepttl=False):
         with self.lock:
-            if xx and key not in self.data:
-                return
+            if (xx and key not in self.data) or (nx and key in self.data):
+                return False  # as Upstash
             self.data[key] = value
             if not keepttl:
                 self.ttl[key] = ex
+            return True
+
+    def delete(self, *keys):
+        with self.lock:
+            for key in keys:
+                self.data.pop(key, None)
+                self.ttl.pop(key, None)
 
     def get(self, key):
         return self.data.get(key)
@@ -54,6 +68,13 @@ class FakeRedis:
                     self.data[keys[0]] = args[1]
                     self.ttl[keys[0]] = int(args[2])
                 return ["ok", args[1]]
+            if script == SAVE_COVERAGE:
+                raw = self.data.get(keys[0])
+                if raw is None or json.loads(raw)["version"] != int(args[0]):
+                    return 0
+                self.data[keys[1]] = args[1]
+                self.ttl[keys[1]] = int(args[2])
+                return 1
             assert script == APPEND_EVENTS
             h = self.data.setdefault(keys[0], {})
             out = []

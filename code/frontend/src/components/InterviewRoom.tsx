@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
+import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
 import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
@@ -12,6 +13,7 @@ import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { sampleTurns } from "@/lib/sample";
+import { ReplyTimer, describeLatency, summarizeLatency } from "@/lib/replyLatency";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
@@ -19,12 +21,15 @@ import { sampleTurns } from "@/lib/sample";
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
 type Phase = "idle" | "sample" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
-type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
+type Metrics = { latenciesMs: number[]; avatarMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
 const CAMERA_FRAME_MS = 15_000;
 // While the prototype is shared it replaces the camera, refreshed faster so navigation shows up.
 const SCREEN_FRAME_MS = 10_000;
+// The camera image sits in the context of every reply, so its size adds input tokens to each one (#159).
+// It only shows the interviewer: a small JPEG (captureFrame halves the size until it fits) is enough.
+const CAMERA_FRAME_BYTES = 24 * 1024;
 // Permission prompts, token, SDP and channel setup can all hang; give up after this long.
 const START_TIMEOUT_MS = 45_000;
 // The persona prompt (realtime.py) keys on this exact label; keep them in sync.
@@ -65,9 +70,10 @@ export function InterviewRoom({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(initialGuide);
+  const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
@@ -93,7 +99,7 @@ export function InterviewRoom({
   const [finalStage, setFinalStage] = useState("Checking the final provider events");
   const [endSeconds, setEndSeconds] = useState(0);
   const retryBatch = useRef<{ events: SessionEvent[]; attempts: number } | null>(null);
-  // A provider turn that failed (not cancelled) leaves a hole: the transcript then counts as incomplete.
+  // A provider turn that failed (not cancelled) leaves a hole: the saved transcript is marked as having gaps.
   const lost = useRef(false);
   // Finalized provider items already recorded; the same item must never become two seqs.
   const seen = useRef(new Set<string>());
@@ -114,6 +120,8 @@ export function InterviewRoom({
   const mic = useRef<MediaStream | null>(null);
   // Muted: the mic track sends silence, so room talk can't start a turn; typing still works.
   const [muted, setMuted] = useState(false);
+  const [panel, setPanel] = useState<"script" | "transcript">("script");
+  const shownPanel = scriptQuestions.length > 0 ? panel : "transcript";
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
@@ -137,8 +145,8 @@ export function InterviewRoom({
   const [avatarOff, setAvatarOff] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
-  // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
-  const askedAt = useRef<number | null>(null);
+  // From the interviewer's end of turn (or sent text) to the first persona audio and avatar movement (#159).
+  const replyTimer = useRef(new ReplyTimer());
 
   const dialog = useRef<HTMLDialogElement>(null);
   const transcript = useRef<HTMLOListElement>(null);
@@ -157,6 +165,16 @@ export function InterviewRoom({
     if (inCall && !d?.open) d?.showModal();
     if (!inCall && d?.open) d.close();
   }, [inCall]);
+
+  // Reply delay for the issue (#159): logged once the call is over, so the last reply is included.
+  const callOver = phase === "ended" || phase === "unsaved";
+  useEffect(() => {
+    if (!callOver || metrics.latenciesMs.length === 0) return;
+    console.info(describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs)));
+    console.info(describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs)));
+    // Only on the transition into the ended state, with the metrics as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callOver]);
 
   useEffect(() => {
     if (camView.current) camView.current.srcObject = cam;
@@ -177,7 +195,8 @@ export function InterviewRoom({
       if (busy || cameraPaused.current || !current()) return;
       busy = true;
       try {
-        const image = await captureFrame(view, { maxBytes: frameBudget(pc.current) });
+        const budget = frameBudget(pc.current);
+        const image = await captureFrame(view, { maxBytes: isScreen ? budget : Math.min(budget, CAMERA_FRAME_BYTES) });
         if (!current()) return;
         const dc = channel.current;
         if (dc?.readyState !== "open") return;
@@ -213,6 +232,7 @@ export function InterviewRoom({
         dc.send(
           JSON.stringify({
             type: "conversation.item.create",
+            event_id: `frame_${itemId}`,
             item: {
               id: itemId,
               type: "message",
@@ -283,6 +303,7 @@ export function InterviewRoom({
 
   function hangUp() {
     callClosed.current = true;
+    replyTimer.current.reset();
     clearTimeout(startTimer.current);
     cameraDelete.current?.resolve(false);
     stopWatching.current?.();
@@ -319,11 +340,12 @@ export function InterviewRoom({
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {
         cameraItem.current = null;
-        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous }));
+        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous, event_id: `frame_delete_${previous}` }));
       }
       dc.send(
         JSON.stringify({
           type: "conversation.item.create",
+          event_id: "screen_stopped",
           item: {
             type: "message",
             role: "user",
@@ -340,11 +362,11 @@ export function InterviewRoom({
     if (g !== gen.current || callClosed.current) return;
     callLost.current = true;
     setConnectionLost(true);
-    // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    if (!liveEstablished.current || pending.current.size > 0) lost.current = true;
+    // Turns cut off by a drop leave no provider event, so nothing open proves nothing was lost.
+    lost.current = true;
     hangUp();
     if (finalizing.current) {
-      if (!draining.current) void closeDrained(false);
+      if (!draining.current) void closeDrained();
     } else void end();
   }
 
@@ -356,14 +378,13 @@ export function InterviewRoom({
         break;
       case "input_audio_buffer.speech_stopped":
         work.current.stopped(e.item_id);
-        askedAt.current = performance.now();
+        replyTimer.current.asked(performance.now(), avatar.current !== null);
         break;
       case "output_audio_buffer.started":
         work.current.playback(e.response_id, false);
-        if (askedAt.current !== null) {
-          const ms = performance.now() - askedAt.current;
-          setMetrics((m) => ({ ...m, latenciesMs: [...m.latenciesMs, ms] }));
-          askedAt.current = null;
+        {
+          const ms = replyTimer.current.voice(performance.now());
+          if (ms !== null) setMetrics((m) => ({ ...m, latenciesMs: [...m.latenciesMs, ms] }));
         }
         break;
       case "output_audio_buffer.stopped":
@@ -389,9 +410,11 @@ export function InterviewRoom({
       }
       case "conversation.item.input_audio_transcription.completed":
         if (!e.item_id) lost.current = true;
+        if (!e.transcript?.trim()) work.current.blank(e.item_id);
         if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
+        if (e.transcript?.trim()) work.current.spoke(e.response_id);
         if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
@@ -402,6 +425,7 @@ export function InterviewRoom({
         for (const item of e.response?.output ?? []) {
           item.content?.forEach((content, index) => {
             const text = content.transcript ?? content.text;
+            if (text?.trim()) work.current.spoke(e.response?.id);
             if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
           });
         }
@@ -430,12 +454,23 @@ export function InterviewRoom({
         }
         // A rejected response.create (e.g. one is already running) will never get a response:
         // release its reservation so "End" doesn't wait for an answer that can't come.
-        if (e.error?.event_id?.startsWith("a:")) pending.current.delete(e.error.event_id);
+        if (e.error?.event_id?.startsWith("a:")) {
+          pending.current.delete(e.error.event_id);
+          // Its reply never comes: don't pair the next audio with this ask.
+          replyTimer.current.reset();
+        }
+        // Every request we send has an id. A rejected question, or an error tied to no request, may
+        // have cost a turn; the rest (images, the commit at End) can't.
+        if (!e.error?.event_id || e.error.event_id.startsWith("q:")) lost.current = true;
         setError(e.error?.message ?? "Realtime error");
         break;
       }
     }
-    if (finalizing.current) finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+    if (finalizing.current) {
+      finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+      // Past the wait limit nothing else rechecks: the last item arriving must still finish the call.
+      if (!work.current.missingTurns) void drain();
+    }
   }
 
   // True the first time a provider item is seen. Events without an id are always new.
@@ -531,7 +566,7 @@ export function InterviewRoom({
     setError(null);
     setTurns([]);
     setVoice(null);
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     gen.current += 1;
     const g = gen.current;
     callClosed.current = false;
@@ -612,7 +647,7 @@ export function InterviewRoom({
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
       dc.onmessage = (m) => current() && onEvent(JSON.parse(m.data));
-      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g));
+      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g), () => { lost.current = true; });
       if (!current()) return;
 
       const offer = await conn.createOffer();
@@ -665,7 +700,7 @@ export function InterviewRoom({
         endStarted.current = Date.now();
         drainStarted.current = performance.now();
         durationSeconds.current = Math.round((Date.now() - liveSince.current) / 1000);
-        await closeDrained(true);
+        await closeDrained();
         return;
       }
       hangUp();
@@ -703,7 +738,7 @@ export function InterviewRoom({
     setConnectionLost(false);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     try {
       const interviewGuide = guide
         .split("\n")
@@ -711,7 +746,7 @@ export function InterviewRoom({
         .filter(Boolean);
       const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true });
       if (g !== gen.current) return;
-      const script = sampleTurns();
+      const script = sampleTurns(persona.name);
       const at = new Date().toISOString();
       await api.postEvents(session.id, [
         ...script.map((data, i) => ({ sessionId: session.id, seq: i + 1, at, type: "utterance" as const, data })),
@@ -732,16 +767,17 @@ export function InterviewRoom({
 
   // Sends interviewer content (typed text or a screen frame) and asks the persona to answer it.
   // Every path goes through here so "End" always waits for the answer it triggered.
-  function askWith(content: object[]): boolean {
+  // idPrefix tells errors apart: only a rejected "q:" request can cost a spoken turn.
+  function askWith(content: object[], idPrefix = "q"): boolean {
     const dc = channel.current;
     if (finalizing.current || !dc || dc.readyState !== "open") return false;
-    dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     const ask = `a:${++asks.current}`;
+    dc.send(JSON.stringify({ type: "conversation.item.create", event_id: `${idPrefix}:${asks.current}`, item: { type: "message", role: "user", content } }));
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
-    askedAt.current = performance.now();
+    replyTimer.current.asked(performance.now(), avatar.current !== null);
     return true;
   }
 
@@ -794,6 +830,7 @@ export function InterviewRoom({
       // grace only lets already completed work finish dispatching queued events.
       if (pending.current.size === 0 && Date.now() - providerActivity.current >= 300) break;
       if (Date.now() >= until) {
+        if (!work.current.missingTurns) break; // Only audio is left and its words are saved: don't ask.
         draining.current = false;
         setPhase("waiting");
         measure("provider-drain", drainStarted.current, "waiting");
@@ -803,19 +840,20 @@ export function InterviewRoom({
     }
     if (g !== gen.current) return;
     draining.current = false;
-    await closeDrained(false);
+    await closeDrained();
   }
 
-  async function closeDrained(incomplete: boolean) {
-    if (finishing.current) return;
-    if (incomplete || pending.current.size > 0) lost.current = true;
+  async function closeDrained() {
+    if (finishing.current || draining.current) return;
+    if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
     await finish();
   }
 
-  // Create the terminal marker once, only after all captured turns are stored.
+  // Create the terminal marker once, only after all captured turns are stored. A call that went live
+  // always gets one, so it always reaches a debrief; lost turns are stated on it, never hidden.
   // Failed POST/PATCH attempts keep the exact events for an explicit Save again.
   async function finish(retry = false) {
     if (finishing.current) return;
@@ -830,8 +868,8 @@ export function InterviewRoom({
     try {
       if (!await flush()) throw new Error("TranscriptSaveError");
       if (g !== gen.current) return;
-      if (!lost.current && pending.current.size === 0 && !events.current.some((event) => event.type === "session.ended")) {
-        record("session.ended", { durationSeconds: durationSeconds.current });
+      if (liveEstablished.current && !events.current.some((event) => event.type === "session.ended")) {
+        record("session.ended", { durationSeconds: durationSeconds.current, ...(lost.current && { transcriptGaps: true }) });
         if (!await flush()) throw new Error("TranscriptSaveError");
       }
       if (g !== gen.current) return;
@@ -851,7 +889,7 @@ export function InterviewRoom({
           }
         }
         if (g !== gen.current) return;
-        if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
+        if (liveEstablished.current) setEnded({ id: sid, questions: questions.current });
       }
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
@@ -867,9 +905,6 @@ export function InterviewRoom({
     }
   }
 
-  const avgMs = metrics.latenciesMs.length
-    ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
-    : null;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
   const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
   const canStart = !questionsRequired || questionCount > 0;
@@ -953,6 +988,8 @@ export function InterviewRoom({
               ? "Sample interview loaded: a scripted transcript. No live call took place and nobody was interviewed."
               : startupFailure.current
               ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
+              : lastTurnMissing && ended
+              ? "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
@@ -972,7 +1009,7 @@ export function InterviewRoom({
       {connectionLost && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
           Connection lost. Microphone, camera and screen sharing are off.
-          {lastTurnMissing ? " This transcript is incomplete; no debrief will be generated." : ""}
+          {lastTurnMissing ? (liveEstablished.current ? " This transcript may have gaps." : " This transcript is incomplete; no debrief will be generated.") : ""}
           {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
@@ -989,13 +1026,14 @@ export function InterviewRoom({
       <dialog
         ref={dialog}
         aria-label={`Interview with ${persona.name}`}
-        className="m-auto w-[min(64rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
+        className="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
         // Esc must not silently drop a running call; ending goes through "End interview".
         onCancel={(e) => e.preventDefault()}
         onClose={() => inCall && dialog.current?.showModal()}
       >
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="font-semibold">{persona.name}</h3>
+          <span className="text-xs font-bold uppercase tracking-wide text-muted">AI test user, not a real person</span>
           {phase === "connecting" && (
             <>
               <span className="text-sm text-muted">Connecting…</span>
@@ -1028,7 +1066,7 @@ export function InterviewRoom({
                 {muted ? "Unmute mic" : "Mute mic"}
               </button>
               {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
-              <ScreenShareButton pc={pc} ask={askWith} onSharing={sharing} />
+              <ScreenShareButton pc={pc} ask={(content) => askWith(content, "shown")} onSharing={sharing} />
               {avatarSwitch}
             </>
           )}
@@ -1037,72 +1075,111 @@ export function InterviewRoom({
           )}
           {phase === "waiting" && (
             <>
-              <span className="text-sm text-muted">The wait limit was reached. Capture is off.</span>
+              <span className="text-sm text-muted">The wait limit was reached. Capture is off. Closing now marks the transcript as having gaps.</span>
               {channel.current?.readyState === "open" && (
                 <button type="button" className={btn} onClick={drain}>Continue waiting (10 seconds)</button>
               )}
-              <button type="button" className={btn} onClick={() => closeDrained(true)}>
+              <button type="button" className={btn} onClick={closeDrained}>
                 Close without it
               </button>
             </>
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
-          <div className="space-y-3">
-            {screenShare && (
-              <ZoomStage label="Shared screen">
-                <ScreenSharePreview stream={screenShare} />
-                {phase === "live" && (
-                  <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
-                    {screenNote ??
-                      (screenSentAt === null
-                        ? "Sending the first screen image to the persona…"
-                        : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
-                  </p>
+        <div className="mt-4 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className={`mx-auto w-full space-y-3 ${screenShare ? "" : "max-w-2xl"}`}>
+            {/* One stage while sharing: the people shrink to a column on the left, the shared screen
+                takes the rest. The people column keeps its place in the tree, so the avatar and the
+                camera never remount when sharing starts or stops. */}
+            <ZoomStage label={screenShare ? "Video call and shared screen" : "Video call"}>
+              <div className={screenShare ? "grid w-full items-start gap-3 grid-cols-[minmax(9rem,14rem)_minmax(0,1fr)]" : ""}>
+                <div className="min-w-0">
+                  {showAvatar && sessionId.current && voice && (
+                    <Avatar
+                      sessionId={sessionId.current}
+                      track={voice}
+                      onSpeaking={() => {
+                        const ms = replyTimer.current.avatar(performance.now());
+                        if (ms !== null) setMetrics((m) => ({ ...m, avatarMs: [...m.avatarMs, ms] }));
+                      }}
+                      onActive={(control) => {
+                        avatar.current = control;
+                        if (!control) replyTimer.current.avatarGone();
+                        setAvatarOn(control !== null);
+                      }}
+                    />
+                  )}
+                  {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
+                  {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+                  <video
+                    ref={camView}
+                    autoPlay
+                    muted
+                    playsInline
+                    aria-label="Your camera"
+                    className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
+                  />
+                  {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+                </div>
+                {screenShare && (
+                  <div className="min-w-0">
+                    <ScreenSharePreview stream={screenShare} />
+                    {phase === "live" && (
+                      <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
+                        {screenNote ??
+                          (screenSentAt === null
+                            ? "Sending the first screen image to the persona…"
+                            : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+                      </p>
+                    )}
+                  </div>
                 )}
-              </ZoomStage>
-            )}
-            <ZoomStage label="Video call">
-              {showAvatar && sessionId.current && voice && (
-                <Avatar
-                  sessionId={sessionId.current}
-                  track={voice}
-                  onActive={(control) => {
-                    avatar.current = control;
-                    setAvatarOn(control !== null);
-                  }}
-                />
-              )}
-              {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
-              {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
-              <video
-                ref={camView}
-                autoPlay
-                muted
-                playsInline
-                aria-label="Your camera"
-                className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
-              />
-              {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+              </div>
             </ZoomStage>
           </div>
-          <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
-            {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
-            {turns.map((t, i) => (
-              <li
-                key={i}
-                className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
-                  t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                } ${t.cancelled ? "opacity-50" : ""}`}
-              >
-                <span className="mb-0.5 block text-xs font-medium text-muted">
-                  {t.who === "persona" ? persona.name : "You"}
-                </span>
-                {t.text}
-              </li>
-            ))}
-          </ol>
+          <div className="min-w-0 space-y-3">
+            {scriptQuestions.length > 0 && (
+              <div className="flex gap-1 border-b border-line text-sm font-bold" role="group" aria-label="Side panel">
+                {(["script", "transcript"] as const).map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={shownPanel === name}
+                    onClick={() => setPanel(name)}
+                    className={`-mb-px border-b-2 px-3 py-1.5 capitalize ${
+                      shownPanel === name ? "border-accent" : "border-transparent text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Both stay mounted: ticks survive a tab switch, and the transcript keeps auto-scrolling. */}
+            <div className={shownPanel === "script" ? "" : "hidden"}>
+              <InterviewScript key={sessionId.current ?? "none"} questions={scriptQuestions} />
+            </div>
+            <ol
+              ref={transcript}
+              className={`max-h-[60dvh] space-y-2 overflow-y-auto pr-1 text-sm ${shownPanel === "transcript" ? "" : "hidden"}`}
+              data-testid="transcript"
+            >
+              {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
+              {turns.map((t, i) => (
+                <li
+                  key={i}
+                  className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
+                    t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+                  } ${t.cancelled ? "opacity-50" : ""}`}
+                >
+                  <span className="mb-0.5 block text-xs font-medium text-muted">
+                    {t.who === "persona" ? persona.name : "You"}
+                  </span>
+                  {t.text}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
 
         {phase === "live" && (
@@ -1127,7 +1204,7 @@ export function InterviewRoom({
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
         <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">
-            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns)
+            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", may have gaps" : ""})
           </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
@@ -1142,12 +1219,19 @@ export function InterviewRoom({
         <details className="mt-3 text-xs text-muted">
           <summary className="cursor-pointer">Call diagnostics</summary>
           <p className="mt-1 tabular-nums" data-testid="metrics">
-            Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
-            {metrics.inputTokens} / out {metrics.outputTokens}
+            {describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs))}
+          </p>
+          <p className="tabular-nums">{describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs))}</p>
+          <p className="tabular-nums">
+            Tokens in {metrics.inputTokens} / out {metrics.outputTokens}
+          </p>
+          <p>
+            Timed from when the browser receives the end-of-speech event, so the voice detection wait is not
+            included. Turns without a reply are not counted.
           </p>
         </details>
       )}
-      {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
+      {phase === "ended" && ended && ended.questions > 0 && (
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} onCreated={onHistoryChange} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (

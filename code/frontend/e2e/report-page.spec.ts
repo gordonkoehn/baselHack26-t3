@@ -99,7 +99,7 @@ test("a temporary comparison failure is not reported as not found, and retry sho
   await page.route("**/api/insights/summary", (route) =>
     route.fulfill(
       up
-        ? { status: 200, json: { questions: [{ question: "Q", supports: 1, contradicts: 0, unclear: 0, insights: [] }] } }
+        ? { status: 200, json: { transcriptGapSessionIds: [], questions: [{ question: "Q", supports: 1, contradicts: 0, unclear: 0, insights: [] }] } }
         : { status: 503, json: { detail: "store unavailable" } },
     ),
   );

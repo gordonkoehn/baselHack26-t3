@@ -35,4 +35,7 @@ def summarize(reports: list[InsightReport]) -> InsightSummary:
     # Stable: within grounded and within guesses, quotes keep their interview order.
     for row in rows.values():
         row.insights.sort(key=_is_guess)
-    return InsightSummary(questions=list(rows.values()))
+    return InsightSummary(
+        transcript_gap_session_ids=[r.session_id for r in reports if r.transcript_gaps],
+        questions=list(rows.values()),
+    )
