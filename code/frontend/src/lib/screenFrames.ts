@@ -15,6 +15,7 @@ function waitForFrame(video: HTMLVideoElement, stream: MediaStream, track: Media
       window.clearTimeout(timer);
       video.removeEventListener("loadeddata", checkReady);
       video.removeEventListener("error", onError);
+      document.removeEventListener("visibilitychange", checkReady);
       track.removeEventListener("ended", onEnded);
       if (frameId !== undefined) video.cancelVideoFrameCallback(frameId);
       if (error) reject(error);
@@ -23,7 +24,9 @@ function waitForFrame(video: HTMLVideoElement, stream: MediaStream, track: Media
 
     function checkReady() {
       const available = video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
-      if (played && available && (frameReady || !supportsFrameCallback)) finish();
+      // A hidden page (the interviewer switched to the prototype's tab) presents no frames, so the
+      // frame callback never fires there; the decoded frame is enough.
+      if (played && available && (frameReady || !supportsFrameCallback || document.hidden)) finish();
     }
 
     function onError() {
@@ -36,6 +39,7 @@ function waitForFrame(video: HTMLVideoElement, stream: MediaStream, track: Media
 
     video.addEventListener("loadeddata", checkReady);
     video.addEventListener("error", onError);
+    document.addEventListener("visibilitychange", checkReady);
     track.addEventListener("ended", onEnded);
     try {
       video.srcObject = stream;

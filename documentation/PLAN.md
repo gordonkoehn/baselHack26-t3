@@ -1,6 +1,6 @@
-# Plan: Friday, Now (working title)
+# Plan: OpenTwin
 
-**Status:** draft, Fri 30 Oct. Nothing below has been tested yet.
+> **Historical plan, superseded by [#158](https://github.com/gordonkoehn/baselHack26-t3/issues/158).** Written Fri 30 Oct under the working title "Friday, Now" and kept for the record. A tick means the feature is on `main` (31 Oct); it doesn't mean the plan's targets were measured. Only "Current stack" describes `main` today. For what works now, see `ONBOARDING.md`.
 
 **Challenge:** [How might we generate live, interviewable AI test users for instant sprint validation?](https://www.baselhack.ch/challenges/how-might-we-generate-live-interviewable-ai-test-users-for-instant-sprint-validation) (Sprintbox AI)
 
@@ -11,7 +11,7 @@ The demo:
 1. **Create:** paste sprint context and past interview transcripts. A timer shows the persona ready in under 10 minutes.
 2. **Interview:** talk to the persona by voice, with its avatar on screen, for 20–30 minutes while sharing a prototype. It reacts to what it sees.
 3. **Debrief:** themes and quotes, each labelled **grounded in real interviews** or **persona's guess**.
-4. **Compare:** show the same question answered by a text-only persona report, to make the immersion gap visible.
+4. **Compare:** show the same question answered by a text-only persona report, to make the immersion gap visible. (Not built.)
 
 ## Positioning
 Most of the parts already exist: transcript-grounded personas, cited answers, live voice, real-time avatars and AI usability testers. Simile, Actual Simulation, Dovetail Digital Twins, Listen Twins and TheySaid each cover some of this, so we shouldn't claim those parts as novel.
@@ -25,27 +25,27 @@ Results are hypotheses that complement real users. They don't replace them.
 **Pitch line:** "Simile predicts what a population will choose. We let a sprint team interrupt one test user mid-click, and we mark every answer the interviews can't back up as a guess."
 
 ## Must-haves (from the challenge)
-- [ ] End-to-end flow from persona data to a rendered avatar with voice
-- [ ] One avatar ready in 10 minutes, 15 at most
-- [ ] A coherent 20–30 minute conversation that keeps context
-- [ ] Average immersion of at least 5/10 from three demo participants
+- [x] End-to-end flow from persona data to a rendered avatar with voice
+- [ ] One avatar ready in 10 minutes, 15 at most (still unproven)
+- [ ] A coherent 20–30 minute conversation that keeps context (still unproven)
+- [ ] Average immersion of at least 5/10 from three demo participants (still unproven)
 
 **No-gos:** text-only, Custom GPT wrappers, only generation or only interaction, minor add-ons to off-the-shelf products, pre-recorded canned responses.
 
 ## Scope
-This plan merges the original draft with the OpenTwin technical spec. The spec is the longer-term vision; this file is what we build this weekend.
+This plan merges the original draft with the OpenTwin technical spec. The spec is the longer-term vision; this file was the plan for this weekend.
 
 **Core (must work by Sat 13:00):**
-- One persona from the Sprintbox sandbox, every fact tagged with a source or marked as an assumption
-- Behaviour rules: admits confusion, hesitates, disagrees, gives no design advice
-- Live voice and a Simli preset avatar in the browser
-- Screen awareness from shared-screen frames
-- Labelled debrief, in High German or English
+- [x] One persona, every fact tagged with a source or marked as an assumption (shipped for any pasted or uploaded sources, planned from the Sprintbox sandbox)
+- [x] Behaviour rules: admits confusion, hesitates, disagrees, gives no design advice
+- [x] Live voice and a Simli preset avatar in the browser
+- [x] Screen awareness from shared-screen frames
+- [x] Labelled debrief, in High German or English
 
 **Only if the Sat 13:00 core works, in this order:**
-1. The persona operates the prototype
-2. rrweb page events on web prototypes we control
-3. Simple readiness score
+- [ ] The persona operates the prototype
+- [ ] rrweb page events on web prototypes we control
+- [x] Simple readiness score (#153)
 
 **Later (not this weekend):** Miro export, interviewer copilot, Letta or Mem0 memory, event bus, MCP server, Teams or Zoom bots, Langfuse, self-hosted stack, voice cloning, group interviews, digital twins of team members.
 
@@ -102,6 +102,8 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 - Who leads overnight?
 
 ## Current stack
+This section is still true of `main`.
+
 Browser (Next.js) talks directly to OpenAI Realtime over WebRTC for voice and to Simli for the avatar. The FastAPI backend keeps the keys, issues short-lived tokens, and runs extraction and the debrief. Upstash Redis stores personas, sessions, events and reports. See `ONBOARDING.md` for details and `code/.env.example` for keys.
 
 The data contract lives in `code/shared/schema.json`.

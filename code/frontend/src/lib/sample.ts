@@ -1,4 +1,4 @@
-// Copy of documentation/testcase-quartier-boerse.md, used to prefill the demo source.
+// Copy of documentation/testcase-quartier-boerse.md below its status banner, used to prefill the example source.
 export const QUARTIER_BOERSE = `# Test case: Quartier-Börse
 
 The sprint case we demo and test the twin against. Source: the "Prototype" frame on the team Miro board (prototype + interview guide, 30 min timebox).
@@ -95,3 +95,24 @@ export const QUARTIER_BOERSE_GUIDE = [
   "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
   "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
 ];
+
+// The Lumen case's persona stack (documentation/usecases/lumen-ipp).
+export const LUMEN_PERSONAS = [
+  { surname: "Kessler", name: "Dr. Miriam Kessler", role: "Open Access Coordinator, University of Rheinfeld" },
+  { surname: "Hollmann", name: "Dr. Rainer Hollmann", role: "Director, University Library, Rheinfeld" },
+  { surname: "Aigner", name: "Prof. Dr. Sabine Aigner", role: "Vice-President for Research, Rheinfeld" },
+  { surname: "Ferreira", name: "Dr. Ana Ferreira", role: "Junior Group Leader and guest editor, Rheinfeld" },
+  { surname: "Brändli", name: "Jonas Brändli", role: "Data Steward, Aaretal University of Applied Sciences" },
+  { surname: "Sandmann", name: "Ulrike Sandmann", role: "Head of Licensing, Southern Library Consortium" },
+];
+
+// The short guide for the Lumen email screen (interview/guide-short-miriam-kessler.txt), so the Lumen
+// demo twin starts with the questions the assumptions report scores. It greets Miriam by name, so it is hers only.
+export const LUMEN_GUIDE = [
+  "Hi Miriam, nice to see you again! How are you today?",
+  "As we discussed last time, we'd like to show you our newest idea for the problem you told us about: every year you have to explain why the Lumen partnership is worth it. We brought a small prototype. This is the email you would get automatically 90 days before your agreement ends, showing your savings against list price and how many of your researchers used the agreement. What do you think of it?",
+  "How do you see it, and what would you improve?",
+  "Could you mark on the prototype exactly what you would change, so we understand it precisely?",
+];
+
+export const isMiriamKessler = (name: string) => name.includes("Kessler");

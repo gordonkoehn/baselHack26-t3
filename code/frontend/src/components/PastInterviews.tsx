@@ -30,8 +30,9 @@ export function PastInterviews({ personaId, version }: { personaId: string; vers
     };
   }, [personaId, version]);
 
-  // A session that never went live (mic refused, connection failed) was no interview.
-  const interviews = sessions.filter((s) => s.startedAt);
+  // A session that never went live (mic refused, connection failed) was no interview, and neither
+  // was a test call from the persona tab, which has no questions.
+  const interviews = sessions.filter((s) => s.startedAt && s.interviewGuide?.length);
   if (interviews.length === 0) return null;
   const ready = interviews.filter((s) => s.debriefReady);
   // Oldest first, so "Interview 1" in the comparison is the earliest one.

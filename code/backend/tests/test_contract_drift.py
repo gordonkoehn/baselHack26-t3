@@ -11,6 +11,7 @@ from pydantic import Field, create_model
 
 from app import avatar, realtime
 from app.contracts import (
+    CoverageReport,
     GuideReview,
     InsightReport,
     InsightSummary,
@@ -40,6 +41,7 @@ EXAMPLES = {
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
     "insight-summary.json": ("InsightSummary", InsightSummary, False),
+    "coverage-report.json": ("CoverageReport", CoverageReport, False),
     "guide-review.json": ("GuideReview", GuideReview, False),
 }
 
