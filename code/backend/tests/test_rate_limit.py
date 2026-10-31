@@ -233,6 +233,13 @@ def test_bad_multiplier_keeps_the_normal_limits(ctx, monkeypatch, value):
     assert [ctx.client.post(TOKEN).status_code for _ in range(2)] == [503, 429]
 
 
+def test_a_huge_multiplier_is_capped_instead_of_crashing(ctx, monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_MULTIPLIER", "1e308")
+    limit(monkeypatch, "tokens", 1, 1)
+    calls = [ctx.client.post(TOKEN).status_code for _ in range(1001)]
+    assert set(calls[:1000]) == {503} and calls[1000] == 429
+
+
 def test_a_tiny_multiplier_still_allows_one_call(ctx, monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_MULTIPLIER", "0.001")
     limit(monkeypatch, "tokens", 2, 100)

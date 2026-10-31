@@ -27,13 +27,17 @@ LIMITS = {
 }
 
 
+MAX_MULTIPLIER = 1000.0
+
+
 def _multiplier() -> float:
     """RATE_LIMIT_MULTIPLIER loosens every limit on demo day. A typo keeps the normal limits."""
     try:
         value = float(os.environ.get("RATE_LIMIT_MULTIPLIER") or 1)
     except ValueError:
         return 1.0
-    return value if math.isfinite(value) and value > 0 else 1.0
+    # Capped so a huge value like 1e308 can't overflow int() in the limit maths and 500 every route.
+    return min(value, MAX_MULTIPLIER) if math.isfinite(value) and value > 0 else 1.0
 
 
 def _client_ip(request: Request) -> str:
