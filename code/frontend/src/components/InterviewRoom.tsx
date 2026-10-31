@@ -712,7 +712,7 @@ export function InterviewRoom({
         .filter(Boolean);
       const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true });
       if (g !== gen.current) return;
-      const script = sampleTurns();
+      const script = sampleTurns(persona.name);
       const at = new Date().toISOString();
       await api.postEvents(session.id, [
         ...script.map((data, i) => ({ sessionId: session.id, seq: i + 1, at, type: "utterance" as const, data })),
