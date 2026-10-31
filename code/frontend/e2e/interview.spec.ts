@@ -487,6 +487,23 @@ test("mute silences the microphone without ending the call; typing still works",
   expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
 });
 
+test("the script panel lists the questions, ticks them by hand and keeps the transcript one tab away", async ({ page }) => {
+  await startInterview(page);
+  const dialog = page.getByRole("dialog", { name: "Interview with Sandra" });
+  await expect(dialog.getByText("AI test user, not a real person")).toBeVisible();
+  const script = dialog.getByTestId("interview-script");
+  await expect(script).toBeVisible();
+  await expect(script).toContainText(`0 of ${questions.length}`);
+  await script.getByRole("checkbox", { name: questions[0] }).check();
+  await expect(script).toContainText(`1 of ${questions.length}`);
+
+  await dialog.getByRole("button", { name: "transcript", exact: true }).click();
+  await expect(dialog.getByTestId("transcript")).toBeVisible();
+  await expect(script).toBeHidden();
+  await dialog.getByRole("button", { name: "script", exact: true }).click();
+  await expect(script).toContainText(`1 of ${questions.length}`);
+});
+
 test("the team link passcode is sent, leaves the address bar and survives blocked storage", async ({ page }) => {
   await page.addInitScript(() => {
     Storage.prototype.setItem = () => {

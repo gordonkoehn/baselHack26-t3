@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
+import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
 import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
@@ -65,6 +66,7 @@ export function InterviewRoom({
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(initialGuide);
+  const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
@@ -111,6 +113,8 @@ export function InterviewRoom({
   const mic = useRef<MediaStream | null>(null);
   // Muted: the mic track sends silence, so room talk can't start a turn; typing still works.
   const [muted, setMuted] = useState(false);
+  const [panel, setPanel] = useState<"script" | "transcript">("script");
+  const shownPanel = scriptQuestions.length > 0 ? panel : "transcript";
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
@@ -985,13 +989,14 @@ export function InterviewRoom({
       <dialog
         ref={dialog}
         aria-label={`Interview with ${persona.name}`}
-        className="m-auto w-[min(64rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
+        className="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
         // Esc must not silently drop a running call; ending goes through "End interview".
         onCancel={(e) => e.preventDefault()}
         onClose={() => inCall && dialog.current?.showModal()}
       >
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="font-semibold">{persona.name}</h3>
+          <span className="text-xs font-bold uppercase tracking-wide text-muted">AI test user, not a real person</span>
           {phase === "connecting" && (
             <>
               <span className="text-sm text-muted">Connecting…</span>
@@ -1044,8 +1049,8 @@ export function InterviewRoom({
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
-          <div className="space-y-3">
+        <div className="mt-4 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="mx-auto w-full max-w-2xl space-y-3">
             {screenShare && (
               <ZoomStage label="Shared screen">
                 <ScreenSharePreview stream={screenShare} />
@@ -1083,22 +1088,49 @@ export function InterviewRoom({
               {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
             </ZoomStage>
           </div>
-          <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
-            {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
-            {turns.map((t, i) => (
-              <li
-                key={i}
-                className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
-                  t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                } ${t.cancelled ? "opacity-50" : ""}`}
-              >
-                <span className="mb-0.5 block text-xs font-medium text-muted">
-                  {t.who === "persona" ? persona.name : "You"}
-                </span>
-                {t.text}
-              </li>
-            ))}
-          </ol>
+          <div className="min-w-0 space-y-3">
+            {scriptQuestions.length > 0 && (
+              <div className="flex gap-1 border-b border-line text-sm font-bold" role="group" aria-label="Side panel">
+                {(["script", "transcript"] as const).map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={shownPanel === name}
+                    onClick={() => setPanel(name)}
+                    className={`-mb-px border-b-2 px-3 py-1.5 capitalize ${
+                      shownPanel === name ? "border-accent" : "border-transparent text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Both stay mounted: ticks survive a tab switch, and the transcript keeps auto-scrolling. */}
+            <div className={shownPanel === "script" ? "" : "hidden"}>
+              <InterviewScript key={sessionId.current ?? "none"} questions={scriptQuestions} />
+            </div>
+            <ol
+              ref={transcript}
+              className={`max-h-[60dvh] space-y-2 overflow-y-auto pr-1 text-sm ${shownPanel === "transcript" ? "" : "hidden"}`}
+              data-testid="transcript"
+            >
+              {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
+              {turns.map((t, i) => (
+                <li
+                  key={i}
+                  className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
+                    t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
+                  } ${t.cancelled ? "opacity-50" : ""}`}
+                >
+                  <span className="mb-0.5 block text-xs font-medium text-muted">
+                    {t.who === "persona" ? persona.name : "You"}
+                  </span>
+                  {t.text}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
 
         {phase === "live" && (
