@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { errorMessage } from "@/lib/errorMessage";
@@ -185,7 +186,7 @@ export default function Home() {
       }}
     >
       <header className="mb-10 pt-6">
-        <p className="mb-6 font-mono text-sm tracking-wide text-muted">OpenTwin</p>
+        <Image src="/opentwin-logo.svg" alt="OpenTwin" width={140} height={32} className="mb-8 h-8 w-auto" priority />
         <h1 className="max-w-3xl text-5xl leading-[1.05] sm:text-6xl">
           It tells you what it knows. And what it&apos;s{" "}
           <span className="relative inline-block">
