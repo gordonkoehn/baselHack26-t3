@@ -31,7 +31,11 @@ jobs:
             | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
 
   main-ci-failed:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure'
+    # Only pushes to main: CI also runs on PRs, and a fork's branch can be called main too.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Post to Discord
@@ -49,7 +53,8 @@ jobs:
   critical-bug:
     if: >-
       github.event_name == 'issues' &&
-      contains(github.event.issue.labels.*.name, 'critical')
+      ((github.event.action == 'labeled' && github.event.label.name == 'critical') ||
+       (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'critical')))
     runs-on: ubuntu-latest
     steps:
       - name: Post to Discord
