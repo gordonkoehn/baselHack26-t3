@@ -8,6 +8,7 @@ import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
 import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
@@ -700,7 +701,8 @@ export function InterviewRoom({
       startupFailure.current = e instanceof DOMException && e.name === "NotAllowedError"
         ? "Microphone access was denied. Allow microphone access in your browser and start again."
         : e instanceof ApiError ? `Could not start (${e.status}): ${e.detail}`
-          : `Could not start: ${e instanceof Error ? e.message : "the interview could not connect."}`;
+          : e instanceof TypeError ? `Could not start: ${NETWORK_ERROR}`
+            : `Could not start: ${e instanceof Error ? e.message : "the interview could not connect."}`;
       setError(startupFailure.current);
       if (sessionId.current) {
         // A failed startup may already have captured turns or mutated remote state.
@@ -771,7 +773,7 @@ export function InterviewRoom({
     } catch (e) {
       if (g !== gen.current) return;
       setPhase("error");
-      setError(e instanceof ApiError ? `Could not load the sample interview (${e.status}): ${e.detail}` : "Could not load the sample interview: backend not reachable.");
+      setError(e instanceof ApiError ? `Could not load the sample interview (${e.status}): ${e.detail}` : `Could not load the sample interview: ${NETWORK_ERROR}`);
     }
   }
 
