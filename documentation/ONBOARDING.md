@@ -4,7 +4,7 @@ Read this first, then `README.md` (how to run) and `CLAUDE.md` (rules for you an
 
 ## The product in one minute
 **Challenge:** live, interviewable AI test users for instant sprint validation (Sprintbox AI).
-**Our answer (OpenTwin):** a sprint team turns real interview material into an AI test user, interviews it live by voice with a talking face while sharing their prototype, and gets a debrief where every insight is labelled **grounded** (backed by a real quote) or **guess**.
+**Our answer (OpenTwin):** a sprint team turns real interview material into an AI test user, interviews it live by voice with a talking face while sharing their prototype, and gets a debrief where every insight is labelled **grounded** (repeats a persona fact and the quote contains its source passage) or **not matched to a source**.
 
 Pitch line from the 30 Oct plan (on main the persona watches a shared screen; it does not click): "Simile predicts what a population will choose. We let a sprint team interrupt one test user mid-click, and we mark every answer the interviews can't back up as a guess."
 
@@ -19,7 +19,7 @@ Demo case: **Lumen**, see [#158](https://github.com/gordonkoehn/baselHack26-t3/i
 | 4. Face | Simli avatar speaks the persona's voice (#63) | `avatar.py`, `components/Avatar.tsx` |
 | 5. Screen | Share screen; the persona sees a frame of it and reacts | `components/ScreenShareButton.tsx`, `lib/screenFrames.ts` |
 | 6. Transcript | Interview saved as validated, idempotent event batches | `routers/events.py`, `event_validation.py` |
-| 7. Debrief | Themes + quotes, each quote verified against the transcript, labelled grounded/guess | `debrief.py`, `routers/insights.py`, `components/DebriefView.tsx` |
+| 7. Debrief | Themes + quotes, each quote verified against the transcript, labelled grounded/not matched to a source | `debrief.py`, `routers/insights.py`, `components/DebriefView.tsx` |
 
 The design (#144) and the OpenTwin brand (#161) are on main.
 

@@ -3,11 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { TeamLinkForward } from "@/components/TeamLinkForward";
+import { NOT_MATCHED } from "@/lib/reportMarkdown";
 
 export const metadata: Metadata = {
   title: "OpenTwin · Interview your customer before you have met them",
   description:
-    "AI test users built from your sprint material. Interview them live by video, share your prototype, and see which answers the sources back up.",
+    "AI test users built from your sprint material. Interview them live by video, share your prototype, and see which of their facts trace to a quote in your sources.",
 };
 
 // Line icons on a 24px grid, 2px stroke, round caps (the Lucide style the design system asks for).
@@ -54,7 +55,7 @@ const STEPS = [
 const FEATURES: { title: string; text: string; icon: ReactNode }[] = [
   {
     title: "Every guess is marked.",
-    text: "Facts the sources back up are on record. Everything else is labelled a guess, in the persona and in the debrief.",
+    text: `A persona fact with a quote found in a source is on record. Any other is labelled a guess. In the debrief, an insight that fails the check reads "${NOT_MATCHED}".`,
     icon: (
       <Icon>
         <path d="M9 12l2 2 4-4" />
@@ -130,8 +131,8 @@ function AnswerPreview() {
         <li className="flex items-start gap-3">
           <span className="evidence-bar mt-1.5 shrink-0" data-grounded="false" aria-hidden />
           <span>
-            <span className="font-bold">GUESS</span>
-            <span className="text-muted"> · distrusts partner matching (no source says so yet)</span>
+            <span className="font-bold uppercase">{NOT_MATCHED}</span>
+            <span className="text-muted"> · distrusts partner matching</span>
           </span>
         </li>
       </ul>
@@ -183,7 +184,7 @@ export default function HomePage() {
               </h1>
               <p className="mt-6 max-w-xl text-lg text-room-muted">
                 OpenTwin turns your sprint material into an AI test user. Talk to it live by video, show it your
-                prototype, and see which answers your sources back up and which are guesses.
+                prototype, and see which of its facts trace to a quote in your sources.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
                 <Link

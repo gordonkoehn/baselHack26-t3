@@ -17,19 +17,19 @@ Turn real interview material into an AI test user, talk to it live, and see whic
 
 <!--
   SCREENSHOTS GO HERE.
-  Add the debrief first, with both grounded and guess labels in view.
+  Add the debrief first, with both grounded and "not matched to a source" labels in view.
   No image files exist yet. Use fictional data and never show a passcode.
 -->
 
 ## Why
 
-Design sprints move faster than user research. AI test users can fill the gap, but they sound just as sure when they make something up. OpenTwin shows you the difference, so you know which answers rest on your material and which are the model's guess.
+Design sprints move faster than user research. AI test users can fill the gap, but they sound just as sure when they make something up. OpenTwin shows you the difference, so you know which answers rest on your material and which were not matched to it.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  B["Build<br/>Sources become a persona"] --> T["Talk<br/>A live voice interview"] --> C["Check<br/>A debrief, grounded or guess"]
+  B["Build<br/>Sources become a persona"] --> T["Talk<br/>A live voice interview"] --> C["Check<br/>A debrief, grounded or not matched to a source"]
   classDef step fill:#0F7A5C,stroke:#0B5A44,color:#F5F6F5
   class B,T,C step
 ```
@@ -44,11 +44,13 @@ Labels are checked in code. The model's own label is never trusted.
 
 | Label | Meaning |
 |---|---|
-| **grounded** | The code found the cited quote in a source. You still judge whether it supports the claim. |
-| **guess** | The code found no verified quote for this. It may still be useful, but treat it as a hypothesis. |
+| **grounded** (persona) | The code found the cited quote in a source. You still judge whether it supports the claim. |
+| **grounded** (debrief) | The finding repeats a grounded persona fact word for word, and its quote contains the source passage that fact cites. You still judge whether that passage supports it. |
+| **guess** (persona) | The code found no verified quote for this fact. It may still be useful, but treat it as a hypothesis. |
+| **not matched to a source** (debrief) | The finding did not pass the check below. That doesn't mean the sources disagree, so treat it as a hypothesis too. |
 
 - **Persona:** evidence is kept only if its quote really occurs in a source. A fact without kept evidence becomes a guess ([`ground_draft`](code/backend/app/routers/personas.py)).
-- **Debrief:** a finding stays grounded only if it restates a grounded persona fact and contains that fact's source quote. Otherwise it becomes a guess ([`_source_label`](code/backend/app/debrief.py)).
+- **Debrief:** a finding stays grounded only if it repeats a grounded persona fact word for word and its quote contains that fact's source quote. Otherwise it reads "not matched to a source", stored as the label value `guess` ([`_source_label`](code/backend/app/debrief.py)).
 - **Quotes:** a finding whose quote the persona did not say is dropped ([`_place_quote`](code/backend/app/debrief.py)).
 
 ## Stack

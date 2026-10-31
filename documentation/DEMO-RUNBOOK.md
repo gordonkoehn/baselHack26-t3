@@ -63,7 +63,7 @@ Check the name on the screen before you press it. The script doesn't follow the 
 
 It needs a persona on the screen, so with no persona, create one first (this uses the OpenAI API, not Realtime). It saves the script (`code/frontend/src/lib/sample.ts`) as a new ended session marked `sample`, and asks for the debrief. No microphone, no token, no call. The debrief still needs the passcode, OpenAI and the store, so the sample does not replace the saved report link when OpenAI is down. The same button under **Test call** has no questions, so it gives no debrief.
 
-The room, the transcript, the debrief, the shared `/report/…` link and the Markdown export all say it is a sample. Say so out loud, and don't present it as an interview that just happened. The Kessler answers are imagined, not facts from her sources, so never add them as sources. The prefilled example sources contain the Quartier-Börse script, so for a persona built from them "grounded" labels prove nothing.
+The room, the transcript, the debrief, the shared `/report/…` link and the Markdown export all say it is a sample. Say so out loud, and don't present it as an interview that just happened. The Kessler answers are imagined, not facts from her sources, so never add them as sources. In a sample "grounded" proves nothing, whichever persona you use: the prefilled example sources contain the Quartier-Börse script, and the Kessler script shares phrases with her sources, so an insight can stay grounded. Don't present a grounded label from a sample as source support.
 
 The browser test for the Kessler sample (`code/frontend/e2e/lumen-sample.spec.ts`) uses a fake debrief, so it does not cover a debrief from the real model on this script.
 

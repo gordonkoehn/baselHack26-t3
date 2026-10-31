@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TEAM_TWIN, QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
+import { NOT_MATCHED } from "@/lib/reportMarkdown";
+import HomePage, { metadata } from "./page";
 import Home from "./studio/page";
 
 // The home page only needs the persona list on load; it stays empty here.
@@ -9,7 +11,31 @@ vi.mock("@/lib/api", async (original) => ({
   api: { listPersonas: vi.fn().mockResolvedValue([]) },
 }));
 
+describe("landing page", () => {
+  it("calls an unmatched debrief finding what the debrief calls it, never a guess", () => {
+    const { container } = render(<HomePage />);
+    const text = container.textContent ?? "";
+
+    // The example answer is a debrief still, with its signal and sprint question.
+    screen.getByText(NOT_MATCHED);
+    expect(text).toContain(`In the debrief, an insight that fails the check reads "${NOT_MATCHED}".`);
+    expect(`${text} ${metadata.description}`).not.toMatch(/back up|are guesses|in the debrief[^.]*guess|no source says/i);
+  });
+
+  it("makes the same claim in the hero as the studio does", () => {
+    const { container } = render(<HomePage />);
+    expect(container.textContent).toContain("see which of its facts trace to a quote in your sources.");
+    expect(metadata.description).toContain("see which of their facts trace to a quote in your sources.");
+  });
+});
+
 describe("studio page", () => {
+  it("says which facts trace to a quote, not which answers the sources back up", () => {
+    const { container } = render(<Home />);
+    expect(container.textContent?.replace(/\s+/g, " ")).toContain("see which of its facts trace to a quote in your sources.");
+    expect(container.textContent).not.toMatch(/back up/i);
+  });
+
   it("fills the sources form with the team twin sample", () => {
     render(<Home />);
 

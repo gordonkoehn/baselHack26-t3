@@ -65,7 +65,7 @@ describe("formatReportMarkdown", () => {
     expect(formatReportMarkdown(report({ generatedAt: "nonsense" }), "Anna")).toContain("Date (UTC): unavailable");
   });
 
-  it("labels each insight with its turn and whether the sources back it", () => {
+  it("labels each insight with its turn and whether it was matched to a source", () => {
     const markdown = formatReportMarkdown(
       report({
         questions: [
@@ -85,10 +85,23 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("## Question 1");
     expect(markdown).toContain("Signal: contradicts");
     expect(markdown).toContain("- **[grounded]** Backed");
-    expect(markdown).toContain("Interview turn 2 · also in the persona's sources");
-    expect(markdown).toContain("- **[guess]** Unbacked");
-    expect(markdown).toContain("Interview turn 5 · not backed by the persona's sources");
+    expect(markdown).toContain("Interview turn 2 · repeats a persona fact, and the quote contains its source passage");
+    expect(markdown).toContain("- **[not matched to a source]** Unbacked\n\n  > Ich gebe alles.  \n\n  Interview turn 5\n");
+    expect(markdown).not.toMatch(/guess|backed by|also in the/i);
     expect(markdown).toContain("- Ask them why");
+  });
+
+  it("explains both labels the same way in a real and a sample export", () => {
+    const real = formatReportMarkdown(report(), "Anna");
+    const sample = formatReportMarkdown(report(), "Anna", true);
+
+    expect(real).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(sample).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(sample).toContain("In a sample, “grounded” proves nothing: the script can repeat phrases from a persona's sources, so a quote can contain a source passage without anyone having said it.");
+    expect(sample).not.toMatch(/prefilled|if the persona/i);
+    expect(real).not.toContain("proves nothing");
+    expect(real).not.toMatch(/guess/i);
+    expect(sample).not.toMatch(/guess/i);
   });
 
   it("says when a question has no insights or follow-ups", () => {
@@ -105,7 +118,7 @@ describe("formatReportMarkdown", () => {
     );
 
     expect(markdown).toContain("\\# \\[x\\]\\(http://evil\\) \\<b\\>&amp;");
-    expect(markdown).toContain("- **[guess]** 1\\. item");
+    expect(markdown).toContain("- **[not matched to a source]** 1\\. item");
   });
 
   it("keeps every line of a multi-line quote inside the blockquote", () => {

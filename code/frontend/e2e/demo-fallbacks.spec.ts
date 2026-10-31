@@ -284,7 +284,7 @@ test("a saved sample report labels quotes and exports; a real one does not", asy
 
   await open(true);
   await expect(page.getByTestId("sample-label")).toContainText(`${examplePersona.name} did not say these lines`);
-  await expect(page.getByTestId("sample-label")).toContainText("If this persona uses the prefilled example sources");
+  await expect(page.getByTestId("sample-label")).toContainText("In a sample, “grounded” proves nothing");
   await expect(page.getByTestId("debrief")).toContainText(`Sample script · turn ${quote.turnSeq}`);
   await expect(page.getByTestId("debrief")).not.toContainText(`${examplePersona.name} · interview turn`);
   const sampleExport = await download();
@@ -292,7 +292,7 @@ test("a saved sample report labels quotes and exports; a real one does not", asy
   expect(sampleExport).toContain(`Sample script turn ${quote.turnSeq}`);
   expect(sampleExport).not.toContain("Interview turn");
   expect(sampleExport).not.toContain("simulated interview");
-  expect(sampleExport).toContain("If the persona uses the prefilled example sources");
+  expect(sampleExport).toContain("In a sample, “grounded” proves nothing");
 
   await open(false);
   await expect(page.getByTestId("sample-label")).toHaveCount(0);

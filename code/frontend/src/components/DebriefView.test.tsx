@@ -44,10 +44,10 @@ describe("DebriefView", () => {
     screen.getByText("Feels like marketing", { exact: false });
     screen.getByText("Ask real users next: Ask how they split without the badge.");
     const [backed, unbacked] = Array.from(container.querySelectorAll("blockquote"), (quote) => quote.textContent);
-    expect(backed).toBe("“Dann geb ich alles.”Anna · interview turn 3 · also in the sources");
-    expect(unbacked).toBe("“Klingt nach Werbung.”Anna · interview turn 5 · not backed by the sources");
+    expect(backed).toBe("“Dann geb ich alles.”Anna · interview turn 3 · repeats a persona fact, and the quote contains its source passage");
+    expect(unbacked).toBe("“Klingt nach Werbung.”Anna · interview turn 5");
     const labels = Array.from(container.querySelectorAll("li li > span"), (label) => label.textContent);
-    expect(labels).toEqual(["grounded", "guess"]);
+    expect(labels).toEqual(["grounded", "not matched to a source"]);
   });
 
   it("leads with a summary of what held up and what didn't", async () => {
@@ -58,6 +58,33 @@ describe("DebriefView", () => {
     expect(screen.getByTestId("debrief").firstElementChild?.nextElementSibling).toBe(summary);
   });
 
+  it("gives each summary item the same meaning as the details", () => {
+    const unmatched = REPORT.questions[0].insights[1];
+    const report = {
+      ...REPORT,
+      questions: [REPORT.questions[0], { question: "Would they pay?", signal: "unclear" as const, insights: [unmatched] }],
+    };
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={report} />);
+
+    const lines = Array.from(screen.getByTestId("debrief-summary").querySelectorAll("li p:last-child"), (line) => line.textContent);
+    expect(lines).toEqual(["grounded: repeats a persona fact, and the quote contains its source passage", "not matched to a source"]);
+  });
+
+  it.each([false, true])("never calls an unmatched insight a guess, sample %s", (sample) => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={REPORT} sample={sample} />);
+
+    expect(screen.getByTestId("debrief").textContent).not.toMatch(/guess|backed|also in the sources/i);
+  });
+
+  it("explains both labels on a sample and says grounded proves nothing there", () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={REPORT} sample />);
+
+    const banner = screen.getByTestId("sample-label").textContent;
+    expect(banner).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
+    expect(banner).toContain("In a sample, “grounded” proves nothing: the script can repeat phrases from a persona's sources, so a quote can contain a source passage without anyone having said it.");
+    expect(banner).not.toMatch(/prefilled|if this persona/i);
+  });
+
   it("states that the persona is an AI and the quotes are hypotheses", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue(REPORT);
     show();
@@ -65,6 +92,7 @@ describe("DebriefView", () => {
     const debrief = await screen.findByTestId("debrief");
 
     expect(debrief.textContent).toContain("Anna, an AI persona: hypotheses to check with real users, not findings.");
+    expect(debrief.textContent).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
   });
 
   it("shows the gaps banner on a report whose transcript may have gaps, generated or saved", async () => {
@@ -81,6 +109,13 @@ describe("DebriefView", () => {
     render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} />);
     const position = screen.getByTestId("transcript-gaps").compareDocumentPosition(screen.getByTestId("debrief-summary"));
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("opens a sample with its banner, below the gaps warning and before any source claim", () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} sample />);
+    const [gaps, banner, summary] = ["transcript-gaps", "sample-label", "debrief-summary"].map((id) => screen.getByTestId(id));
+    expect(gaps.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows no gaps banner when none are known", async () => {

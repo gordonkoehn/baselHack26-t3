@@ -5,7 +5,7 @@ import { ApiError, api } from "@/lib/api";
 import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { InsightReport } from "@/lib/contracts";
 import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
-import { TRANSCRIPT_GAPS, formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
+import { GROUNDED_DETAIL, LABEL_LEGEND, NOT_MATCHED, SAMPLE_GROUNDED, TRANSCRIPT_GAPS, formatReportMarkdown, labelText, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
   supports: { text: "supports", className: "bg-accent-soft text-accent" },
@@ -25,7 +25,7 @@ function SummaryGroup({ title, items }: { title: string; items: SummaryItem[] })
               <span className="evidence-bar mr-2 !w-6" data-grounded={item.grounded} aria-hidden />
               {item.theme}
             </p>
-            <p className="mt-1 text-sm text-muted">{item.grounded ? "Also in the sources" : "Persona's guess"}</p>
+            <p className="mt-1 text-sm text-muted">{item.grounded ? `grounded: ${GROUNDED_DETAIL}` : NOT_MATCHED}</p>
           </li>
         ))}
       </ul>
@@ -46,8 +46,8 @@ function DebriefSummaryPanel({ report }: { report: InsightReport }) {
 }
 
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
-// Quotes are verbatim from the synthetic interview; "grounded" means the persona's sources say it
-// too. Neither means "validated with real users".
+// Quotes are verbatim from the synthetic interview; LABEL_LEGEND says what each label means. Neither
+// means "validated with real users".
 // With savedReport it is read-only: it shows that report and never asks the backend to write one.
 export function DebriefView({
   sessionId,
@@ -203,17 +203,18 @@ export function DebriefView({
               {TRANSCRIPT_GAPS}
             </p>
           )}
-          <DebriefSummaryPanel report={report} />
-          {sample ? (
+          {/* Above the summary: a scripted sample must not open on a source claim. */}
+          {sample && (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
-              say these lines. If this persona uses the prefilled example sources, they contain the same script, so
-              &ldquo;also in the sources&rdquo; proves nothing here.
+              say these lines. {LABEL_LEGEND} {SAMPLE_GROUNDED}
             </p>
-          ) : (
+          )}
+          <DebriefSummaryPanel report={report} />
+          {!sample && (
             <p className="mt-1 text-xs leading-relaxed text-muted">
               Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-              findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+              findings. {LABEL_LEGEND}
             </p>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -264,11 +265,11 @@ export function DebriefView({
                         className="mr-2 inline-flex items-center gap-1.5 font-mono text-xs font-medium"
                       >
                         <span className="evidence-bar !w-6" data-grounded={i.label === "grounded"} aria-hidden />
-                        {i.label === "grounded" ? "grounded" : "guess"}
+                        {labelText(i.label)}
                       </span>
                       {i.theme}
                       {/* The quote is always verbatim from the interview; the label says whether the
-                          persona's real sources back it too. */}
+                          code matched it to a source passage. */}
                       <blockquote
                         className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
                           i.label === "grounded" ? "border-accent/40" : "border-line"
@@ -277,7 +278,7 @@ export function DebriefView({
                         “{i.quote}”
                         <span className="mt-0.5 block text-xs text-muted">
                           {sample ? "Sample script" : personaName} · {sample ? "turn" : "interview turn"} {i.turnSeq}
-                          {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
+                          {i.label === "grounded" && ` · ${GROUNDED_DETAIL}`}
                         </span>
                       </blockquote>
                     </li>

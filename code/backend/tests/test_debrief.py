@@ -429,6 +429,31 @@ def test_only_exact_grounded_fact_with_its_own_verbatim_evidence_is_preserved(in
 
 
 @pytest.mark.parametrize(
+    "passage, said, label",
+    [
+        ("I'd pay 5", "I'd pay 50 francs a month for that.", "guess"),
+        ("I'd pay 1", "I'd pay 1,000 francs.", "guess"),
+        ("I would", "I wouldn't use this at all.", "guess"),
+        ("no", "I know this works.", "guess"),
+        ("binding", "This is non-binding for me.", "guess"),
+        ("I'd pay 50", "I'd pay 50 francs a month for that.", "grounded"),
+        ("I wouldn't", "I wouldn't use this at all.", "grounded"),
+        # Only whitespace around a stored passage differs, and ground_draft can store that.
+        (" I'd pay 50\n", "I'd pay 50", "grounded"),
+    ],
+)
+def test_grounded_needs_the_source_passage_as_whole_words_of_the_quote(
+    inputs, passage, said, label
+):
+    session, persona, events, draft = prepare_grounded(inputs)
+    persona.evidence[0].quote = passage
+    draft.questions[0].insights[0].quote = said
+    events[5].data["text"] = said
+    result = debrief.build_report(session, persona, events, draft).questions[0].insights[0]
+    assert result.quote == said and result.label == label
+
+
+@pytest.mark.parametrize(
     "change",
     [
         "missing_id",
