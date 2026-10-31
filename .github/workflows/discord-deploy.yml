@@ -1,0 +1,24 @@
+name: discord-deploy
+on: deployment_status
+
+jobs:
+  notify:
+    # Production only: previews would flood the channel.
+    if: >-
+      contains(github.event.deployment.environment, 'Production') &&
+      contains(fromJSON('["success", "failure", "error"]'), github.event.deployment_status.state)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          STATE: ${{ github.event.deployment_status.state }}
+          PROJECT: ${{ github.event.deployment.environment }}
+          URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "DISCORD_WEBHOOK not set, skipping"; exit 0; fi
+          if [ "$STATE" = "success" ]; then icon="✅ Deployed"; else icon="❌ Deploy failed"; fi
+          jq -n --arg c "$icon: $PROJECT (${SHA:0:7})
+          <$URL>" '{content: $c, allowed_mentions: {parse: []}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
