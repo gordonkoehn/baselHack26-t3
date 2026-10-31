@@ -44,7 +44,8 @@ Labels are checked in code. The model's own label is never trusted.
 
 | Label | Meaning |
 |---|---|
-| **grounded** | The code found the cited quote in a source. You still judge whether it supports the claim. |
+| **grounded** (persona) | The code found the cited quote in a source. You still judge whether it supports the claim. |
+| **grounded** (debrief) | The finding repeats a grounded persona fact word for word, and its quote contains the source passage that fact cites. You still judge whether that passage supports it. |
 | **guess** (persona) | The code found no verified quote for this fact. It may still be useful, but treat it as a hypothesis. |
 | **not matched to a source** (debrief) | The finding did not pass the check below. That doesn't mean the sources disagree, so treat it as a hypothesis too. |
 
