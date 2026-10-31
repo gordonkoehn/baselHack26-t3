@@ -563,8 +563,19 @@ function WorkspaceBar({
               className="flex gap-1.5"
               aria-label="Go to verification"
             >
-              <span className={`rounded-full px-3 py-1 ${tone(coverage ? coverage.recommendation === "ready" : null)}`}>
+              <span className={`rounded-full px-3 py-1 ${
+                coverage?.overall === "good_enough"
+                  ? "bg-accent-soft text-accent"
+                  : coverage?.overall === "add_more"
+                    ? "bg-alert-tint text-on-alert"
+                    : "bg-line text-muted"
+              }`} data-testid="workspace-coverage">
                 {coverage ? `AI ${Math.round(coverage.score * 100)}%` : "AI –"}
+                {coverage?.overall === "good_enough"
+                  ? " · Good enough to test."
+                  : coverage?.overall === "add_more"
+                    ? " · Add more first."
+                    : " · Not checked"}
               </span>
               <span className={`rounded-full px-3 py-1 ${tone(verdict)}`}>
                 {verdict === null ? "Test call –" : verdict ? "Test call ✓" : "Test call ✗"}

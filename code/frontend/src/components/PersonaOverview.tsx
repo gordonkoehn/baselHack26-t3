@@ -47,9 +47,11 @@ export function PersonaOverview({
           </p>
           <p className="text-xs text-muted">
             {coverage
-              ? coverage.recommendation === "ready"
-                ? "ready for this test"
-                : "needs more input"
+              ? coverage.overall === "good_enough"
+                ? "Good enough to test."
+                : coverage.overall === "add_more"
+                  ? "Add more first."
+                  : "not checked yet →"
               : "not checked yet →"}
           </p>
         </button>
