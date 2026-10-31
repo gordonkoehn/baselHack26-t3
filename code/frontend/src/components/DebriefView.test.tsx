@@ -110,6 +110,13 @@ describe("DebriefView", () => {
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("opens a sample with its banner, below the gaps warning and before any source claim", () => {
+    render(<DebriefView sessionId="s_1" personaName="Anna" savedReport={{ ...REPORT, transcriptGaps: true }} sample />);
+    const [gaps, banner, summary] = ["transcript-gaps", "sample-label", "debrief-summary"].map((id) => screen.getByTestId(id));
+    expect(gaps.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("shows no gaps banner when none are known", async () => {
     vi.spyOn(api, "debrief").mockResolvedValue({ ...REPORT, transcriptGaps: false });
     show();

@@ -62,7 +62,7 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
         and len(evidence) == 1
         and evidence[0].quote is not None
         and evidence[0].quote.strip()
-        and evidence[0].quote in insight.quote
+        and _said(evidence[0].quote, insight.quote)
         and any(
             fact.label == "grounded"
             and fact.text == insight.theme

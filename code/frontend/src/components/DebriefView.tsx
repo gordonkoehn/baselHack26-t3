@@ -194,14 +194,16 @@ export function DebriefView({
               {TRANSCRIPT_GAPS}
             </p>
           )}
-          <DebriefSummaryPanel report={report} />
-          {sample ? (
+          {/* Above the summary: a scripted sample must not open on a source claim. */}
+          {sample && (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
               say these lines. {LABEL_LEGEND} If this persona uses the prefilled example sources, they contain the same
               script, so &ldquo;grounded&rdquo; proves nothing here.
             </p>
-          ) : (
+          )}
+          <DebriefSummaryPanel report={report} />
+          {!sample && (
             <p className="mt-1 text-xs leading-relaxed text-muted">
               Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
               findings. {LABEL_LEGEND}
