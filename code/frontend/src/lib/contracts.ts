@@ -92,9 +92,11 @@ export type Session = {
   endedAt?: string | null;
   /** Whether a saved debrief can be opened. Only in the persona's session list. */
   debriefReady?: boolean;
+  /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
+  sample?: boolean;
 };
 
-export type SessionCreate = { personaId: string; interviewGuide?: string[] };
+export type SessionCreate = { personaId: string; interviewGuide?: string[]; sample?: boolean };
 
 export type SessionUpdate = { status: "live" | "ended" };
 
@@ -169,4 +171,25 @@ export type InsightSummary = {
     /** Strongest quotes: at most two per interview, with grounded ones first. */
     insights: (Insight & { sessionId: string })[];
   }[];
+};
+
+export type GuideIssue = "leading" | "hypothetical" | "closed" | "pitch";
+
+export type GuideReviewRequest = {
+  /** 1 to 50 nonblank questions of at most 500 characters. */
+  questions: string[];
+  /** Language of the rewrites. */
+  language: Language;
+};
+
+export type GuideReviewItem = {
+  question: string;
+  issues: GuideIssue[];
+  /** Neutral, open version on one line. Null when there are no issues. */
+  rewrite: string | null;
+};
+
+export type GuideReview = {
+  /** One entry per question, in request order. */
+  items: GuideReviewItem[];
 };

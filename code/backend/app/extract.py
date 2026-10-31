@@ -9,6 +9,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
+from typing import Literal
 
 import openai
 from pydantic import ConfigDict, ValidationError
@@ -32,6 +33,7 @@ from app.provider_log import provider_call
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 TIMEOUT_SECONDS = 90
+PROBE_TIMEOUT_SECONDS = 30
 
 
 class PersonaDraft(Model):
@@ -182,6 +184,32 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
     return draft
 
 
+class ProbeAnswer(Model):
+    """One in-character answer to a readiness probe. The text is written first and never kept."""
+
+    answer: str
+    position: Literal["yes", "no", "unsure"]
+    fact_ids: list[str]
+
+
+def answer_probe(instructions: str, question: str) -> ProbeAnswer:
+    with _provider_errors(), provider_call("openai", "readiness_probe"):
+        response = (
+            _client()
+            .with_options(timeout=PROBE_TIMEOUT_SECONDS)
+            .responses.parse(
+                model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
+                instructions=instructions,
+                input=question,
+                text_format=ProbeAnswer,
+            )
+        )
+        answer = response.output_parsed
+        if answer is None:
+            raise ExtractionFailed(f"no probe answer in response (status {response.status})")
+    return answer
+
+
 TRANSCRIBE = """\
 Transcribe all text visible in this image or scanned document verbatim, in reading order, in its original language.
 One sticky note, card or speech bubble per line. Keep the exact wording and spelling; do not
@@ -244,6 +272,8 @@ For each question, use supports, contradicts or unclear and suggest followUps to
 customers. Without usable transcript support, use unclear with an empty insights list.
 The signal answers the question itself: supports means the findings say yes, contradicts means
 they say no or not really, and unclear means mixed or too little evidence.
+For an open prompt with no yes or no answer, supports means the findings give concrete evidence of
+what it asks about, and contradicts means the persona says it never happened or does not apply.
 Decide the signal after writing the findings.
 Write each theme as a short, concrete finding in the persona's words, supported by its quote,
 not a restatement of the question or a generic topic label. Do not invent a finding to fill a slot.

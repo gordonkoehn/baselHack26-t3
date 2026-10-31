@@ -1,5 +1,7 @@
 import type {
   ExtractedText,
+  GuideReview,
+  GuideReviewRequest,
   InsightReport,
   InsightSummary,
   Persona,
@@ -125,6 +127,12 @@ export const api = {
       headers: { "Content-Type": image.type || "application/octet-stream", ...passcode() },
       body: image,
     }).then(json<ExtractedText>),
+  reviewGuide: (body: GuideReviewRequest) =>
+    fetch("/api/guides/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...passcode() },
+      body: JSON.stringify(body),
+    }).then(json<GuideReview>),
   createSession: (body: SessionCreate) =>
     fetch("/api/sessions", {
       method: "POST",

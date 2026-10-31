@@ -146,6 +146,7 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   await expect(dialog).toHaveJSProperty("open", false);
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 5/5");
+  await expect(page.getByTestId("sample-label")).toHaveCount(0);
   const transcript = page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (4 turns)" });
   await expect(transcript).toBeVisible();
   await expect(transcript).toHaveJSProperty("open", false);
@@ -241,6 +242,25 @@ test("backend unavailable is announced and the same sources can be retried", asy
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
+test("the card shows the readiness score and explains when there is none", async ({ page }) => {
+  await createPersona(page);
+  const readiness = page.getByTestId("readiness");
+  // The fake always cites F1, but the example's quotes aren't in the sample sources, so the real
+  // evidence check has already made it a guess: citing it can't earn any grounding.
+  await expect(readiness).toContainText("Readiness 0.00: consistency 1.00 · grounding 0.00");
+  await page.getByRole("button", { name: /^Remove: / }).first().click();
+  await expect(readiness).toHaveText("No readiness score: this persona was edited after creation and is not re-checked.");
+
+  // A failed check still gives a usable persona.
+  await page.route("**/api/personas", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), readiness: null } });
+  });
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  await page.getByRole("button", { name: "Rebuild persona", exact: true }).click();
+  await expect(readiness).toHaveText("No readiness score: the check did not finish.");
+});
+
 test("rate limit is announced with the backend's wait time and keeps the sources", async ({ page }) => {
   await page.goto("/");
   const source = await page.getByLabel("Source 2 text").inputValue();
@@ -316,7 +336,8 @@ test("a persona edited from the library keeps its place and comes back edited af
   expect((await saved).status()).toBe(200);
   await expect(card.getByText("Edited by hand")).toBeVisible();
   await expect(card).not.toContainText("Ready in");
-  expect(await (await request.get("/api/personas")).json()).toEqual(before);
+  // An edit drops the readiness score (it is not re-checked) but keeps the persona's place.
+  expect(await (await request.get("/api/personas")).json()).toEqual([{ ...before[0], readiness: null }, ...before.slice(1)]);
 
   await page.reload();
   await expect(card).toHaveCount(0);
