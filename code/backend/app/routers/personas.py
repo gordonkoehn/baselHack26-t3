@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
-from app.contracts import Fact, Persona, PersonaCreate
+from app.contracts import Evidence, Fact, Persona, PersonaCreate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.store import Store, get_store
 
@@ -42,12 +42,22 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
         if fact.label == "guess" and fact.evidence_id is not None:
             raise ExtractionFailed("guess must not cite evidence")
 
-    def verified(quote: str | None) -> bool:
-        q = _norm(quote or "")
-        # An empty quote would match every source, so it counts as missing.
-        return bool(q) and any(q in s for s in sources)
+    def attribute(e: Evidence) -> Evidence | None:
+        """Bind evidence to the first source that really contains its quote; drop it otherwise.
 
-    kept = [e for e in draft.evidence if verified(e.quote)]
+        kind and sourceRef come from that source, never from the model, so the card can't show
+        a note as a real interview or link to a source without the quote.
+        """
+        q = _norm(e.quote or "")
+        # An empty quote would match every source, so it counts as missing.
+        if not q:
+            return None
+        for i, (src, text) in enumerate(zip(request.sources, sources, strict=True), start=1):
+            if q in text:
+                return e.model_copy(update={"kind": src.kind, "source_ref": f"source:{i}"})
+        return None
+
+    kept = [a for e in draft.evidence if (a := attribute(e))]
     kept_ids = {e.id for e in kept}
 
     def relabel(facts: list[Fact]) -> list[Fact]:

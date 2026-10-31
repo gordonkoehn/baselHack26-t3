@@ -161,3 +161,34 @@ def test_downgrade_reaches_every_fact_list(client):
     body = client.post("/api/personas", json=REQUEST).json()
     for name in ("jobs", "pains", "objections"):
         assert body[name] == [{"text": "x", "label": "guess", "evidenceId": None}]
+
+
+TWO_SOURCES = {
+    "language": "en",
+    "sources": [
+        {"kind": "note", "text": "Unrelated sprint note."},
+        {"kind": "miro", "text": "Board. The neighbourhood project matters to me. End."},
+    ],
+}
+
+
+def test_evidence_attribution_comes_from_matching_source(client):
+    """The model claims real_interview / source:1; the quote is really in source 2 (miro)."""
+    lie = {
+        "id": "e1",
+        "kind": "real_interview",
+        "claim": "c",
+        "quote": "The neighbourhood project matters to me.",
+        "sourceRef": "source:1",
+    }
+    use_extractor(lambda _req: draft(evidence=[lie]))
+    body = client.post("/api/personas", json=TWO_SOURCES).json()
+    assert body["evidence"][0]["kind"] == "miro"
+    assert body["evidence"][0]["sourceRef"] == "source:2"
+    assert len(grounded_texts(body)) == 2
+
+
+def test_matching_attribution_is_kept(client):
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert body["evidence"][0]["kind"] == "miro"
+    assert body["evidence"][0]["sourceRef"] == "source:1"
