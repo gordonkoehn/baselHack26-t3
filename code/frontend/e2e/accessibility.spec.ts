@@ -97,7 +97,7 @@ async function respondToDebrief(fail = false) {
 async function openDebrief(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await page.getByRole("button", { name: "Start voice interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   await expect(page.getByRole("dialog").getByText("Live, speak now")).toBeVisible();
   await page.getByRole("button", { name: "End interview", exact: true }).click();
   const status = page.getByTestId("debrief-generation-status");

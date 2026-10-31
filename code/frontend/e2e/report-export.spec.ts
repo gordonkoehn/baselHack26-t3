@@ -139,7 +139,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
-  await page.getByRole("button", { name: "Start voice interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: `Interview with ${personaName}`, exact: true });
   await expect(dialog.getByText("Live, speak now")).toBeVisible();
   await page.getByRole("button", { name: "End interview", exact: true }).click();

@@ -20,7 +20,7 @@ async function startInterview(page: Page): Promise<Session> {
   await createPersona(page);
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(questions.join("\n"));
   const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview" }).click();
+  await page.getByRole("button", { name: "Start video interview" }).click();
   const response = await created;
   expect(response.status()).toBe(201);
   const session: Session = await response.json();
