@@ -288,7 +288,7 @@
             "type": "object",
             "properties": {
               "durationSeconds": { "type": "number" },
-              "transcriptGaps": { "type": "boolean", "description": "True when at least one turn of a live call was lost (failed transcription or response, connection drop, closed before it arrived). Absent means none are known." }
+              "transcriptGaps": { "type": "boolean", "description": "True when part of a live call was not captured (failed transcription or response, connection drop, closed before it arrived, heard audio with no saved words). Absent means no gap is known." }
             }
           } } }
         }

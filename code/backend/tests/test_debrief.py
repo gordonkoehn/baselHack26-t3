@@ -185,6 +185,38 @@ def test_questions_that_cannot_be_matched_by_position_still_fail(inputs, change)
 
 
 @pytest.mark.parametrize(
+    "disguise",
+    [
+        lambda q, i: f"{i + 1}. {q}",
+        lambda q, i: f"{q} (Frage)",
+        lambda q, i: q.upper().replace(":", " -").rstrip("?"),
+    ],
+)
+def test_a_swap_is_caught_through_small_rewording(inputs, disguise):
+    session, persona, events, draft = inputs
+    draft.questions[0], draft.questions[1] = draft.questions[1], draft.questions[0]
+    for i, question in enumerate(draft.questions):
+        question.question = disguise(session.interview_guide[[1, 0, 2][i]], i)
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
+def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = [
+        "Would you pay for the basic plan?",
+        "Would you pay for the premium plan?",
+        "Would you recommend the basic plan?",
+    ]
+    draft.questions[0].question = "1. Would you really pay for the basic plan at all?"
+    draft.questions[1].question = "Would you pay for the premium plan (monthly)?"
+    # A translation has no text to compare, so it can only be matched by position.
+    draft.questions[2].question = "Würden Sie den Basisplan weiterempfehlen?"
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+@pytest.mark.parametrize(
     "reworded",
     [
         lambda q: q + " altered",
@@ -211,6 +243,31 @@ def test_reworded_question_does_not_loosen_quote_verification(inputs):
     draft.questions[0].insights[0].quote = "Nobody said this."
     report = debrief.build_report(session, persona, events, draft)
     assert report.questions[0].insights == [] and report.questions[0].signal == "unclear"
+
+
+@pytest.mark.parametrize(
+    "said, quote, kept",
+    [
+        ("I wouldn't pay for this.", "I would", False),
+        ("I wouldn’t pay for this.", "I would", False),
+        ("I can't pay for this.", "I can", False),
+        ("Hard to say.", "e", False),
+        ("Unfair, I think.", "fair", False),
+        ("I wouldn't pay for this.", "I wouldn't pay", True),
+        ("I wouldn't pay for this.", "pay for this.", True),
+        ("Für die Bäckerei, ja.", "Bäckerei", True),
+        ("He said it's 'the best' deal.", "the best", True),
+    ],
+)
+def test_a_quote_must_be_whole_words_of_what_the_persona_said(inputs, said, quote, kept):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    next(e for e in events if e.seq == insight.turn_seq).data["text"] = said
+    insight.quote = quote
+    quotes = [
+        i.quote for i in debrief.build_report(session, persona, events, draft).questions[0].insights
+    ]
+    assert quotes == ([quote] if kept else [])
 
 
 @pytest.mark.parametrize("gaps", [True, False, None])

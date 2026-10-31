@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 
 from pydantic import ValidationError
 
@@ -10,6 +11,8 @@ from app.extract import DebriefDraft, ExtractionFailed
 
 # What the browser saves when an answer is cut off (InterviewRoom.tsx). The persona didn't say it.
 INTERRUPTED = "(interrupted)"
+# Below this, text similarity says nothing: different questions share words, a translation doesn't.
+SAME_QUESTION = 0.6
 
 
 class TranscriptIncomplete(Exception):
@@ -71,6 +74,11 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
     return insight.model_copy(update={"label": "guess", "evidence_id": None})
 
 
+def _said(quote: str, text: str) -> bool:
+    """Whether text holds the quote as whole words: "I would" of "I wouldn't" reverses it."""
+    return re.search(rf"(?<!\w){re.escape(quote.strip())}(?!\w|['’]\w)", text) is not None
+
+
 def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
     """The insight with its quote verified against one persona turn, or None to drop it.
 
@@ -80,9 +88,9 @@ def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
     """
     if not insight.quote.strip():
         return None
-    if insight.quote in turns.get(insight.turn_seq, ""):
+    if _said(insight.quote, turns.get(insight.turn_seq, "")):
         return insight
-    matches = [seq for seq, text in turns.items() if insight.quote in text]
+    matches = [seq for seq, text in turns.items() if _said(insight.quote, text)]
     return insight.model_copy(update={"turn_seq": matches[0]}) if len(matches) == 1 else None
 
 
@@ -90,17 +98,25 @@ def _comparable(question: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", "", question).casefold().split())
 
 
+def _closer_to_another(asked: str, own: str, guide: list[str]) -> bool:
+    def closeness(question: str) -> float:
+        return SequenceMatcher(
+            None, _comparable(asked), _comparable(question), autojunk=False
+        ).ratio()
+
+    return any(closeness(q) > max(closeness(own), SAME_QUESTION) for q in guide)
+
+
 def _check_positions(asked: list[str], guide: list[str]) -> None:
     """Answers belong to the guide question at their position, whatever the model called it.
 
     That is only safe with one answer per question in guide order, so a missing or extra answer
-    fails, and so does a guide question at another position, whose quotes would land under the
-    wrong one. A question both reordered and reworded can't be told from a plain rewording.
+    fails, and so does text that is plainly another guide question, whose quotes would land under
+    the wrong one. Only the wording can show this: a reorder that is also translated or fully
+    paraphrased can't be told from a plain rewording, so it still passes.
     """
-    known = {_comparable(question) for question in guide}
     if len(asked) != len(guide) or any(
-        _comparable(a) != _comparable(g) and _comparable(a) in known
-        for a, g in zip(asked, guide, strict=True)
+        _closer_to_another(a, g, guide) for a, g in zip(asked, guide, strict=True)
     ):
         raise ExtractionFailed("debrief questions do not match guide")
 

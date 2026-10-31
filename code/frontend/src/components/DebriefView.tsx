@@ -73,7 +73,7 @@ export function DebriefView({
       else if (e.status === 503) setError("The debrief model is unavailable right now. Try again in a moment.");
       else if (e.status === 422) {
         setNothingToDebrief(true);
-        setError("No debrief for this call: the persona never answered, so there is nothing to quote. Start again for a new interview.");
+        setError("No debrief for this call: no persona answer was saved, so there is nothing to quote. Start again for a new interview.");
       } else setError(`Debrief failed (${e.status}): ${e.detail}`);
     } finally {
       setLoading(false);

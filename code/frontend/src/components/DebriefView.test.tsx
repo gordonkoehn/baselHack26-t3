@@ -81,7 +81,7 @@ describe("DebriefView", () => {
 
     const alert = await screen.findByRole("alert");
 
-    expect(alert.textContent).toContain("the persona never answered");
+    expect(alert.textContent).toContain("no persona answer was saved");
     expect(alert.textContent).not.toContain("422");
     expect(alert.textContent).not.toContain("nonblank");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();

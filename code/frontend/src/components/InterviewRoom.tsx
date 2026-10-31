@@ -265,7 +265,8 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
     callLost.current = true;
     setConnectionLost(true);
     // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    if (!liveEstablished.current || work.current.missingTurns) lost.current = true;
+    // Mid-call, turns cut off by the drop leave no provider event, so nothing open proves nothing was lost.
+    if (!liveEstablished.current || !finalizing.current || work.current.missingTurns) lost.current = true;
     hangUp();
     if (finalizing.current) {
       if (!draining.current) void closeDrained(false);
@@ -313,9 +314,11 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
       }
       case "conversation.item.input_audio_transcription.completed":
         if (!e.item_id) lost.current = true;
+        if (!e.transcript?.trim()) work.current.blank(e.item_id);
         if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
+        if (e.transcript?.trim()) work.current.spoke(e.response_id);
         if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
@@ -326,6 +329,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
         for (const item of e.response?.output ?? []) {
           item.content?.forEach((content, index) => {
             const text = content.transcript ?? content.text;
+            if (text?.trim()) work.current.spoke(e.response?.id);
             if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
           });
         }
@@ -730,7 +734,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
 
   async function closeDrained(incomplete: boolean) {
     if (finishing.current || draining.current) return;
-    if (incomplete || work.current.missingTurns) lost.current = true;
+    if (incomplete || work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
@@ -854,7 +858,7 @@ export function InterviewRoom({ persona, startBlocked }: { persona: Persona; sta
               : startupFailure.current
               ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
               : lastTurnMissing && ended
-              ? "Ended. Microphone and camera are off. This transcript has gaps: at least one turn was not captured."
+              ? "Ended. Microphone and camera are off. This transcript has gaps: part of the call was not captured."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}

@@ -1,6 +1,6 @@
 import type { InsightReport } from "./contracts";
 
-export const TRANSCRIPT_GAPS = "This transcript has gaps: at least one turn of the call was lost, so this debrief only covers what was saved. A question with no quotes may just mean its answer was lost.";
+export const TRANSCRIPT_GAPS = "This transcript has gaps: part of the call was not captured, so this debrief only covers what was saved. A question with no quotes may just mean its answer was lost.";
 
 // Escape report text so headings, links, HTML and list markers remain literal content.
 function textLines(value: string): string[] {

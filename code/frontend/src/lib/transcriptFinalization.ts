@@ -15,6 +15,11 @@ export class TranscriptWork {
   private settledSpeech = new Set<string>();
   private expectedResponses = new Set<string>();
   private suspendedResponses = new Set<string>();
+  private audible = new Set<string>();
+  private worded = new Set<string>();
+  private blankInputs = new Set<string>();
+  private unanswered = new Set<string>();
+  private answers = new Map<string, string[]>();
 
   speech(id?: string) {
     const key = id ?? "unknown";
@@ -37,6 +42,7 @@ export class TranscriptWork {
   commit(id?: string) {
     if (!id || this.committed.has(id)) return; // Redelivery cannot reserve another response.
     this.committed.add(id);
+    this.unanswered.add(id);
     this.pending.delete(`s:${id}`);
     this.pending.delete("s:unknown");
     // A manual acknowledgement can settle the provisional speech reservation, but
@@ -100,13 +106,17 @@ export class TranscriptWork {
   created(id?: string) {
     if (!id || this.responseDone.has(id) || this.pending.has(`r:${id}`)) return;
     this.releaseResponse();
+    this.answering(id);
     this.pending.add(`r:${id}`);
   }
 
   done(id?: string): boolean {
     if (!id || this.responseDone.has(id)) return false;
     // A terminal response can arrive before response.created.
-    if (!this.pending.delete(`r:${id}`)) this.releaseResponse();
+    if (!this.pending.delete(`r:${id}`)) {
+      this.releaseResponse();
+      this.answering(id);
+    }
     this.responseDone.add(id);
     return true;
   }
@@ -117,12 +127,35 @@ export class TranscriptWork {
       this.playbackDone.add(id);
       this.pending.delete(`p:${id}`);
     } else if (!this.playbackDone.has(id)) this.pending.add(`p:${id}`);
+    if (!done) this.audible.add(id);
+  }
+
+  // This response's words reached the transcript.
+  spoke(id?: string) {
+    if (id) this.worded.add(id);
+  }
+
+  // This input transcribed to nothing. Alone that is usually noise, see unrecordedTurns.
+  blank(id?: string) {
+    if (id) this.blankInputs.add(id);
   }
 
   // Whether closing now could lose a turn. Audio still playing can't: the words of a finished
   // response are already in the transcript. Every other open key is a turn that may not arrive.
   get missingTurns(): boolean {
     return [...this.pending].some((key) => !key.startsWith("p:") || !this.responseDone.has(key.slice(2)));
+  }
+
+  // Turns lost with no key left open: a finished response that was heard but saved no words, or
+  // saved words answering speech that transcribed to nothing. Read at close: words can arrive late.
+  get unrecordedTurns(): boolean {
+    return [...this.audible].some((id) => this.responseDone.has(id) && !this.worded.has(id))
+      || [...this.answers].some(([id, inputs]) => this.worded.has(id) && inputs.some((input) => this.blankInputs.has(input)));
+  }
+
+  private answering(id: string) {
+    this.answers.set(id, [...this.unanswered]);
+    this.unanswered.clear();
   }
 
   private expectResponse(id: string) {

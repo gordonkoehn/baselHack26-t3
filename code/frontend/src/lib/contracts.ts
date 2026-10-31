@@ -135,7 +135,7 @@ export type SessionEvent = EventBase &
         type: "session.ended";
         data: {
           durationSeconds?: number;
-          /** True when at least one turn of a live call was lost. Absent means none are known. */
+          /** True when part of a live call was not captured. Absent means no gap is known. */
           transcriptGaps?: boolean;
         };
       }

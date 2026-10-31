@@ -108,6 +108,68 @@ describe("TranscriptWork.missingTurns", () => {
   });
 });
 
+describe("TranscriptWork.unrecordedTurns", () => {
+  it("counts a finished response that was heard but saved no words", () => {
+    const work = new TranscriptWork();
+    work.created("silent");
+    work.playback("silent", false);
+    expect(work.unrecordedTurns).toBe(false); // Not finished: missingTurns covers it.
+    work.done("silent");
+    work.playback("silent", true);
+    expect(work.unrecordedTurns).toBe(true);
+    expect(work.missingTurns).toBe(false); // Nothing can arrive to wait for.
+  });
+
+  it.each([
+    ["before the response ends", true],
+    ["after the response ends", false],
+  ])("does not count heard words saved %s", (_name, first) => {
+    const work = new TranscriptWork();
+    work.created("answer");
+    work.playback("answer", false);
+    if (first) work.spoke("answer");
+    work.done("answer");
+    if (!first) work.spoke("answer");
+    expect(work.unrecordedTurns).toBe(false);
+  });
+
+  it("does not count a response nobody heard", () => {
+    const work = new TranscriptWork();
+    work.created("unheard");
+    work.done("unheard");
+    expect(work.unrecordedTurns).toBe(false);
+  });
+
+  it.each([
+    ["while the response runs", ["commit", "created", "blank", "spoke", "done"]],
+    ["after the response ended", ["commit", "created", "spoke", "done", "blank"]],
+    ["with no response.created", ["commit", "blank", "spoke", "done"]],
+  ])("counts words answering speech that transcribed to nothing, blank %s", (_name, steps) => {
+    const work = new TranscriptWork();
+    const run: Record<string, () => void> = {
+      commit: () => work.commit("speech"), blank: () => work.blank("speech"),
+      created: () => work.created("answer"), spoke: () => work.spoke("answer"), done: () => work.done("answer"),
+    };
+    steps.forEach((step) => run[step]());
+    expect(work.unrecordedTurns).toBe(true);
+  });
+
+  it("does not count blank speech alone, a wordless reply to it, or a later unrelated answer", () => {
+    const work = new TranscriptWork();
+    work.commit("noise");
+    work.blank("noise");
+    expect(work.unrecordedTurns).toBe(false);
+    work.done("empty-reply");
+    expect(work.unrecordedTurns).toBe(false);
+    work.commit("real");
+    work.transcribed("real");
+    work.created("answer");
+    work.spoke("answer");
+    work.done("answer");
+    expect(work.unrecordedTurns).toBe(false);
+  });
+});
+
 describe("drainDescription", () => {
   it.each([
     [["s:one"], "Transcribing the last sentence"],
