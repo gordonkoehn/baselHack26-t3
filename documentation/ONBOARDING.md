@@ -23,7 +23,7 @@ Demo case: **Lumen**, see [#158](https://github.com/gordonkoehn/baselHack26-t3/i
 
 The design (#144) and the OpenTwin brand (#161) are on main.
 
-API (all under `/api/`): `GET /health`, `POST /sources/pdf`, `POST /sources/image`, `POST /guides/review`, `GET /faces`, `POST|GET /personas`, `GET|PATCH /personas/{id}`, `POST /personas/{id}/coverage`, `POST /personas/{id}/answers`, `PUT|GET|DELETE /personas/{id}/photo`, `POST /personas/{id}/face`, `POST /personas/{id}/face/refresh`, `POST /sessions`, `GET|PATCH /sessions/{id}`, `POST /sessions/{id}/token`, `POST /sessions/{id}/avatar-token`, `POST|GET /sessions/{id}/events`, `POST /sessions/{id}/debrief`, `GET /sessions/{id}/insights`. Live docs: http://localhost:8000/docs. Contract: `code/shared/schema.json`.
+API (all under `/api/`): `GET /health`, `POST /sources/pdf`, `POST /sources/image`, `POST /guides/review`, `GET /faces`, `POST|GET /personas`, `GET|PATCH|DELETE /personas/{id}`, `POST /personas/{id}/coverage`, `POST /personas/{id}/answers`, `PUT|GET|DELETE /personas/{id}/photo`, `POST /personas/{id}/face`, `POST /personas/{id}/face/refresh`, `POST /sessions`, `GET|PATCH /sessions/{id}`, `POST /sessions/{id}/token`, `POST /sessions/{id}/avatar-token`, `POST|GET /sessions/{id}/events`, `POST /sessions/{id}/debrief`, `GET /sessions/{id}/insights`. Live docs: http://localhost:8000/docs. Contract: `code/shared/schema.json`.
 
 Use case context lives in [`usecases/`](usecases/README.md). Public repo: anonymised material only.
 

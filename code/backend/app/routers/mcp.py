@@ -147,6 +147,10 @@ def _create_once(
     # A client that gives up before the persona is built and retries must not pay for a second one.
     digest = hashlib.sha256(body.model_dump_json(by_alias=True).encode()).hexdigest()
     earlier = store.claim_creation(digest)
+    if earlier and earlier != "pending" and store.get_persona(earlier) is None:
+        # The earlier persona was deleted since: this is a fresh request, not a retry.
+        store.finish_creation(digest, None)
+        earlier = store.claim_creation(digest)
     if earlier == "pending":
         raise ToolError(
             "this persona is still being built; call create_persona again with the same "

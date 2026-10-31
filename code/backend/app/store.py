@@ -132,11 +132,12 @@ class Store:
         args = [str(time.time()), persona.id, str(-PERSONA_LIST_SIZE - 1), str(TTL_SECONDS)]
         self._call("eval", INDEX_PERSONA, keys=[f"{PREFIX}:personas"], args=args)
 
-    def update_persona(self, persona: Persona) -> None:
+    def update_persona(self, persona: Persona) -> bool:
         """An edit, leaving the library and the expiry alone: a persona that fell off the list must
         not come back as newly created, or outlive the sources its interview needs. XX: a persona
-        that expired since it was read must not return without a TTL."""
-        self._call("set", f"{PREFIX}:persona:{persona.id}", _dump(persona), xx=True, keepttl=True)
+        that expired or was deleted since it was read must not return. False when it is gone."""
+        key = f"{PREFIX}:persona:{persona.id}"
+        return bool(self._call("set", key, _dump(persona), xx=True, keepttl=True))
 
     def list_personas(self) -> list[PersonaSummary]:
         """Newest first. Skips personas that expired before their index entry or that an older

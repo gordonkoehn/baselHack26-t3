@@ -435,6 +435,45 @@ def test_delete_removes_the_persona_from_the_library_with_its_data(client):
     assert client.delete("/api/personas/p_unknown").status_code == 404
 
 
+def test_delete_leaves_no_key_of_the_persona_behind(client):
+    redis = app.dependency_overrides[get_store]().redis
+    kept = client.post("/api/personas", json=REQUEST).json()
+    gone = client.post("/api/personas", json=REQUEST).json()
+    client.put(f"/api/personas/{gone['id']}/photo", content=PNG)
+    redis.set(f"ot:coverage:{gone['id']}", "{}")  # stands in for a saved coverage check
+    assert any(gone["id"] in key for key in redis.data if key != "ot:personas")
+
+    client.delete(f"/api/personas/{gone['id']}")
+
+    assert set(redis.data["ot:personas"]) == {kept["id"]}
+    assert [key for key in redis.data if gone["id"] in key] == []
+    assert (
+        f"ot:persona:{kept['id']}" in redis.data
+        and f"ot:persona:{kept['id']}:sources" in redis.data
+    )
+
+
+def test_delete_refuses_ids_that_could_reach_other_keys(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    assert client.delete(f"/api/personas/{created['id']}:sources").status_code == 404
+    assert client.get(f"/api/personas/{created['id']}").status_code == 200
+
+
+def test_a_late_save_does_not_bring_a_deleted_persona_back(client):
+    """A photo, answers or a Simli face can finish after the persona was deleted; it stays gone."""
+    store = app.dependency_overrides[get_store]()
+    created = client.post("/api/personas", json=REQUEST).json()
+    persona = store.get_persona(created["id"])
+    client.delete(f"/api/personas/{created['id']}")
+
+    with pytest.raises(personas.HTTPException) as gone:
+        personas._save_edit(store, persona.model_copy(update={"photo_url": "/x"}))
+
+    assert gone.value.status_code == 404
+    assert client.get("/api/personas").json() == []
+    assert [key for key in store.redis.data if created["id"] in key] == []
+
+
 def test_delete_needs_the_passcode(client, monkeypatch):
     created = client.post("/api/personas", json=REQUEST).json()
     monkeypatch.setenv("DEMO_PASSCODE", "right")

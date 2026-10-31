@@ -123,6 +123,11 @@ export default function Home() {
   // reset list, and the submitted sources can't change under a running request.
   const busy = loading || reading || opening;
   const personaId = result?.persona.id;
+  // For late replies: which persona is open right now, not when the request started.
+  const openId = useRef(personaId);
+  useEffect(() => {
+    openId.current = personaId;
+  }, [personaId]);
   const picked = result?.seconds === null;
 
   // Tick a visible timer while the persona is being built: the demo claims "ready in minutes".
@@ -228,12 +233,14 @@ export default function Home() {
 
   // No undo: the confirm is the safety net. Deleting the open persona goes back to the sources.
   async function remove(p: PersonaSummary) {
-    if (busy || !window.confirm(`Delete ${p.name}? Its sources, photo and score go too.`)) return;
+    const question = `Delete ${p.name}? Its sources, photo and score go too. Shared debrief links keep working.`;
+    if (busy || !window.confirm(question)) return;
     setError(null);
     try {
       await api.deletePersona(p.id);
       setRecent((list) => list.filter((r) => r.id !== p.id));
-      if (result?.persona.id === p.id) {
+      if (openId.current === p.id) {
+        openId.current = undefined;
         setResult(null);
         setTab("sources");
       }
@@ -497,6 +504,8 @@ export default function Home() {
                 setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
               }
               onAnswered={(persona, source) => {
+                // A late reply for a persona that was deleted or closed meanwhile must not reopen it.
+                if (openId.current !== persona.id) return;
                 // The answers are now source N on the backend; keep the card's citations and a later
                 // rebuild in step with that.
                 setResult({ ...result, persona, sources: [...result.sources, source] });

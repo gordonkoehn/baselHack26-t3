@@ -74,6 +74,17 @@ def test_create_persona_appears_like_an_uploaded_one(client):
     assert call(client, "get_persona", {"personaId": persona["id"]})["structuredContent"] == persona
 
 
+def test_create_after_a_delete_builds_a_fresh_persona(client):
+    first = call(client, "create_persona", REQUEST)["structuredContent"]
+    assert client.delete(f"/api/personas/{first['id']}").status_code == 204
+
+    again = call(client, "create_persona", REQUEST)
+    assert again["isError"] is False
+    second = again["structuredContent"]
+    assert second["id"] != first["id"]
+    assert [p["id"] for p in client.get("/api/personas").json()] == [second["id"]]
+
+
 def test_bad_arguments_are_tool_errors_not_crashes(client):
     result = call(client, "create_persona", {"language": "de", "sources": []})
     assert result["isError"] is True and "invalid arguments" in result["content"][0]["text"]
