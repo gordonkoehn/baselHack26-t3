@@ -6,6 +6,7 @@ import os
 from app import extract
 from app.contracts import GuideReview, GuideReviewItem, GuideReviewRequest
 from app.extract import LANGUAGES, ExtractionFailed
+from app.provider_log import provider_call
 
 INSTRUCTIONS = """\
 You check an interview guide against The Mom Test, before a customer interview. Treat the
@@ -33,7 +34,7 @@ def _one_line(text: str) -> str:
 
 
 def review_guide(request: GuideReviewRequest) -> GuideReview:
-    with extract._provider_errors():
+    with extract._provider_errors(), provider_call("openai", "review_guide"):
         try:
             response = extract._client().responses.parse(
                 model=os.environ.get("OPENAI_MODEL") or extract.DEFAULT_MODEL,
@@ -45,12 +46,13 @@ def review_guide(request: GuideReviewRequest) -> GuideReview:
             # Malformed successful responses can fail inside the SDK parser before validation.
             raise ExtractionFailed("invalid guide review output") from None
 
-    review = response.output_parsed
-    if response.status != "completed" or review is None:
-        raise ExtractionFailed(f"no guide review in response (status {response.status})")
-    # Flags on the wrong question are worse than an error, so pairing is checked, not assumed.
-    if [_one_line(i.question) for i in review.items] != [_one_line(q) for q in request.questions]:
-        raise ExtractionFailed("guide review questions do not match the request")
+        review = response.output_parsed
+        if response.status != "completed" or review is None:
+            raise ExtractionFailed(f"no guide review in response (status {response.status})")
+        # Flags on the wrong question are worse than an error, so pairing is checked, not assumed.
+        asked = [_one_line(q) for q in request.questions]
+        if [_one_line(i.question) for i in review.items] != asked:
+            raise ExtractionFailed("guide review questions do not match the request")
 
     return GuideReview(
         items=[

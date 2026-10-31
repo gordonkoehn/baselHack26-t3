@@ -10,7 +10,14 @@ from jsonschema import Draft202012Validator, ValidationError
 from pydantic import Field, create_model
 
 from app import avatar, realtime
-from app.contracts import InsightReport, Persona, Session, SessionEvent, SessionToken
+from app.contracts import (
+    GuideReview,
+    InsightReport,
+    Persona,
+    Session,
+    SessionEvent,
+    SessionToken,
+)
 from app.extract import DebriefDraft, PersonaDraft
 from app.main import app
 from app.routers.insights import get_debriefer
@@ -26,6 +33,7 @@ EXAMPLES = {
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
+    "guide-review.json": ("GuideReview", GuideReview, False),
 }
 
 

@@ -7,7 +7,7 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from app import extract, guide_review
+from app import extract, guide_review, provider_log
 from app.contracts import GuideReview, GuideReviewRequest
 from app.extract import ExtractionFailed, ProviderUnavailable
 from app.main import app
@@ -170,6 +170,65 @@ def test_missing_key_is_503(monkeypatch):
     extract._client.cache_clear()
     res = client.post("/api/guides/review", json={"questions": ["Why?"], "language": "en"})
     assert res.status_code == 503
+
+
+@pytest.fixture
+def logged(caplog):
+    """The provider log lines. The logger doesn't propagate, so caplog is attached directly."""
+    provider_log.logger.addHandler(caplog.handler)
+    yield lambda: [json.loads(record.getMessage()) for record in caplog.records]
+    provider_log.logger.removeHandler(caplog.handler)
+
+
+def test_a_review_logs_one_ok_line(logged, monkeypatch):
+    use_output(monkeypatch, REVIEW)
+    guide_review.review_guide(request())
+    [line] = logged()
+    assert (line["provider"], line["operation"]) == ("openai", "review_guide")
+    assert (line["status"], line["error"]) == ("ok", None)
+
+
+def test_a_provider_failure_logs_its_real_class_and_no_content(logged, caplog, monkeypatch):
+    secret = "SENTINEL question text"
+    error = openai.BadRequestError(
+        secret,
+        response=httpx.Response(
+            400, request=httpx.Request("POST", "https://api.openai.com/v1/responses")
+        ),
+        body=secret,
+    )
+
+    def parse(**_kwargs):
+        raise error
+
+    bad = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    monkeypatch.setattr(extract, "_client", lambda: bad)
+    with pytest.raises(ExtractionFailed):
+        guide_review.review_guide(request([secret]))
+    [line] = logged()
+    assert (line["status"], line["error"], line["http_status"]) == (
+        "error",
+        "BadRequestError",
+        400,
+    )
+    assert "SENTINEL" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "parsed,status",
+    [
+        (None, "completed"),
+        (REVIEW, "incomplete"),
+        (review_of(("Another question?", [], None)), "completed"),
+    ],
+    ids=["refusal", "incomplete", "mismatched"],
+)
+def test_unusable_output_is_logged_as_a_failed_call(logged, monkeypatch, parsed, status):
+    use_output(monkeypatch, parsed, status)
+    with pytest.raises(ExtractionFailed):
+        guide_review.review_guide(request())
+    [line] = logged()
+    assert (line["status"], line["error"]) == ("error", "ExtractionFailed")
 
 
 @pytest.mark.parametrize(
