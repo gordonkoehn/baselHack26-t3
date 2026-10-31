@@ -67,6 +67,21 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
     return insight.model_copy(update={"label": "guess", "evidence_id": None})
 
 
+def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
+    """The insight with its quote verified against one persona turn, or None to drop it.
+
+    Models sometimes cite the wrong turn or a sentence from the persona's sources. One such
+    insight must not cost the whole report: it is moved to the single persona turn that really
+    contains the quote, or dropped. Nothing is ever quoted that the persona didn't say.
+    """
+    if not insight.quote.strip():
+        return None
+    if insight.quote in turns.get(insight.turn_seq, ""):
+        return insight
+    matches = [seq for seq, text in turns.items() if insight.quote in text]
+    return insight.model_copy(update={"turn_seq": matches[0]}) if len(matches) == 1 else None
+
+
 def build_report(
     session: Session, persona: Persona, events: list[SessionEvent], draft: DebriefDraft
 ) -> InsightReport:
@@ -83,11 +98,9 @@ def build_report(
                 if insight.id in seen:
                     raise ExtractionFailed("duplicate insight ids")
                 seen.add(insight.id)
-                if not insight.quote.strip() or insight.quote not in turns.get(
-                    insight.turn_seq, ""
-                ):
-                    raise ExtractionFailed("debrief quote does not match a persona turn")
-                insights.append(_source_label(insight, persona))
+                placed = _place_quote(insight, turns)
+                if placed is not None:
+                    insights.append(_source_label(placed, persona))
             questions.append(
                 question.model_copy(
                     update={

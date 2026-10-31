@@ -89,22 +89,66 @@ def test_exact_contiguous_substring_is_allowed_without_normalization(inputs):
         "moment, ich hab doch alles ins projekt gegeben? da steht sechs und sechs.",
     ],
 )
-def test_invalid_quotes_reject_the_whole_report(inputs, quote):
+def test_invalid_quotes_drop_only_that_insight(inputs, quote):
     session, persona, events, draft = inputs
     draft.questions[0].insights[0].quote = quote
-    with pytest.raises(ExtractionFailed):
-        debrief.build_report(session, persona, events, draft)
+    report = debrief.build_report(session, persona, events, draft)
+    # The only insight of that question is gone, so nothing supports the signal anymore.
+    assert report.questions[0].insights == [] and report.questions[0].signal == "unclear"
+    assert report.questions[0].follow_ups == draft.questions[0].follow_ups
+    assert len(report.questions[1].insights) == 1
 
 
-@pytest.mark.parametrize("turn", [999, 2, 1])
-def test_missing_interviewer_and_caption_turns_cannot_supply_quotes(inputs, turn):
+@pytest.mark.parametrize("turn", [2, 1])
+def test_interviewer_and_caption_turns_cannot_supply_quotes(inputs, turn):
     session, persona, events, draft = inputs
     insight = draft.questions[0].insights[0]
     insight.turn_seq = turn
-    if turn in (1, 2):
-        insight.quote = events[turn - 1].data.get("text", events[0].data["caption"])
-    with pytest.raises(ExtractionFailed):
-        debrief.build_report(session, persona, events, draft)
+    insight.quote = events[turn - 1].data.get("text", events[0].data["caption"])
+    assert debrief.build_report(session, persona, events, draft).questions[0].insights == []
+
+
+def test_real_persona_quote_with_a_wrong_turn_is_moved_to_its_turn(inputs):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    right = insight.turn_seq
+    insight.turn_seq = 999
+    assert (
+        debrief.build_report(session, persona, events, draft).questions[0].insights[0].turn_seq
+        == right
+    )
+
+
+def test_one_bad_quote_among_many_keeps_the_good_ones(inputs):
+    # The real failure: one sentence from the persona's sources, eight correct interview quotes.
+    session, persona, events, draft = inputs
+    good = draft.questions[0].insights[0]
+    draft.questions[0].insights = [good.model_copy(update={"id": f"g{n}"}) for n in range(8)] + [
+        good.model_copy(update={"id": "bad", "quote": persona.evidence[0].quote})
+    ]
+    report = debrief.build_report(session, persona, events, draft)
+    assert [i.id for i in report.questions[0].insights] == [f"g{n}" for n in range(8)]
+    assert report.questions[0].signal == draft.questions[0].signal
+
+
+def test_all_bad_quotes_leave_every_question_unclear(inputs):
+    session, persona, events, draft = inputs
+    for question in draft.questions:
+        for insight in question.insights:
+            insight.quote = "Nobody said this."
+    report = debrief.build_report(session, persona, events, draft)
+    assert all(q.signal == "unclear" and q.insights == [] for q in report.questions)
+
+
+def test_quote_from_a_different_persona_turn_is_moved_there(inputs):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    other = next(
+        e for e in events if e.seq != insight.turn_seq and e.data.get("speaker") == "persona"
+    )
+    insight.quote = other.data["text"]
+    report = debrief.build_report(session, persona, events, draft)
+    assert report.questions[0].insights[0].turn_seq == other.seq
 
 
 @pytest.mark.parametrize("same_question", [False, True])

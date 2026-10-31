@@ -216,8 +216,11 @@ the same order, copying its text exactly. Do not invent default questions.
 For each question, use supports, contradicts or unclear and suggest followUps to ask real
 customers. Without usable transcript support, use unclear with an empty insights list.
 Every insight needs a globally unique id and a nonblank VERBATIM contiguous quote from the
-PERSONA utterance at turnSeq. Never quote the interviewer, captions or other events. Do not
-normalize whitespace, paraphrase, translate, splice quotes or add ellipses.
+PERSONA utterance at turnSeq. Quote ONLY what the persona said in this interview (events with
+type utterance and speaker persona). The persona object (summary, facts, evidence quotes) is
+background, never quotable as an interview statement. Never quote the interviewer, captions or
+other events. Do not normalize whitespace, paraphrase, translate, splice quotes or add ellipses.
+Insights whose quote is not found in that turn are discarded.
 Synthetic utterances are not real-customer validation. Default label to guess and evidenceId
 to null. Only use grounded when theme exactly equals a grounded jobs/pains/objections fact's
 text, evidenceId equals that fact's evidenceId, and that stored Evidence's nonblank quote is

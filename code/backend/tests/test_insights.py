@@ -199,19 +199,25 @@ def test_finalized_but_empty_persona_transcript_is_explicit_422(context, change)
     assert_not_generated(context)
 
 
-@pytest.mark.parametrize("change", ["invented", "missing_turn", "interviewer", "duplicate"])
-def test_invalid_provider_quotes_or_ids_are_sanitized_502_without_saving(context, change):
+@pytest.mark.parametrize("change", ["invented", "interviewer"])
+def test_invalid_provider_quotes_are_dropped_not_fatal(context, change):
     draft = context.provider.return_value
     insight = draft.questions[0].insights[0]
     if change == "invented":
         insight.quote = "private invented quote"
-    elif change == "missing_turn":
-        insight.turn_seq = 100
-    elif change == "interviewer":
+    else:
         insight.turn_seq = 2
         insight.quote = load("session-events.json")[1]["data"]["text"]
-    else:
-        draft.questions[1].insights[0].id = insight.id
+    response = context.client.post(DEBRIEF)
+    assert response.status_code == 200
+    first = response.json()["questions"][0]
+    assert first["insights"] == [] and first["signal"] == "unclear"
+    assert "private invented quote" not in response.text
+
+
+def test_duplicate_insight_ids_are_sanitized_502_without_saving(context):
+    draft = context.provider.return_value
+    draft.questions[1].insights[0].id = draft.questions[0].insights[0].id
     response = context.client.post(DEBRIEF)
     assert response.status_code == 502 and response.json() == {"detail": "debrief output unusable"}
     context.save.assert_not_called()
