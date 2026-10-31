@@ -1,24 +1,26 @@
 name: discord-deploy
-on: deployment_status
+on: status
 
 jobs:
   notify:
-    # Production only: previews would flood the channel.
+    # Vercel's commit statuses on main only: previews would flood the channel.
     if: >-
-      contains(github.event.deployment.environment, 'Production') &&
-      contains(fromJSON('["success", "failure", "error"]'), github.event.deployment_status.state)
+      startsWith(github.event.context, 'Vercel') &&
+      contains(toJSON(github.event.branches.*.name), '"main"') &&
+      contains(fromJSON('["success", "failure", "error"]'), github.event.state)
     runs-on: ubuntu-latest
     steps:
       - name: Post to Discord
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          STATE: ${{ github.event.deployment_status.state }}
-          PROJECT: ${{ github.event.deployment.environment }}
-          URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-          SHA: ${{ github.event.deployment.sha }}
+          STATE: ${{ github.event.state }}
+          PROJECT: ${{ github.event.context }}
+          DETAIL: ${{ github.event.description }}
+          URL: ${{ github.event.target_url }}
+          SHA: ${{ github.event.sha }}
         run: |
           if [ -z "$WEBHOOK" ]; then echo "DISCORD_WEBHOOK not set, skipping"; exit 0; fi
           if [ "$STATE" = "success" ]; then icon="✅ Deployed"; else icon="❌ Deploy failed"; fi
-          jq -n --arg c "$icon: $PROJECT (${SHA:0:7})
+          jq -n --arg c "$icon: $PROJECT (${SHA:0:7}) $DETAIL
           <$URL>" '{content: $c, allowed_mentions: {parse: []}}' \
             | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
