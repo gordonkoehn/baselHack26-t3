@@ -215,6 +215,8 @@ class InsightQuestion(Model):
 class InsightReport(Model):
     session_id: str
     generated_at: str
+    # From the session.ended marker, never from the model. Reports saved before this field read False.
+    transcript_gaps: bool = False
     questions: list[InsightQuestion]
 
 
@@ -254,12 +256,36 @@ class CoverageCriterion(Model):
     custom: bool
 
 
+CoverageCategoryName = Literal["persona", "challenge", "solution"]
+CoverageLevel = Literal["red", "yellow", "green"]
+
+
+class CoverageCategory(Model):
+    category: CoverageCategoryName
+    level: CoverageLevel
+    score: Unit
+    covered: int = Field(ge=0)
+    total: int = Field(ge=1)
+    reason: str
+    recommendation: str | None
+
+
+class SourceDiversity(Model):
+    count: int = Field(ge=0)
+    kinds: list[SourceKind]
+    minimum: int = Field(ge=1)
+    met: bool
+
+
 class CoverageReport(Model):
     persona_id: str
     persona_version: int = Field(ge=1)
     test_goal: str
     score: Unit
     recommendation: Literal["ready", "needs_input"]
+    overall: Literal["good_enough", "add_more"]
+    categories: list[CoverageCategory]
+    source_diversity: SourceDiversity
     criteria: list[CoverageCriterion]
     questions: list[str] = Field(max_length=5)
 

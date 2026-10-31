@@ -1,11 +1,18 @@
 """Finalization and quote validation for synthetic interview debriefs."""
 
+import re
 from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
 from app.contracts import Insight, InsightReport, Persona, Session, SessionEvent
 from app.extract import DebriefDraft, ExtractionFailed
+
+# What the browser saves when an answer is cut off (InterviewRoom.tsx). The persona didn't say it.
+INTERRUPTED = "(interrupted)"
+# Characters that join what comes before and after them into one word or number: "non-binding",
+# "1,000", "1'000", "1.50", "wouldn't", including the accents speech and typing use as apostrophes.
+JOINS = r"['’ʼ´`.,\-‐‑]"
 
 
 class TranscriptIncomplete(Exception):
@@ -35,7 +42,7 @@ def validate_inputs(session: Session, events: list[SessionEvent]) -> dict[int, s
         speaker, text = event.data.get("speaker"), event.data.get("text")
         if speaker not in ("persona", "interviewer") or not isinstance(text, str):
             raise TranscriptIncomplete
-        if speaker == "persona" and text.strip():
+        if speaker == "persona" and text.strip() and text != INTERRUPTED:
             turns[event.seq] = text
 
     if not session.interview_guide or any(not q.strip() for q in session.interview_guide):
@@ -82,6 +89,17 @@ def _source_label(insight: Insight, persona: Persona) -> Insight:
     return insight.model_copy(update={"label": "guess", "evidence_id": None})
 
 
+def _said(quote: str, text: str) -> bool:
+    """Whether text holds the quote as whole words: "I would" of "I wouldn't" reverses it.
+
+    This checks words, not meaning: "I would" of "I would not pay" is still something they said.
+    Limits: a quote can still start inside a space-grouped number ("000 francs" of "1 000 francs"),
+    or stop at a joiner not in JOINS, such as a slash, a long dash or a prime.
+    """
+    pattern = rf"(?<!\w)(?<!\w{JOINS}){re.escape(quote.strip())}(?!\w|{JOINS}\w|(?<=\d)\s\d)"
+    return re.search(pattern, text) is not None
+
+
 def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
     """The insight with its quote verified against one persona turn, or None to drop it.
 
@@ -91,10 +109,32 @@ def _place_quote(insight: Insight, turns: dict[int, str]) -> Insight | None:
     """
     if not insight.quote.strip():
         return None
-    if insight.quote in turns.get(insight.turn_seq, ""):
+    if _said(insight.quote, turns.get(insight.turn_seq, "")):
         return insight
-    matches = [seq for seq, text in turns.items() if insight.quote in text]
+    matches = [seq for seq, text in turns.items() if _said(insight.quote, text)]
     return insight.model_copy(update={"turn_seq": matches[0]}) if len(matches) == 1 else None
+
+
+def _comparable(question: str) -> str:
+    return re.sub(r"[\W_]", "", question).casefold()
+
+
+def _check_positions(asked: list[str], guide: list[str]) -> None:
+    """Answers belong to the guide question at their position, whatever the model called it.
+
+    That needs one answer per question in guide order, so a missing or extra answer fails. So does
+    a blank or punctuation-only question, and one that is a different guide question apart from
+    case, spacing and punctuation, since its answers would land under the wrong one.
+
+    Limit: a question both reordered and reworded can't be detected, so its answers show under the
+    wrong guide question. Only the prompt's instruction to keep the guide's order prevents that.
+    """
+    own = [_comparable(g) for g in guide]
+    if len(asked) != len(guide) or any(
+        key != position and (not key or key in own)
+        for key, position in zip(map(_comparable, asked), own, strict=True)
+    ):
+        raise ExtractionFailed("debrief questions do not match guide")
 
 
 def build_report(
@@ -103,11 +143,10 @@ def build_report(
     turns = validate_inputs(session, events)
     try:
         draft = DebriefDraft.model_validate(draft.model_dump(by_alias=True), strict=True)
-        if [q.question for q in draft.questions] != session.interview_guide:
-            raise ExtractionFailed("debrief questions do not match guide")
+        _check_positions([q.question for q in draft.questions], session.interview_guide)
         seen: set[str] = set()
         questions = []
-        for question in draft.questions:
+        for question, guide_text in zip(draft.questions, session.interview_guide, strict=True):
             insights = []
             for insight in question.insights:
                 if insight.id in seen:
@@ -119,6 +158,7 @@ def build_report(
             questions.append(
                 question.model_copy(
                     update={
+                        "question": guide_text,
                         "insights": insights,
                         "signal": question.signal if insights else "unclear",
                     }
@@ -129,6 +169,10 @@ def build_report(
             {
                 "sessionId": session.id,
                 "generatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "transcriptGaps": any(
+                    e.type == "session.ended" and e.data.get("transcriptGaps") is True
+                    for e in events
+                ),
                 "questions": questions,
             },
             strict=True,

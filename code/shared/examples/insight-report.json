@@ -1,6 +1,7 @@
 {
   "sessionId": "s_1",
   "generatedAt": "2026-10-31T14:31:30Z",
+  "transcriptGaps": false,
   "questions": [
     {
       "question": "Matching wirkt: does the Bäckerei Muff matching raise the share put into the project?",

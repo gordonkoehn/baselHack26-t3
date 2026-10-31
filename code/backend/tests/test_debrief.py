@@ -51,7 +51,12 @@ def test_preserves_guide_quotes_followups_and_assigns_server_metadata(inputs):
     assert report.questions[2].signal == "unclear" and report.questions[2].insights == []
     assert [q.follow_ups for q in report.questions] == [q.follow_ups for q in draft.questions]
     assert report.questions[0].insights[0].quote == draft.questions[0].insights[0].quote
-    assert set(report.model_dump(by_alias=True)) == {"sessionId", "generatedAt", "questions"}
+    assert set(report.model_dump(by_alias=True)) == {
+        "sessionId",
+        "generatedAt",
+        "transcriptGaps",
+        "questions",
+    }
 
 
 @pytest.mark.parametrize("signal", ["supports", "contradicts", "unclear"])
@@ -182,8 +187,8 @@ def test_insight_ids_must_be_unique_across_the_report(inputs, same_question):
         debrief.build_report(session, persona, events, draft)
 
 
-@pytest.mark.parametrize("change", ["missing", "extra", "reordered", "reworded"])
-def test_questions_must_match_the_entire_saved_guide(inputs, change):
+@pytest.mark.parametrize("change", ["missing", "extra", "reordered", "reordered_and_retyped"])
+def test_questions_that_cannot_be_matched_by_position_still_fail(inputs, change):
     session, persona, events, draft = inputs
     if change == "missing":
         draft.questions.pop()
@@ -192,9 +197,233 @@ def test_questions_must_match_the_entire_saved_guide(inputs, change):
     elif change == "reordered":
         draft.questions.reverse()
     else:
-        draft.questions[0].question += " altered"
+        draft.questions.reverse()
+        draft.questions[0].question = f"  {draft.questions[0].question.upper().rstrip('?')} "
     with pytest.raises(ExtractionFailed, match="questions"):
         debrief.build_report(session, persona, events, draft)
+
+
+@pytest.mark.parametrize(
+    "disguise",
+    [
+        lambda q: q.upper(),
+        lambda q: f"  {q} ".replace(" ", "  "),
+        lambda q: q.rstrip("?!.") + " -",
+        lambda q: q.upper().replace(":", " -").replace(" ", "").rstrip("?"),
+    ],
+)
+def test_a_swap_is_caught_through_case_spacing_and_punctuation(inputs, disguise):
+    session, persona, events, draft = inputs
+    draft.questions[0].question = disguise(session.interview_guide[1])
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "?", " ... ", "¿?", "_"])
+def test_a_blank_or_punctuation_only_question_fails(inputs, blank):
+    session, persona, events, draft = inputs
+    draft.questions[1].question = blank
+    with pytest.raises(ExtractionFailed, match="questions"):
+        debrief.build_report(session, persona, events, draft)
+
+
+GUIDE = [
+    "Erleben Nutzer:innen das Teilen ihrer Kilo-Shares fürs Quartier als Mehrwert oder als Verlust?",
+    "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
+    "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
+]
+
+
+def test_known_limit_a_question_both_reordered_and_reworded_is_not_detected(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = GUIDE
+    draft.questions[0].question = "Erhöht das Matching den Projektanteil?"
+    draft.questions[1].question = "Ist Teilen ein Mehrwert oder ein Verlust?"
+    draft.questions[2].question = GUIDE[2]
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == GUIDE
+
+
+def test_the_prompt_tells_the_model_to_keep_the_guides_order():
+    assert "the same order" in " ".join(extract.DEBRIEF_INSTRUCTIONS.split())
+
+
+@pytest.mark.parametrize(
+    "guide, asked",
+    [
+        (
+            GUIDE,
+            [
+                "Ist Teilen ein Mehrwert oder ein Verlust?",
+                "Erhöht das Matching den Projektanteil?",
+                "Vertrauen in den Beitrag?",
+            ],
+        ),
+        (
+            GUIDE,
+            [
+                "Sharing: benefit or loss?",
+                "Does matching raise the project share?",
+                "Do they trust the money arrives?",
+            ],
+        ),
+        (
+            [
+                "Was kostet Sie das Problem heute?",
+                "Wann ist es zuletzt passiert?",
+                "Wie haben Sie es gelöst?",
+            ],
+            [
+                "What does the problem cost you today?",
+                "When did it last happen?",
+                "How did you solve it?",
+            ],
+        ),
+    ],
+)
+def test_shortening_or_translating_in_place_passes(inputs, guide, asked):
+    session, persona, events, draft = inputs
+    session.interview_guide = guide
+    for question, text in zip(draft.questions, asked, strict=True):
+        question.question = text
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == guide
+
+
+def test_rewording_in_place_passes_even_with_similar_guide_questions(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = [
+        "Would you pay for the basic plan?",
+        "Would you pay for the premium plan?",
+        "Would you recommend the basic plan?",
+    ]
+    draft.questions[0].question = "1. Would you really pay for the basic plan at all?"
+    draft.questions[1].question = "Would you pay for the premium plan (monthly)?"
+    draft.questions[2].question = "Würden Sie den Basisplan weiterempfehlen?"
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+def test_an_honest_rewording_of_the_lumen_guide_passes(inputs):
+    session, persona, events, draft = inputs
+    guide = Path(__file__).parents[3] / "documentation/usecases/lumen-ipp/interview"
+    session.interview_guide = (guide / "guide-short-miriam-kessler.txt").read_text().splitlines()
+    draft.questions.append(draft.questions[2].model_copy())
+    asked = [
+        "How are you today?",
+        "How do you find the prototype email?",
+        "What would you improve?",
+        "What exactly would you change on the prototype?",
+    ]
+    for question, text in zip(draft.questions, asked, strict=True):
+        question.question = text
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+def test_a_repeated_guide_question_copied_at_either_position_passes(inputs):
+    session, persona, events, draft = inputs
+    session.interview_guide = ["Why?", "Why?", "How much?"]
+    for question, text in zip(draft.questions, ["why", "WHY?", "How much?"], strict=True):
+        question.question = text
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+
+
+@pytest.mark.parametrize(
+    "reworded",
+    [
+        lambda q: q + " altered",
+        lambda q: q.rstrip("?") + ".",
+        lambda q: "Completely different words",
+    ],
+)
+def test_reworded_question_matches_by_position_and_keeps_the_guides_text(inputs, reworded):
+    session, persona, events, draft = inputs
+    answer = draft.questions[0]
+    draft.questions[0].question = reworded(answer.question)
+    report = debrief.build_report(session, persona, events, draft)
+    assert [q.question for q in report.questions] == session.interview_guide
+    # The answer stays with its own question: same signal, same quotes, same follow-ups.
+    assert report.questions[0].signal == answer.signal
+    assert report.questions[0].insights[0].quote == answer.insights[0].quote
+    assert report.questions[0].follow_ups == answer.follow_ups
+
+
+def test_reworded_question_does_not_loosen_quote_verification(inputs):
+    session, persona, events, draft = inputs
+    draft.questions[0].question += " altered"
+    draft.questions[0].insights[0].quote = "Nobody said this."
+    report = debrief.build_report(session, persona, events, draft)
+    assert report.questions[0].insights == [] and report.questions[0].signal == "unclear"
+
+
+@pytest.mark.parametrize(
+    "said, quote, kept",
+    [
+        ("I wouldn't pay for this.", "I would", False),
+        ("I wouldn’t pay for this.", "I would", False),
+        ("I can't pay for this.", "I can", False),
+        ("Hard to say.", "e", False),
+        ("Unfair, I think.", "fair", False),
+        ("I wouldn´t buy it.", "I wouldn", False),
+        ("I'd pay 1,000 francs.", "I'd pay 1", False),
+        ("I'd pay 1'000 Franken.", "I'd pay 1", False),
+        ("I'd pay 1.50 at most.", "I'd pay 1", False),
+        ("I'd pay 1,000 francs.", "000 francs", False),
+        ("I'd pay 1 000 francs.", "I'd pay 1", False),
+        ("I'd pay 1\u00a0000 francs.", "I'd pay 1", False),
+        ("I'd pay 1\u202f000 francs.", "I'd pay 1", False),
+        ("I'd pay 1 000 francs.", "I'd pay 1 000", True),
+        ("I'd pay 10 francs.", "I'd pay 10", True),
+        ("This is non-binding for me.", "binding for me", False),
+        ("I'd pay 1,000 francs.", "I'd pay 1,000", True),
+        ("This is non-binding for me.", "non-binding", True),
+        ("Ja, sicher. Aber nicht heute.", "Ja, sicher.", True),
+        ("Ja, sicher. Aber nicht heute.", "Aber nicht heute", True),
+        ("I wouldn't pay for this.", "I wouldn't pay", True),
+        ("I wouldn't pay for this.", "pay for this.", True),
+        ("Für die Bäckerei, ja.", "Bäckerei", True),
+        ("He said it's 'the best' deal.", "the best", True),
+    ],
+)
+def test_a_quote_must_be_whole_words_of_what_the_persona_said(inputs, said, quote, kept):
+    session, persona, events, draft = inputs
+    insight = draft.questions[0].insights[0]
+    next(e for e in events if e.seq == insight.turn_seq).data["text"] = said
+    insight.quote = quote
+    quotes = [
+        i.quote for i in debrief.build_report(session, persona, events, draft).questions[0].insights
+    ]
+    assert quotes == ([quote] if kept else [])
+
+
+@pytest.mark.parametrize("gaps", [True, False, None])
+def test_report_gap_flag_comes_only_from_the_end_marker(inputs, gaps):
+    session, persona, events, draft = inputs
+    events[-1].data.pop("transcriptGaps", None)
+    if gaps is not None:
+        events[-1].data["transcriptGaps"] = gaps
+    assert debrief.build_report(session, persona, events, draft).transcript_gaps is (gaps is True)
+
+
+def test_quotes_stay_verified_on_a_transcript_with_gaps(inputs):
+    session, persona, events, draft = inputs
+    events[-1].data["transcriptGaps"] = True
+    draft.questions[0].insights[0].quote = "Nobody said this."
+    good = draft.questions[1].insights[0]
+    report = debrief.build_report(session, persona, events, draft)
+    assert report.transcript_gaps is True
+    assert report.questions[0].insights == []
+    assert report.questions[1].insights[0].quote == good.quote
+
+
+@pytest.mark.parametrize("quote", ["(interrupted)", "interrupted"])
+def test_the_interrupted_placeholder_is_not_something_the_persona_said(inputs, quote):
+    session, persona, events, draft = inputs
+    events[5].data["text"] = "(interrupted)"
+    draft.questions[0].insights[0].quote = quote
+    assert debrief.build_report(session, persona, events, draft).questions[0].insights == []
 
 
 def prepare_grounded(inputs):
