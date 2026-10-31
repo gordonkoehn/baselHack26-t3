@@ -265,8 +265,8 @@ export default function Home() {
           </span>
         </h1>
         <p className="mt-8 max-w-2xl text-lg text-muted">
-          Turn real interview material into an AI test user, talk to it live, and see which findings
-          rest on a quote from your sources.
+          Turn real interview material into an AI test user, talk to it live, and see which of its
+          facts trace to a quote in your sources.
         </p>
         <p className="mt-6 flex items-center gap-3 font-mono text-sm text-muted">
           <span className="evidence-bar" data-grounded="true" aria-hidden /> on record

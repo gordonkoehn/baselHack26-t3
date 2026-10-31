@@ -81,7 +81,8 @@ describe("DebriefView", () => {
 
     const banner = screen.getByTestId("sample-label").textContent;
     expect(banner).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
-    expect(banner).toContain("so “grounded” proves nothing here.");
+    expect(banner).toContain("In a sample, “grounded” proves nothing: the script can repeat phrases from a persona's sources, so a quote can contain a source passage without anyone having said it.");
+    expect(banner).not.toMatch(/prefilled|if this persona/i);
   });
 
   it("states that the persona is an AI and the quotes are hypotheses", async () => {

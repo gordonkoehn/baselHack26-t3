@@ -119,6 +119,7 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const debrief = page.getByTestId("debrief");
   await expect(debrief.getByTestId("sample-label")).toContainText(sampleLabel);
   await expect(debrief.getByTestId("sample-label")).toContainText(`${personaName} did not say these lines`);
+  await expect(debrief.getByTestId("sample-label")).toContainText("In a sample, “grounded” proves nothing");
   await expect(debrief).toContainText("Sample script · turn 4");
   await expect(debrief).toContainText("not matched to a source");
   await expect(debrief).not.toContainText("guess");
@@ -181,6 +182,7 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
   const markdown = await readFile(await (await downloadStarted).path(), "utf8");
   expect(markdown).toContain("SAMPLE INTERVIEW");
   expect(markdown).toContain("Nobody was interviewed.");
+  expect(markdown).toContain("In a sample, “grounded” proves nothing");
   expect(markdown).toContain("Neither label is validated customer evidence.");
   expect(markdown).toContain("Sample script turn 6\n");
   expect(markdown).toContain("**[not matched to a source]**");

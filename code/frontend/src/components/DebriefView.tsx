@@ -5,7 +5,7 @@ import { ApiError, api } from "@/lib/api";
 import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { InsightReport } from "@/lib/contracts";
 import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
-import { GROUNDED_DETAIL, LABEL_LEGEND, NOT_MATCHED, TRANSCRIPT_GAPS, formatReportMarkdown, labelText, reportMarkdownFilename } from "@/lib/reportMarkdown";
+import { GROUNDED_DETAIL, LABEL_LEGEND, NOT_MATCHED, SAMPLE_GROUNDED, TRANSCRIPT_GAPS, formatReportMarkdown, labelText, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
   supports: { text: "supports", className: "bg-accent-soft text-accent" },
@@ -199,8 +199,7 @@ export function DebriefView({
           {sample && (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
-              say these lines. {LABEL_LEGEND} If this persona uses the prefilled example sources, they contain the same
-              script, so &ldquo;grounded&rdquo; proves nothing here.
+              say these lines. {LABEL_LEGEND} {SAMPLE_GROUNDED}
             </p>
           )}
           <DebriefSummaryPanel report={report} />

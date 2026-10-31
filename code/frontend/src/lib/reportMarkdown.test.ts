@@ -97,7 +97,9 @@ describe("formatReportMarkdown", () => {
 
     expect(real).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
     expect(sample).toContain("“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “not matched to a source” means the code did not find that match, not that the sources disagree.");
-    expect(sample).toContain("so “grounded” proves nothing here.");
+    expect(sample).toContain("In a sample, “grounded” proves nothing: the script can repeat phrases from a persona's sources, so a quote can contain a source passage without anyone having said it.");
+    expect(sample).not.toMatch(/prefilled|if the persona/i);
+    expect(real).not.toContain("proves nothing");
     expect(real).not.toMatch(/guess/i);
     expect(sample).not.toMatch(/guess/i);
   });

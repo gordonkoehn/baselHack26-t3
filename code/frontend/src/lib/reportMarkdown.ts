@@ -8,6 +8,9 @@ export const NOT_MATCHED = "not matched to a source";
 export const GROUNDED_DETAIL = "repeats a persona fact, and the quote contains its source passage";
 export const LABEL_LEGEND = `“grounded” means the statement repeats a persona fact word for word and the quote contains the source passage that fact cites; you still judge whether that passage supports it. “${NOT_MATCHED}” means the code did not find that match, not that the sources disagree.`;
 
+// "Use sample interview" works on any persona, so this holds whichever sources it has.
+export const SAMPLE_GROUNDED = "In a sample, “grounded” proves nothing: the script can repeat phrases from a persona's sources, so a quote can contain a source passage without anyone having said it.";
+
 export function labelText(label: Label): string {
   return label === "grounded" ? "grounded" : NOT_MATCHED;
 }
@@ -47,7 +50,7 @@ export function formatReportMarkdown(report: InsightReport, personaName: string,
     "Simulated AI persona: hypotheses, not customer evidence.",
     "",
     sample
-      ? `Quotes are from the sample script, not from an interview. ${LABEL_LEGEND} If the persona uses the prefilled example sources, they contain the same script, so “grounded” proves nothing here. Neither label is validated customer evidence.`
+      ? `Quotes are from the sample script, not from an interview. ${LABEL_LEGEND} ${SAMPLE_GROUNDED} Neither label is validated customer evidence.`
       : `Quotes are from the simulated interview. ${LABEL_LEGEND} Neither is validated customer evidence.`,
   ];
 
