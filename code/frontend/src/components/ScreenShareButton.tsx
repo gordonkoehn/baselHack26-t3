@@ -22,6 +22,8 @@ export function ScreenShareButton({
   const [note, setNote] = useState<string | null>(null);
   const current = useRef<MediaStream | null>(null);
   const mounted = useRef(true);
+  // One browser picker at a time; a second click while it is open does nothing.
+  const picking = useRef(false);
 
   // Stop sharing when the interview ends or the card goes away.
   useEffect(() => {
@@ -34,6 +36,8 @@ export function ScreenShareButton({
   }, []);
 
   async function share() {
+    if (picking.current) return;
+    picking.current = true;
     setNote(null);
     try {
       const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
@@ -55,6 +59,8 @@ export function ScreenShareButton({
       setStream(s);
     } catch {
       if (mounted.current) setNote("Screen sharing was cancelled or blocked.");
+    } finally {
+      picking.current = false;
     }
   }
 
