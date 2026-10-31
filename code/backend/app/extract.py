@@ -57,7 +57,13 @@ Evidence rules (they are checked by code, violations reject the whole persona):
   no translation, no ellipsis. Keep quotes short (one or two sentences).
 - evidence.kind is the kind of the source the quote comes from; evidence.sourceRef is "source:N".
 - Evidence ids are unique: e1, e2, ...
+- Only quote what end users said or did: interview answers, observed behaviour, research
+  findings about users. NEVER quote interviewer questions, interview-guide instructions, task
+  descriptions, prototype descriptions or the team's assumptions/hypotheses as evidence: they
+  describe what the team wants to test, not the user. In a transcript, quote the participant's
+  lines, not the interviewer's.
 - A fact is "grounded" only if a quoted passage directly supports it; then evidenceId is that id.
+- If the sources contain no user statements (only a guide or hypotheses), every fact is a guess.
 - Everything else (plausible but not stated) is "guess" with evidenceId null. Prefer honest
   guesses over stretching a quote. Synthetic details are always guesses.
 

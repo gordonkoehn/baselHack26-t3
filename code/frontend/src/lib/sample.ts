@@ -55,3 +55,27 @@ A recycling pickup service (Papier, PET, Alu im Sammelsack) pays users in **Kilo
 - **Insights (#16):** one \`InsightReport\` question per critical assumption.
 - **Sycophancy:** the twin must be able to say "feels like giving something up" or "sounds like advertising" (objections in the persona).
 `;
+
+// Synthetic interview written for the demo (no real person). Answers are the participant's words,
+// so they are what a persona may be grounded in; the interviewer's lines are not evidence.
+export const SAMPLE_TRANSCRIPT = `SYNTHETIC INTERVIEW, written for the demo, not a real person.
+Participant: P1, 41, Luzern-Littau, HR specialist 80 %, partner and two kids (8 and 11).
+Interviewer: I
+
+I: Wie entsorgt ihr heute Papier, PET und Alu?
+P1: Wir haben seit einem Jahr das Abo mit der Abholung. Vorher bin ich jeden zweiten Samstag mit dem Auto zur Sammelstelle, das war mühsam mit den Kindern.
+I: Was gefällt dir am Abo?
+P1: Dass ich nicht mehr daran denken muss. Der Sack steht am Dienstag vor der Tür und ist weg.
+I: Nutzt du Punkte- oder Treueprogramme?
+P1: Supercard und Cumulus, klar. Aber ehrlich gesagt löse ich die Punkte fast nie ein. Es ist so wenig, dass ich es vergesse.
+I: Jetzt bekommst du Kilo-Shares für deinen Sack. Was machst du damit?
+P1: Wenn es wieder so ein paar Rappen sind, ist es mir eigentlich egal. Dann gebe ich es lieber weiter, bevor es verfällt.
+I: Und wenn du einen Teil ans Quartier-Projekt gibst?
+P1: Ein Spielplatz in Littau, das finde ich gut, da sind meine Kinder auch. Aber ich will sehen, dass das Geld wirklich dort ankommt. Sonst ist es für mich nur Werbung.
+I: Die Bäckerei Muff verdoppelt deinen Beitrag. Was denkst du?
+P1: Hm. Klingt zuerst nett, aber auch ein bisschen nach Marketing. Was hat die Bäckerei davon? Wenn das transparent ist, okay.
+I: Würdest du dich im Projekt engagieren, zum Beispiel beim Pflanzen?
+P1: Mit dem Job und den Kindern habe ich kaum Zeit. Mitmachen ja, aber per Klick, nicht an einem Samstagmorgen.
+I: Was müsste die App zeigen, damit du dabeibleibst?
+P1: Einen Fortschrittsbalken, wie weit das Projekt ist. Und am Ende ein Foto vom fertigen Spielplatz. Dann wäre ich schon ein bisschen stolz.
+`;

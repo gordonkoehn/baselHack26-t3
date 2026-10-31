@@ -108,16 +108,19 @@ def test_quote_match_ignores_whitespace(client):
     assert len(grounded_texts(body)) == 2
 
 
-def test_grounded_fact_needs_existing_evidence(client):
-    jobs = [{"text": "x", "label": "grounded", "evidenceId": "e404"}]
+@pytest.mark.parametrize("evidence_id", ["e404", None])
+def test_grounded_fact_without_evidence_becomes_guess(client, evidence_id):
+    jobs = [{"text": "x", "label": "grounded", "evidenceId": evidence_id}]
     use_extractor(lambda _req: draft(jobs=jobs))
-    assert client.post("/api/personas", json=REQUEST).status_code == 502
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert body["jobs"] == [{"text": "x", "label": "guess", "evidenceId": None}]
 
 
-def test_guess_must_not_cite_evidence(client):
+def test_guess_never_carries_evidence(client):
     pains = [{"text": "x", "label": "guess", "evidenceId": "e1"}]
     use_extractor(lambda _req: draft(pains=pains))
-    assert client.post("/api/personas", json=REQUEST).status_code == 502
+    body = client.post("/api/personas", json=REQUEST).json()
+    assert body["pains"] == [{"text": "x", "label": "guess", "evidenceId": None}]
 
 
 def test_duplicate_evidence_ids_rejected(client):

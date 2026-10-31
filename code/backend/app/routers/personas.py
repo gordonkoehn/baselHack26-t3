@@ -29,18 +29,14 @@ def _norm(text: str) -> str:
 def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
     """Keep only evidence backed by the pasted sources; facts citing dropped evidence become guesses.
 
-    Models sometimes paraphrase a quote. Downgrading keeps the persona usable without ever
-    showing an unverified fact as grounded. Structural mistakes still reject the draft.
+    Models sometimes paraphrase a quote or mark a fact grounded without citing anything.
+    Downgrading keeps the persona usable without ever showing an unverified fact as grounded.
+    Only ambiguous evidence ids still reject the draft.
     """
     sources = [_norm(s.text) for s in request.sources]
     ids = [e.id for e in draft.evidence]
     if len(ids) != len(set(ids)):
         raise ExtractionFailed("duplicate evidence ids")
-    for fact in draft.jobs + draft.pains + draft.objections:
-        if fact.label == "grounded" and fact.evidence_id not in ids:
-            raise ExtractionFailed("grounded fact without existing evidence")
-        if fact.label == "guess" and fact.evidence_id is not None:
-            raise ExtractionFailed("guess must not cite evidence")
 
     def attribute(e: Evidence) -> Evidence | None:
         """Bind evidence to the first source that really contains its quote; drop it otherwise.
@@ -61,9 +57,10 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
     kept_ids = {e.id for e in kept}
 
     def relabel(facts: list[Fact]) -> list[Fact]:
+        # Grounded only with kept evidence; everything else is a guess without an evidenceId.
         return [
             f
-            if f.evidence_id is None or f.evidence_id in kept_ids
+            if f.label == "grounded" and f.evidence_id in kept_ids
             else f.model_copy(update={"label": "guess", "evidence_id": None})
             for f in facts
         ]
