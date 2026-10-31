@@ -148,3 +148,22 @@ def test_store_errors_hide_details():
     with pytest.raises(StoreUnavailable) as err:
         Store(BrokenRedis()).get_persona("x")
     assert "secret" not in str(err.value) and "token" not in str(err.value)
+
+
+def test_conflict_after_first_insert_still_sets_ttl(redis):
+    store = Store(redis)
+    a = events()[0]
+    b = a.model_copy(update={"data": {"text": "other"}})
+    with pytest.raises(EventConflict):
+        store.append_events(a.session_id, [a, b])
+    assert redis.ttl[f"ot:session:{a.session_id}:events"] == TTL_SECONDS
+
+
+def test_identical_retry_repairs_missing_ttl(redis):
+    store = Store(redis)
+    event = events()[0]
+    store.append_events(event.session_id, [event])
+    key = f"ot:session:{event.session_id}:events"
+    del redis.ttl[key]  # as if EXPIRE failed after the write
+    assert store.append_events(event.session_id, [event]) == 0
+    assert redis.ttl[key] == TTL_SECONDS
