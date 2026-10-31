@@ -123,107 +123,109 @@ export function DebriefView({
     }
   }
 
-  if (!report) {
-    return (
-      <div className="mt-4">
-        <button
-          type="button"
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
-          onClick={create}
-          disabled={loading}
-        >
-          {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
-        </button>
-        {error && (
-          <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-            {error}
-          </p>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
-      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
-      <p className="mt-1 text-xs leading-relaxed text-muted">
-        Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-        findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+    <>
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="debrief-generation-status">
+        {loading ? "Writing debrief…" : error ? "Debrief generation failed." : report ? "Debrief ready." : "Preparing debrief…"}
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={copyMarkdown}
-          disabled={copying}
-          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line disabled:opacity-50"
-        >
-          {copying ? "Copying…" : "Copy as Markdown"}
-        </button>
-        <button
-          type="button"
-          onClick={downloadMarkdown}
-          className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
-        >
-          Download .md
-        </button>
-        {!savedReport && (
+      {!report ? (
+        <div className="mt-4">
           <button
             type="button"
-            onClick={copyLink}
-            className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50"
+            onClick={create}
+            disabled={loading}
           >
-            Copy link
+            {loading ? "Writing debrief…" : error ? "Try again" : "Create debrief"}
           </button>
-        )}
-      </div>
-      <p role="status" className="mt-2 text-sm text-muted">
-        {exportStatus && !exportStatus.error ? exportStatus.text : ""}
-      </p>
-      {exportStatus?.error && (
-        <p role="alert" className="mt-2 text-sm wrap-anywhere text-red-800 dark:text-red-200">{exportStatus.text}</p>
-      )}
-      <ol className="mt-4 space-y-4">
-        {report.questions.map((q) => (
-          <li key={q.question} className="rounded-lg border border-line bg-surface p-4">
-            <p className="text-sm font-medium">
-              <span className={`mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${SIGNAL[q.signal].className}`}>
-                {SIGNAL[q.signal].text}
-              </span>
-              {q.question}
+          {error && (
+            <p role="alert" className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+              {error}
             </p>
-            <ul className="mt-3 space-y-3">
-              {q.insights.map((i) => (
-                <li key={i.id} className="text-sm leading-relaxed">
-                  <span
-                    className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
-                      i.label === "grounded" ? "bg-accent-soft text-accent" : "bg-line text-foreground"
-                    }`}
-                  >
-                    {i.label === "grounded" ? "grounded" : "guess"}
-                  </span>
-                  {i.theme}
-                  {/* The quote is always verbatim from the interview; the label says whether the
-                      persona's real sources back it too. */}
-                  <blockquote
-                    className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
-                      i.label === "grounded" ? "border-accent/40" : "border-line"
-                    }`}
-                  >
-                    “{i.quote}”
-                    <span className="mt-0.5 block text-xs text-muted">
-                      {personaName} · interview turn {i.turnSeq}
-                      {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
-                    </span>
-                  </blockquote>
-                </li>
-              ))}
-            </ul>
-            {q.followUps && q.followUps.length > 0 && (
-              <p className="mt-3 border-t border-line pt-2 text-xs text-muted">Ask real users next: {q.followUps.join(" · ")}</p>
+          )}
+        </div>
+      ) : (
+        <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
+            findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={copyMarkdown}
+              disabled={copying}
+              className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line disabled:opacity-50"
+            >
+              {copying ? "Copying…" : "Copy as Markdown"}
+            </button>
+            <button
+              type="button"
+              onClick={downloadMarkdown}
+              className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+            >
+              Download .md
+            </button>
+            {!savedReport && (
+              <button
+                type="button"
+                onClick={copyLink}
+                className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+              >
+                Copy link
+              </button>
             )}
-          </li>
-        ))}
-      </ol>
-    </div>
+          </div>
+          <p role="status" className="mt-2 text-sm text-muted">
+            {exportStatus && !exportStatus.error ? exportStatus.text : ""}
+          </p>
+          {exportStatus?.error && (
+            <p role="alert" className="mt-2 text-sm wrap-anywhere text-red-800 dark:text-red-200">{exportStatus.text}</p>
+          )}
+          <ol className="mt-4 space-y-4">
+            {report.questions.map((q) => (
+              <li key={q.question} className="rounded-lg border border-line bg-surface p-4">
+                <p className="text-sm font-medium">
+                  <span className={`mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${SIGNAL[q.signal].className}`}>
+                    {SIGNAL[q.signal].text}
+                  </span>
+                  {q.question}
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {q.insights.map((i) => (
+                    <li key={i.id} className="text-sm leading-relaxed">
+                      <span
+                        className="mr-2 inline-flex items-center gap-1.5 font-mono text-xs font-medium"
+                      >
+                        <span className="evidence-bar !w-6" data-grounded={i.label === "grounded"} aria-hidden />
+                        {i.label === "grounded" ? "grounded" : "guess"}
+                      </span>
+                      {i.theme}
+                      {/* The quote is always verbatim from the interview; the label says whether the
+                          persona's real sources back it too. */}
+                      <blockquote
+                        className={`mt-1.5 border-l-2 pl-3 text-foreground/80 wrap-anywhere ${
+                          i.label === "grounded" ? "border-accent/40" : "border-line"
+                        }`}
+                      >
+                        “{i.quote}”
+                        <span className="mt-0.5 block text-xs text-muted">
+                          {personaName} · interview turn {i.turnSeq}
+                          {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
+                        </span>
+                      </blockquote>
+                    </li>
+                  ))}
+                </ul>
+                {q.followUps && q.followUps.length > 0 && (
+                  <p className="mt-3 border-t border-line pt-2 text-xs text-muted">Ask real users next: {q.followUps.join(" · ")}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </>
   );
 }

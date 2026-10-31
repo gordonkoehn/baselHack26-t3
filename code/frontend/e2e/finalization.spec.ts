@@ -8,15 +8,18 @@ declare global {
   interface Window {
     e2ePersistence: { block: boolean; calls: string[]; bodyStarted: number };
     e2eStartup: { fail: () => void; release: () => void; calls: string[]; lateStatus: number | null; accepted: boolean };
+    e2eDeniedMicrophone: { calls: number };
   }
 }
 
 const complete = "Ended. Microphone and camera are off, transcript saved.";
 const incomplete = "Ended without the last turn. This transcript is incomplete, so there is no debrief for it.";
+const startupIncomplete = "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry.";
 const sentence = exampleEvents[6].data.text!;
 
-async function start(page: Page, waitForLive = true): Promise<Session> {
+async function start(page: Page, waitForLive = true, beforeStart?: () => Promise<void>): Promise<Session> {
   await page.goto("/");
+  await beforeStart?.();
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card")).toBeVisible();
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(exampleReport.questions.map((question) => question.question).join("\n"));
@@ -44,7 +47,7 @@ async function settle(page: Page) {
 }
 
 async function expectIncomplete(page: Page, request: APIRequestContext, session: Session) {
-  await expect(page.getByText(incomplete, { exact: true })).toBeVisible();
+  await expect(page.getByText(incomplete, { exact: true }).or(page.getByText(startupIncomplete, { exact: true }))).toBeVisible();
   expect((await stored(request, session)).some((event) => event.type === "session.ended")).toBe(false);
   await expect(page.getByTestId("debrief")).toHaveCount(0);
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
@@ -353,11 +356,19 @@ for (const failure of ["deadline", "gateway", "body"] as const) {
       await expect.poll(() => page.evaluate(() => window.e2eStartup.calls)).toEqual(["live"]);
       if (failure === "body") await expect.poll(() => page.evaluate(() => window.e2eStartup.accepted)).toBe(true);
       await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "startup-turn", transcript: sentence });
+      // Let the real local POST finish before advancing unrelated startup time.
+      // Otherwise virtual time aborts it before the server can answer.
+      await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 1/1");
       await emit(page, { type: "input_audio_buffer.speech_started", item_id: "lost-during-startup" });
       if (connectionLoss) await page.evaluate(() => window.e2eRealtime.lose());
       if (failure === "gateway") await page.evaluate(() => window.e2eStartup.fail());
-      if (!connectionLoss && failure !== "gateway") await page.clock.runFor(4_500);
+      if (!connectionLoss && failure !== "gateway") await page.clock.runFor(15_500);
       await expectIncomplete(page, request, session);
+      if (!connectionLoss) {
+        await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText(
+          failure === "gateway" ? "Could not start (504): synthetic gateway timeout" : "Could not start: Request deadline exceeded",
+        );
+      }
       const before = await (await request.get(`/api/sessions/${session.id}`)).json() as Session;
       expect(before.endedAt).toEqual(expect.any(String));
       if (failure !== "body") {
@@ -385,15 +396,25 @@ for (const target of ["events", "patch"] as const) {
     const session = await start(page, false);
     await expect.poll(() => page.evaluate(() => window.e2eStartup.calls)).toEqual(["live"]);
     await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "startup-recovery", transcript: sentence });
-    if (target === "events") await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(1);
-    await page.clock.runFor(4_500); // Startup and (for events) first save deadline.
+    if (target === "events") {
+      await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(1);
+      await page.clock.runFor(4_500);
+      // Each request must reach the intended stuck body before its deadline runs.
+      await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(2);
+      await page.clock.runFor(4_500);
+    } else {
+      await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 1/1");
+    }
+    await page.clock.runFor(15_500); // Finite startup deadline, after settling the event attempts above.
     if (target === "patch") {
       await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(1);
       await page.clock.runFor(4_500);
+      await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(2);
+      await page.clock.runFor(4_500);
     }
-    await expect.poll(() => page.evaluate(() => window.e2ePersistence.bodyStarted)).toBe(2);
-    await page.clock.runFor(4_500);
     await expect(page.getByRole("button", { name: "Save again", exact: true })).toBeVisible();
+    await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not start: Request deadline exceeded");
+    await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not finish saving");
     await expect(page.getByRole("button", { name: "Start again", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("interview-room").locator("details ol")).toBeVisible();
     await expect(page.getByTestId("interview-room").locator("details")).toContainText(sentence);
@@ -407,6 +428,7 @@ for (const target of ["events", "patch"] as const) {
     await page.evaluate(() => { window.e2ePersistence.block = false; });
     await page.getByRole("button", { name: "Save again", exact: true }).click();
     await expectIncomplete(page, request, session);
+    await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not start: Request deadline exceeded");
     expect((await page.evaluate(() => window.e2ePersistence.calls))[2]).toBe(calls[0]);
     const events = await stored(request, session);
     expect(events).toHaveLength(1);
@@ -667,4 +689,115 @@ test("an empty-buffer commit error never silently clears unresolved speech", asy
   await expect(page.getByRole("status")).toContainText("Transcribing the last sentence");
   await page.getByRole("button", { name: "Close without it", exact: true }).click();
   await expectIncomplete(page, request, session);
+});
+
+for (const failure of ["microphone", "token", "sdp"] as const) {
+  test(`startup ${failure} failure retains its actionable cause after incomplete close`, async ({ page, request }) => {
+    if (failure === "token") {
+      await page.route("**/api/sessions/*/token", (route) => route.fulfill({ status: 503, json: { detail: "Synthetic token service unavailable" } }));
+    }
+    if (failure === "sdp") {
+      await page.route("https://api.openai.com/v1/realtime/calls", (route) => route.fulfill({ status: 403, body: "synthetic refusal" }));
+    }
+    const session = await start(page, false, async () => {
+      if (failure !== "microphone") return;
+      await page.evaluate(() => {
+        const devices = navigator.mediaDevices;
+        const denied = { calls: 0 };
+        window.e2eDeniedMicrophone = denied;
+        // Pin the override on navigator, even when mediaDevices is a getter.
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: Object.defineProperty(Object.create(devices) as MediaDevices, "getUserMedia", {
+            configurable: true,
+            value: async (constraints: MediaStreamConstraints) => {
+              if (!constraints.audio) return devices.getUserMedia(constraints);
+              denied.calls += 1;
+              throw new DOMException("synthetic denial", "NotAllowedError");
+            },
+          }),
+        });
+      });
+    });
+    await expectIncomplete(page, request, session);
+    if (failure === "microphone") {
+      expect(await page.evaluate(() => window.e2eDeniedMicrophone.calls)).toBe(1);
+      expect(await page.evaluate(() => window.e2eRealtime.microphones.length)).toBe(0);
+    }
+    const cause = failure === "microphone" ? "Microphone access was denied. Allow microphone access in your browser and start again."
+      : failure === "token" ? "Could not start (503): Synthetic token service unavailable"
+        : "Could not start: OpenAI refused the call (403)";
+    await expect(page.getByTestId("interview-room").getByRole("alert")).toHaveText(cause);
+    await expect(page.getByText(startupIncomplete, { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start again", exact: true })).toBeVisible();
+    expect(await stored(request, session)).toEqual([]);
+    expect(await page.evaluate(() => window.e2eRealtime.microphones.every((track) => track.readyState === "ended"))).toBe(true);
+    if (failure !== "token") expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(true);
+    await page.clock.runFor(30_000);
+    await expect(page.getByTestId("interview-room").getByRole("alert")).toHaveText(cause);
+  });
+}
+
+test("a new live turn retries the identical exhausted batch and saves all newer turns before End", async ({ page, request }) => {
+  await stallPersistence(page, "events", false);
+  const session = await start(page);
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "first", transcript: sentence });
+  await expect.poll(() => page.evaluate(() => window.e2ePersistence.calls.length)).toBe(1);
+  // A newer turn while the request is active cannot reset its two-attempt budget.
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "second", transcript: "Captured during the failed request" });
+  await page.clock.runFor(4_500);
+  await expect.poll(() => page.evaluate(() => window.e2ePersistence.calls.length)).toBe(2);
+  await page.clock.runFor(4_500);
+  await expect(page.getByTestId("save-state")).toContainText("Transcript saved 0/2");
+  await page.clock.runFor(30_000);
+  expect(await page.evaluate(() => window.e2ePersistence.calls.length)).toBe(2);
+  await page.evaluate(() => { window.e2ePersistence.block = false; });
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "third", transcript: "New live turn retries the batch" });
+  await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 3/3");
+  await expect(page.getByText("Live, speak now")).toBeVisible();
+  const calls = await page.evaluate(() => window.e2ePersistence.calls);
+  expect(calls).toHaveLength(4);
+  expect(calls[1]).toBe(calls[0]);
+  expect(calls[2]).toBe(calls[0]);
+  const frozen = JSON.parse(calls[0]) as SessionEvent[];
+  expect(frozen.map((event) => event.seq)).toEqual([1]);
+  expect(JSON.parse(calls[3])).toMatchObject([{ seq: 2 }, { seq: 3 }]);
+  const events = await stored(request, session);
+  expect(events).toHaveLength(3);
+  expect(events.map((event) => event.seq)).toEqual([1, 2, 3]);
+  expect(events[0]).toEqual(frozen[0]);
+  expect(events.map((event) => event.type === "utterance" ? event.data.text : null)).toEqual([sentence, "Captured during the failed request", "New live turn retries the batch"]);
+  await end(page);
+  await settle(page);
+  await expect(page.getByText(complete, { exact: true })).toBeVisible();
+  expect((await stored(request, session)).map((event) => event.type)).toEqual(["utterance", "utterance", "utterance", "session.ended"]);
+});
+
+test("startup live PATCH succeeds after five virtual seconds without an early incomplete close", async ({ page, request }) => {
+  await stallStartup(page, "deadline");
+  const session = await start(page, false);
+  await expect.poll(() => page.evaluate(() => window.e2eStartup.calls)).toEqual(["live"]);
+  await page.clock.runFor(5_000);
+  await expect(page.getByText("Connecting…", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.e2eStartup.calls)).toEqual(["live"]);
+  await page.evaluate(() => window.e2eStartup.release());
+  await expect(page.getByText("Live, speak now")).toBeVisible();
+  await expect(page.getByTestId("interview-room").getByRole("alert")).toHaveCount(0);
+  await end(page);
+  await settle(page);
+  await expect(page.getByText(complete, { exact: true })).toBeVisible();
+  expect((await stored(request, session)).map((event) => event.type)).toEqual(["session.ended"]);
+});
+
+
+test("connection loss before startup live confirmation stays incomplete even without pending turns", async ({ page, request }) => {
+  await stallStartup(page, "deadline");
+  const session = await start(page, false);
+  await expect.poll(() => page.evaluate(() => window.e2eStartup.calls)).toEqual(["live"]);
+  await page.evaluate(() => window.e2eRealtime.lose());
+  await expectIncomplete(page, request, session);
+  expect(await stored(request, session)).toEqual([]);
+  await page.evaluate(() => window.e2eStartup.release());
+  await expect.poll(() => page.evaluate(() => window.e2eStartup.lateStatus)).toBe(409);
+  await expect(page.getByTestId("debrief")).toHaveCount(0);
 });

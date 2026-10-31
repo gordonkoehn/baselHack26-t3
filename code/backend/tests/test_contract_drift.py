@@ -14,6 +14,7 @@ from app.contracts import (
     GuideReview,
     InsightReport,
     Persona,
+    PersonaUpdate,
     Session,
     SessionEvent,
     SessionToken,
@@ -30,6 +31,7 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 # Explicit coverage: adding or renaming a file requires choosing its contract here.
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
+    "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
     "insight-report.json": ("InsightReport", InsightReport, False),
