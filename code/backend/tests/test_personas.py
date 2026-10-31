@@ -54,6 +54,9 @@ def test_create_then_read(client):
     assert body["voiceId"] and body["faceId"]
     assert body["sprintId"] == "sprint_quartier_boerse"
     assert client.get(f"/api/personas/{body['id']}").json() == body
+    # Kept so the live interview knows the product, not only the persona facts.
+    saved = app.dependency_overrides[get_store]().get_persona_sources(body["id"])
+    assert saved.sources[0].text == REQUEST["sources"][0]["text"]
 
 
 def test_face_and_voice_follow_the_chosen_face(client):

@@ -76,8 +76,11 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
     persona = store.get_persona(session.persona_id)
     if persona is None:
         raise HTTPException(404, "persona not found")
+    request = store.get_persona_sources(persona.id)
     try:
-        token = realtime.mint_client_secret(persona)
+        token = realtime.mint_client_secret(
+            persona, session.interview_guide, request.sources if request else []
+        )
     except ProviderUnavailable:
         raise HTTPException(503, "voice provider unavailable") from None
     # A bearer token: never cache it anywhere between the backend and the browser.
