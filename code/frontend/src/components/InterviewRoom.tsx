@@ -96,7 +96,7 @@ export function InterviewRoom({
   const [finalStage, setFinalStage] = useState("Checking the final provider events");
   const [endSeconds, setEndSeconds] = useState(0);
   const retryBatch = useRef<{ events: SessionEvent[]; attempts: number } | null>(null);
-  // A provider turn that failed (not cancelled) leaves a hole: the transcript then counts as incomplete.
+  // A provider turn that failed (not cancelled) leaves a hole: the saved transcript is marked as having gaps.
   const lost = useRef(false);
   // Finalized provider items already recorded; the same item must never become two seqs.
   const seen = useRef(new Set<string>());
@@ -229,6 +229,7 @@ export function InterviewRoom({
         dc.send(
           JSON.stringify({
             type: "conversation.item.create",
+            event_id: `frame_${itemId}`,
             item: {
               id: itemId,
               type: "message",
@@ -336,11 +337,12 @@ export function InterviewRoom({
       const previous = cameraItem.current;
       if (previous?.startsWith("screen_")) {
         cameraItem.current = null;
-        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous }));
+        dc.send(JSON.stringify({ type: "conversation.item.delete", item_id: previous, event_id: `frame_delete_${previous}` }));
       }
       dc.send(
         JSON.stringify({
           type: "conversation.item.create",
+          event_id: "screen_stopped",
           item: {
             type: "message",
             role: "user",
@@ -357,11 +359,11 @@ export function InterviewRoom({
     if (g !== gen.current || callClosed.current) return;
     callLost.current = true;
     setConnectionLost(true);
-    // Freeze the transcript before another queued callback can claim a missing turn arrived.
-    if (!liveEstablished.current || pending.current.size > 0) lost.current = true;
+    // Turns cut off by a drop leave no provider event, so nothing open proves nothing was lost.
+    lost.current = true;
     hangUp();
     if (finalizing.current) {
-      if (!draining.current) void closeDrained(false);
+      if (!draining.current) void closeDrained();
     } else void end();
   }
 
@@ -405,9 +407,11 @@ export function InterviewRoom({
       }
       case "conversation.item.input_audio_transcription.completed":
         if (!e.item_id) lost.current = true;
+        if (!e.transcript?.trim()) work.current.blank(e.item_id);
         if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
+        if (e.transcript?.trim()) work.current.spoke(e.response_id);
         if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
@@ -418,6 +422,7 @@ export function InterviewRoom({
         for (const item of e.response?.output ?? []) {
           item.content?.forEach((content, index) => {
             const text = content.transcript ?? content.text;
+            if (text?.trim()) work.current.spoke(e.response?.id);
             if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
           });
         }
@@ -451,11 +456,18 @@ export function InterviewRoom({
           // Its reply never comes: don't pair the next audio with this ask.
           replyTimer.current.reset();
         }
+        // Every request we send has an id. A rejected question, or an error tied to no request, may
+        // have cost a turn; the rest (images, the commit at End) can't.
+        if (!e.error?.event_id || e.error.event_id.startsWith("q:")) lost.current = true;
         setError(e.error?.message ?? "Realtime error");
         break;
       }
     }
-    if (finalizing.current) finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+    if (finalizing.current) {
+      finalProviderAt.current = pending.current.size === 0 ? performance.now() : null;
+      // Past the wait limit nothing else rechecks: the last item arriving must still finish the call.
+      if (!work.current.missingTurns) void drain();
+    }
   }
 
   // True the first time a provider item is seen. Events without an id are always new.
@@ -632,7 +644,7 @@ export function InterviewRoom({
       const dc = conn.createDataChannel("oai-events");
       channel.current = dc;
       dc.onmessage = (m) => current() && onEvent(JSON.parse(m.data));
-      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g));
+      stopWatching.current = watchConnection(conn, dc, () => loseConnection(g), () => { lost.current = true; });
       if (!current()) return;
 
       const offer = await conn.createOffer();
@@ -685,7 +697,7 @@ export function InterviewRoom({
         endStarted.current = Date.now();
         drainStarted.current = performance.now();
         durationSeconds.current = Math.round((Date.now() - liveSince.current) / 1000);
-        await closeDrained(true);
+        await closeDrained();
         return;
       }
       hangUp();
@@ -752,12 +764,13 @@ export function InterviewRoom({
 
   // Sends interviewer content (typed text or a screen frame) and asks the persona to answer it.
   // Every path goes through here so "End" always waits for the answer it triggered.
-  function askWith(content: object[]): boolean {
+  // idPrefix tells errors apart: only a rejected "q:" request can cost a spoken turn.
+  function askWith(content: object[], idPrefix = "q"): boolean {
     const dc = channel.current;
     if (finalizing.current || !dc || dc.readyState !== "open") return false;
-    dc.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content } }));
     // Registered before sending, so "End" waits for this answer even before the provider confirms it.
     const ask = `a:${++asks.current}`;
+    dc.send(JSON.stringify({ type: "conversation.item.create", event_id: `${idPrefix}:${asks.current}`, item: { type: "message", role: "user", content } }));
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
@@ -814,6 +827,7 @@ export function InterviewRoom({
       // grace only lets already completed work finish dispatching queued events.
       if (pending.current.size === 0 && Date.now() - providerActivity.current >= 300) break;
       if (Date.now() >= until) {
+        if (!work.current.missingTurns) break; // Only audio is left and its words are saved: don't ask.
         draining.current = false;
         setPhase("waiting");
         measure("provider-drain", drainStarted.current, "waiting");
@@ -823,19 +837,20 @@ export function InterviewRoom({
     }
     if (g !== gen.current) return;
     draining.current = false;
-    await closeDrained(false);
+    await closeDrained();
   }
 
-  async function closeDrained(incomplete: boolean) {
-    if (finishing.current) return;
-    if (incomplete || pending.current.size > 0) lost.current = true;
+  async function closeDrained() {
+    if (finishing.current || draining.current) return;
+    if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
     await finish();
   }
 
-  // Create the terminal marker once, only after all captured turns are stored.
+  // Create the terminal marker once, only after all captured turns are stored. A call that went live
+  // always gets one, so it always reaches a debrief; lost turns are stated on it, never hidden.
   // Failed POST/PATCH attempts keep the exact events for an explicit Save again.
   async function finish(retry = false) {
     if (finishing.current) return;
@@ -850,8 +865,8 @@ export function InterviewRoom({
     try {
       if (!await flush()) throw new Error("TranscriptSaveError");
       if (g !== gen.current) return;
-      if (!lost.current && pending.current.size === 0 && !events.current.some((event) => event.type === "session.ended")) {
-        record("session.ended", { durationSeconds: durationSeconds.current });
+      if (liveEstablished.current && !events.current.some((event) => event.type === "session.ended")) {
+        record("session.ended", { durationSeconds: durationSeconds.current, ...(lost.current && { transcriptGaps: true }) });
         if (!await flush()) throw new Error("TranscriptSaveError");
       }
       if (g !== gen.current) return;
@@ -871,7 +886,7 @@ export function InterviewRoom({
           }
         }
         if (g !== gen.current) return;
-        if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
+        if (liveEstablished.current) setEnded({ id: sid, questions: questions.current });
       }
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
@@ -969,6 +984,8 @@ export function InterviewRoom({
               ? "Sample interview loaded: a scripted transcript. No live call took place and nobody was interviewed."
               : startupFailure.current
               ? "Interview could not start. Capture is off; this incomplete session has no debrief. Start again to retry."
+              : lastTurnMissing && ended
+              ? "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured."
               : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
@@ -988,7 +1005,7 @@ export function InterviewRoom({
       {connectionLost && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
           Connection lost. Microphone, camera and screen sharing are off.
-          {lastTurnMissing ? " This transcript is incomplete; no debrief will be generated." : ""}
+          {lastTurnMissing ? (liveEstablished.current ? " This transcript may have gaps." : " This transcript is incomplete; no debrief will be generated.") : ""}
           {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
@@ -1045,7 +1062,7 @@ export function InterviewRoom({
                 {muted ? "Unmute mic" : "Mute mic"}
               </button>
               {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
-              <ScreenShareButton pc={pc} ask={askWith} onSharing={sharing} />
+              <ScreenShareButton pc={pc} ask={(content) => askWith(content, "shown")} onSharing={sharing} />
               {avatarSwitch}
             </>
           )}
@@ -1054,11 +1071,11 @@ export function InterviewRoom({
           )}
           {phase === "waiting" && (
             <>
-              <span className="text-sm text-muted">The wait limit was reached. Capture is off.</span>
+              <span className="text-sm text-muted">The wait limit was reached. Capture is off. Closing now marks the transcript as having gaps.</span>
               {channel.current?.readyState === "open" && (
                 <button type="button" className={btn} onClick={drain}>Continue waiting (10 seconds)</button>
               )}
-              <button type="button" className={btn} onClick={() => closeDrained(true)}>
+              <button type="button" className={btn} onClick={closeDrained}>
                 Close without it
               </button>
             </>
@@ -1183,7 +1200,7 @@ export function InterviewRoom({
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
         <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
           <summary className="cursor-pointer text-muted">
-            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns)
+            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns{lastTurnMissing ? ", may have gaps" : ""})
           </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
@@ -1210,7 +1227,7 @@ export function InterviewRoom({
           </p>
         </details>
       )}
-      {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
+      {phase === "ended" && ended && ended.questions > 0 && (
         <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (

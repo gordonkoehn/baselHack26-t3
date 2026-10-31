@@ -52,6 +52,7 @@ class _Suggestion(_Data):
 class _Ended(_Data):
     # Optional but not nullable; this validation-only default is never persisted.
     duration_seconds: float = Field(default=0, alias="durationSeconds")
+    transcript_gaps: bool = Field(default=False, alias="transcriptGaps")
 
 
 _DATA_MODELS: dict[SessionEventType, type[_Data]] = {
