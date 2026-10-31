@@ -97,7 +97,7 @@ async function respondToDebrief(fail = false) {
 }
 
 async function openDebrief(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByRole("button", { name: "Start video interview", exact: true }).click();
@@ -114,7 +114,7 @@ async function openDebrief(page: Page) {
 }
 
 test("file upload is reachable by Tab, visibly focused and opens with Enter and Space", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/studio");
   const input = page.getByLabel("Add files…", { exact: true });
   await expect(input).toHaveAttribute("multiple", "");
   await expect(input).toHaveAttribute("accept", ".txt,.md,.csv,.json,.tsv,.pdf,.png,.jpg,.jpeg,.webp,.gif");
@@ -179,7 +179,9 @@ test("generation completion preserves copy/download success and failure feedback
   await page.keyboard.press("Enter");
   await expect(debrief.getByRole("status")).toHaveText("Markdown copied to clipboard.");
   await expect(debrief.getByRole("alert")).toHaveCount(0);
-  expect(await page.evaluate(() => window.e2eA11yExports.copied)).toEqual([formatReportMarkdown(report, persona.name)]);
+  expect(await page.evaluate(() => window.e2eA11yExports.copied)).toEqual([
+    formatReportMarkdown(report, persona.name, false, "Quartier-Börse"),
+  ]);
   await page.evaluate(() => { window.e2eA11yExports.failDownload = true; });
   const downloadButton = debrief.getByRole("button", { name: "Download .md", exact: true });
   await downloadButton.click();
@@ -192,7 +194,7 @@ test("generation completion preserves copy/download success and failure feedback
   expect(await download.failure()).toBeNull();
   const path = await download.path();
   if (!path) throw new Error("Missing synthetic Markdown download");
-  expect(await readFile(path, "utf8")).toBe(formatReportMarkdown(report, persona.name));
+  expect(await readFile(path, "utf8")).toBe(formatReportMarkdown(report, persona.name, false, "Quartier-Börse"));
   await expect(debrief.getByRole("status")).toHaveText("Markdown download started.");
   await expect(debrief.getByRole("alert")).toHaveCount(0);
   await expect(status).toHaveText("Debrief ready.");

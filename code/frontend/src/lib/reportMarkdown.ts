@@ -22,11 +22,17 @@ export function reportMarkdownFilename(report: InsightReport, personaName: strin
 }
 
 /** Export only the saved report, with a stable UTC date and explicit synthetic-evidence caveats. */
-export function formatReportMarkdown(report: InsightReport, personaName: string, sample = false): string {
+export function formatReportMarkdown(
+  report: InsightReport,
+  personaName: string,
+  sample = false,
+  productName?: string,
+): string {
   const lines = [
     "# Debrief",
     "",
     ...(sample ? ["**SAMPLE INTERVIEW: a scripted demo transcript with no live call. Nobody was interviewed.**", ""] : []),
+    ...(productName?.trim() ? [`Product tested: ${textLines(productName.trim()).join("  \n")}`, ""] : []),
     `Persona: ${textLines(personaName).join("  \n")}`,
     "",
     `Date (UTC): ${reportDate(report) ?? "unavailable"}`,

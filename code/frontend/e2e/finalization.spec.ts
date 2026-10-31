@@ -18,7 +18,7 @@ const startupIncomplete = "Interview could not start. Capture is off; this incom
 const sentence = exampleEvents[6].data.text!;
 
 async function start(page: Page, waitForLive = true, beforeStart?: () => Promise<void>): Promise<Session> {
-  await page.goto("/");
+  await page.goto("/studio");
   await beforeStart?.();
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card")).toBeVisible();

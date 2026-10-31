@@ -136,7 +136,7 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
   });
   await installRealtime(page);
   await installExports(page);
-  await page.goto("/");
+  await page.goto("/studio");
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
@@ -161,7 +161,7 @@ test("loaded report copies and downloads identical Markdown without regenerating
   await page.keyboard.press("Enter");
   await expect(debrief.getByRole("status")).toHaveText("Markdown copied to clipboard.");
   const copied = await page.evaluate(() => window.e2eReportExport.copied);
-  expect(copied).toEqual([formatReportMarkdown(report, personaName)]);
+  expect(copied).toEqual([formatReportMarkdown(report, personaName, false, "Quartier-Börse")]);
   await page.clock.setFixedTime(new Date("2035-05-20T12:00:00Z"));
   const downloading = page.waitForEvent("download");
   await debrief.getByRole("button", { name: "Download .md", exact: true }).click();

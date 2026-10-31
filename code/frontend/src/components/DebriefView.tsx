@@ -53,11 +53,14 @@ export function DebriefView({
   personaName,
   savedReport,
   sample,
+  productName,
 }: {
   sessionId: string;
   personaName: string;
   savedReport?: InsightReport;
   sample?: boolean;
+  /** The product the session was created with, if the team described one. */
+  productName?: string;
 }) {
   const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
@@ -124,7 +127,7 @@ export function DebriefView({
     setCopying(true);
     setExportStatus(null);
     try {
-      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample));
+      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample, productName));
       setExportStatus({ error: false, text: "Markdown copied to clipboard." });
     } catch {
       setExportStatus({ error: true, text: "Could not copy Markdown. Try again or use Download .md." });
@@ -138,7 +141,7 @@ export function DebriefView({
     const link = document.createElement("a");
     let url: string | null = null;
     try {
-      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample)], { type: "text/markdown;charset=utf-8" }));
+      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample, productName)], { type: "text/markdown;charset=utf-8" }));
       link.href = url;
       link.download = reportMarkdownFilename(report, personaName);
       document.body.append(link);
@@ -182,6 +185,11 @@ export function DebriefView({
       ) : (
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          {productName && (
+            <p className="mt-1 text-sm" data-testid="debrief-product">
+              Product tested: <span className="font-bold">{productName}</span>
+            </p>
+          )}
           <DebriefSummaryPanel report={report} />
           {sample ? (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">

@@ -1,4 +1,6 @@
-// Copy of documentation/testcase-quartier-boerse.md below its status banner, used to prefill the example source.
+import type { Product } from "./contracts";
+
+// Copy of documentation/testcase-quartier-boerse.md, used to prefill the demo source.
 export const QUARTIER_BOERSE = `# Test case: Quartier-Börse
 
 The sprint case we demo and test the twin against. Source: the "Prototype" frame on the team Miro board (prototype + interview guide, 30 min timebox).
@@ -90,13 +92,23 @@ export function sampleTurns(): { speaker: "interviewer" | "persona"; text: strin
 
 // The sprint questions of the Quartier-Börse test, one per line in the interview card.
 // The debrief answers exactly these, so it never invents its own guide.
+/** The demo product, prefilled in the Product step. */
+export const QUARTIER_BOERSE_PRODUCT: Product = {
+  name: "Quartier-Börse",
+  description:
+    "A recycling pickup service (paper, PET, aluminium) pays users in Kilo-Shares: 1 Share is about CHF 0.50. " +
+    "Users split their shares between their own rewards and a neighbourhood project, here a greener playground in Littau. " +
+    "Bäckerei Muff doubles every share put into the project. The prototype has five screens: pickup message, " +
+    "split slider, project page, confirmation and project funded.",
+  prototypeUrl: null,
+};
+
 export const QUARTIER_BOERSE_GUIDE = [
   "Erleben Nutzer:innen das Teilen ihrer Kilo-Shares fürs Quartier als Mehrwert oder als Verlust?",
   "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
   "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
 ];
 
-// The Lumen case's persona stack (documentation/usecases/lumen-ipp).
 export const LUMEN_PERSONAS = [
   { surname: "Kessler", name: "Dr. Miriam Kessler", role: "Open Access Coordinator, University of Rheinfeld" },
   { surname: "Hollmann", name: "Dr. Rainer Hollmann", role: "Director, University Library, Rheinfeld" },

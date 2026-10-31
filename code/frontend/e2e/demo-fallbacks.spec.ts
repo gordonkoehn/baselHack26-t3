@@ -71,7 +71,7 @@ test.beforeEach(async ({ page, context }) => {
 test.afterEach(() => { expect(unexpected).toEqual([]); });
 
 async function createPersona(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();

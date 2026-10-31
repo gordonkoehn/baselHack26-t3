@@ -29,12 +29,6 @@ REQUEST = PersonaCreate(
 GUIDE = ["Vertrauen sie dem Projekt?"]
 
 
-def test_the_eval_source_leaves_out_the_status_banner():
-    request, _, _ = run.load_case()
-
-    assert request.sources[0].text.startswith("# Test case:")
-
-
 def persona_draft(**changes) -> PersonaDraft:
     fields = {
         "name": "Nadine Meier",
