@@ -142,7 +142,8 @@
         "interviewGuide": { "type": "array", "items": { "type": "string" } },
         "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
-        "endedAt": { "type": ["string", "null"], "format": "date-time" }
+        "endedAt": { "type": ["string", "null"], "format": "date-time" },
+        "sample": { "type": "boolean", "description": "Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so." }
       }
     },
     "SessionCreate": {
@@ -150,7 +151,8 @@
       "required": ["personaId"],
       "properties": {
         "personaId": { "type": "string" },
-        "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." }
+        "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." },
+        "sample": { "type": "boolean", "description": "See Session.sample." }
       }
     },
     "SessionUpdate": {

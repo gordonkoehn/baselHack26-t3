@@ -80,6 +80,14 @@ I: Was müsste die App zeigen, damit du dabeibleibst?
 P1: Einen Fortschrittsbalken, wie weit das Projekt ist. Und am Ende ein Foto vom fertigen Spielplatz. Dann wäre ich schon ein bisschen stolz.
 `;
 
+// The sample transcript as interview turns, for the demo fallback without a live call.
+export function sampleTurns(): { speaker: "interviewer" | "persona"; text: string }[] {
+  return SAMPLE_TRANSCRIPT.split("\n").flatMap((line) => {
+    const turn = /^(I|P1): (.+)$/.exec(line);
+    return turn ? [{ speaker: turn[1] === "I" ? ("interviewer" as const) : ("persona" as const), text: turn[2] }] : [];
+  });
+}
+
 // The sprint questions of the Quartier-Börse test, one per line in the interview card.
 // The debrief answers exactly these, so it never invents its own guide.
 export const QUARTIER_BOERSE_GUIDE = [

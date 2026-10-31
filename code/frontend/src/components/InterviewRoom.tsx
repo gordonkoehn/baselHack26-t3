@@ -9,13 +9,13 @@ import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
-import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
+import { QUARTIER_BOERSE_GUIDE, sampleTurns } from "@/lib/sample";
 
 // Voice interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
 
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
-type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
+type Phase = "idle" | "sample" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
 
@@ -53,7 +53,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [saveState, setSaveState] = useState({ saved: 0, total: 0, failed: false });
   const liveSince = useRef(0);
   // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
-  const [ended, setEnded] = useState<{ id: string; questions: number } | null>(null);
+  const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean } | null>(null);
   const questions = useRef(0);
   // Provider work still in flight: committed speech awaiting its transcript, and open responses.
   // "End" waits for both, so the last turn isn't cut off by closing the call.
@@ -102,6 +102,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // The persona's voice track; the avatar lip-syncs it and then plays it instead of <audio>.
   const [voice, setVoice] = useState<MediaStreamTrack | null>(null);
   const [avatarOn, setAvatarOn] = useState(false);
+  // The interviewer's off switch. Unmounting the avatar releases it and hands the voice back to <audio>.
+  const [avatarOff, setAvatarOff] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
@@ -574,6 +576,47 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     }
   }
 
+  // Demo fallback when the live call can't run: save the scripted transcript as an ended session
+  // marked sample, then show its debrief. No token, microphone or provider call is involved.
+  async function runSample() {
+    hangUp();
+    gen.current += 1;
+    const g = gen.current;
+    sessionId.current = null;
+    setPhase("sample");
+    setError(null);
+    setTurns([]);
+    setEnded(null);
+    setConnectionLost(false);
+    setLastTurnMissing(false);
+    setSaveState({ saved: 0, total: 0, failed: false });
+    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    try {
+      const interviewGuide = guide
+        .split("\n")
+        .map((q) => q.trim())
+        .filter(Boolean);
+      const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true });
+      if (g !== gen.current) return;
+      const script = sampleTurns();
+      const at = new Date().toISOString();
+      await api.postEvents(session.id, [
+        ...script.map((data, i) => ({ sessionId: session.id, seq: i + 1, at, type: "utterance" as const, data })),
+        { sessionId: session.id, seq: script.length + 1, at, type: "session.ended" as const, data: { durationSeconds: 0 } },
+      ]);
+      if (g !== gen.current) return;
+      await api.updateSession(session.id, { status: "ended" });
+      if (g !== gen.current) return;
+      setTurns(script.map(({ speaker, text }) => ({ who: speaker, text })));
+      setEnded({ id: session.id, questions: interviewGuide.length, sample: true });
+      setPhase("ended");
+    } catch (e) {
+      if (g !== gen.current) return;
+      setPhase("error");
+      setError(e instanceof ApiError ? `Could not load the sample interview (${e.status}): ${e.detail}` : "Could not load the sample interview: backend not reachable.");
+    }
+  }
+
   // Sends interviewer content (typed text or a screen frame) and asks the persona to answer it.
   // Every path goes through here so "End" always waits for the answer it triggered.
   function askWith(content: object[]): boolean {
@@ -713,9 +756,16 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const avgMs = metrics.latenciesMs.length
     ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
     : null;
-  const showAvatar = voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
+  const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
 
   const btn = "rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted";
+  const avatarSwitch = (
+    <button type="button" className={btn} onClick={() => setAvatarOff(!avatarOff)}>
+      {avatarOff ? "Turn avatar on" : "Turn avatar off"}
+    </button>
+  );
+  const speakerName = (who: Speaker) =>
+    ended?.sample ? (who === "persona" ? "Sample participant" : "Interviewer") : who === "persona" ? persona.name : "You";
   const errorBox = error && (
     <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
       {error}
@@ -740,13 +790,24 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90"
             onClick={start}
           >
-            {phase === "idle" ? "Start voice interview" : "Start again"}
+            {phase === "idle" || ended?.sample ? "Start voice interview" : "Start again"}
           </button>
         )}
+        {(phase === "idle" || phase === "ended" || phase === "error") && (
+          <>
+            <button type="button" className={btn} onClick={runSample}>
+              Use sample interview
+            </button>
+            {avatarSwitch}
+          </>
+        )}
+        {phase === "sample" && <span role="status" className="text-sm text-muted">Loading the sample interview…</span>}
         {inCall && <span className="text-sm text-muted">Interview running in the popup…</span>}
         {phase === "ended" && (
           <span className="text-sm text-muted">
-            {lastTurnMissing
+            {ended?.sample
+              ? "Sample interview loaded: a scripted transcript. No live call took place and nobody was interviewed."
+              : lastTurnMissing
               ? "Ended without the last turn. This transcript is incomplete, so there is no debrief for it."
               : "Ended. Microphone and camera are off, transcript saved."}
           </span>
@@ -760,6 +821,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       <p className="mt-2 text-xs text-muted">
         You are talking to an AI persona ({persona.name}), not a real person. It hears you and sees your camera.
         {" "}If you allow camera access, an image is sent to OpenAI every 15 seconds so the persona can see you.
+        {" "}&ldquo;Use sample interview&rdquo; skips the call and debriefs a scripted transcript, clearly marked as a sample.
       </p>
       {connectionLost && (
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
@@ -824,6 +886,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
               </button>
               {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
               <ScreenShareButton pc={pc} ask={askWith} />
+              {avatarSwitch}
             </>
           )}
           {(phase === "ending" || phase === "waiting") && (
@@ -854,6 +917,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
                 }}
               />
             )}
+            {avatarOff && phase === "live" && <p className="text-xs text-muted">Avatar off, voice only.</p>}
             {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
             <video
               ref={camView}
@@ -904,11 +968,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
 
       {(phase === "ended" || phase === "unsaved" || (connectionLost && !inCall)) && turns.length > 0 && (
         <details className="mt-4 text-sm" open={connectionLost || phase === "unsaved"}>
-          <summary className="cursor-pointer text-muted">Transcript ({turns.length} turns)</summary>
+          <summary className="cursor-pointer text-muted">
+            {ended?.sample ? "Sample transcript" : "Transcript"} ({turns.length} turns)
+          </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
               <li key={i} className={t.cancelled ? "opacity-50" : ""}>
-                <span className="font-medium">{t.who === "persona" ? persona.name : "You"}:</span> {t.text}
+                <span className="font-medium">{speakerName(t.who)}:</span> {t.text}
               </li>
             ))}
           </ol>
@@ -921,7 +987,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         </p>
       )}
       {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
-        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} />
+        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
         <p className="mt-4 text-sm text-muted">
