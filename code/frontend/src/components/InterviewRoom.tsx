@@ -12,6 +12,7 @@ import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { sampleTurns } from "@/lib/sample";
+import { describeLatency, summarizeLatency } from "@/lib/replyLatency";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
@@ -19,12 +20,15 @@ import { sampleTurns } from "@/lib/sample";
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
 type Phase = "idle" | "sample" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
-type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
+type Metrics = { latenciesMs: number[]; avatarMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
 const CAMERA_FRAME_MS = 15_000;
 // While the prototype is shared it replaces the camera, refreshed faster so navigation shows up.
 const SCREEN_FRAME_MS = 10_000;
+// The camera image sits in the context of every reply, so its size adds input tokens to each one (#159).
+// It only shows the interviewer: a small JPEG (captureFrame halves the size until it fits) is enough.
+const CAMERA_FRAME_BYTES = 24 * 1024;
 // Permission prompts, token, SDP and channel setup can all hang; give up after this long.
 const START_TIMEOUT_MS = 45_000;
 // The persona prompt (realtime.py) keys on this exact label; keep them in sync.
@@ -62,7 +66,7 @@ export function InterviewRoom({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+  const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
   const [guide, setGuide] = useState(initialGuide);
   // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
@@ -136,6 +140,8 @@ export function InterviewRoom({
   const sessionId = useRef<string | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
+  // Same moment, cleared by the avatar's first movement instead (what the interviewer sees, #159).
+  const avatarAskedAt = useRef<number | null>(null);
 
   const dialog = useRef<HTMLDialogElement>(null);
   const transcript = useRef<HTMLOListElement>(null);
@@ -174,7 +180,8 @@ export function InterviewRoom({
       if (busy || cameraPaused.current || !current()) return;
       busy = true;
       try {
-        const image = await captureFrame(view, { maxBytes: frameBudget(pc.current) });
+        const budget = frameBudget(pc.current);
+        const image = await captureFrame(view, { maxBytes: isScreen ? budget : Math.min(budget, CAMERA_FRAME_BYTES) });
         if (!current()) return;
         const dc = channel.current;
         if (dc?.readyState !== "open") return;
@@ -353,7 +360,7 @@ export function InterviewRoom({
         break;
       case "input_audio_buffer.speech_stopped":
         work.current.stopped(e.item_id);
-        askedAt.current = performance.now();
+        askedAt.current = avatarAskedAt.current = performance.now();
         break;
       case "output_audio_buffer.started":
         work.current.playback(e.response_id, false);
@@ -528,7 +535,7 @@ export function InterviewRoom({
     setError(null);
     setTurns([]);
     setVoice(null);
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     gen.current += 1;
     const g = gen.current;
     callClosed.current = false;
@@ -700,7 +707,7 @@ export function InterviewRoom({
     setConnectionLost(false);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
-    setMetrics({ latenciesMs: [], inputTokens: 0, outputTokens: 0 });
+    setMetrics({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
     try {
       const interviewGuide = guide
         .split("\n")
@@ -738,7 +745,7 @@ export function InterviewRoom({
     pending.current.add(ask);
     // The id comes back in an "error" event if the provider rejects this request.
     dc.send(JSON.stringify({ type: "response.create", event_id: ask }));
-    askedAt.current = performance.now();
+    askedAt.current = avatarAskedAt.current = performance.now();
     return true;
   }
 
@@ -763,6 +770,9 @@ export function InterviewRoom({
     camStream.current?.getTracks().forEach((t) => t.stop());
     camStream.current = null; // Invalidate an already-running camera capture before React cleanup.
     setCam(null);
+    // Reply delay for the issue (#159): read it in the console after a real call.
+    console.info(describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs)));
+    console.info(describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs)));
     await drain();
   }
 
@@ -863,9 +873,6 @@ export function InterviewRoom({
     }
   }
 
-  const avgMs = metrics.latenciesMs.length
-    ? Math.round(metrics.latenciesMs.reduce((a, b) => a + b, 0) / metrics.latenciesMs.length)
-    : null;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
   const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
   const canStart = !questionsRequired || questionCount > 0;
@@ -1064,6 +1071,12 @@ export function InterviewRoom({
                 <Avatar
                   sessionId={sessionId.current}
                   track={voice}
+                  onSpeaking={() => {
+                    if (avatarAskedAt.current === null) return;
+                    const ms = performance.now() - avatarAskedAt.current;
+                    avatarAskedAt.current = null;
+                    setMetrics((m) => ({ ...m, avatarMs: [...m.avatarMs, ms] }));
+                  }}
                   onActive={(control) => {
                     avatar.current = control;
                     setAvatarOn(control !== null);
@@ -1138,8 +1151,11 @@ export function InterviewRoom({
         <details className="mt-3 text-xs text-muted">
           <summary className="cursor-pointer">Call diagnostics</summary>
           <p className="mt-1 tabular-nums" data-testid="metrics">
-            Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
-            {metrics.inputTokens} / out {metrics.outputTokens}
+            {describeLatency("Reply delay, voice", summarizeLatency(metrics.latenciesMs))}
+          </p>
+          <p className="tabular-nums">{describeLatency("Reply delay, avatar", summarizeLatency(metrics.avatarMs))}</p>
+          <p className="tabular-nums">
+            Tokens in {metrics.inputTokens} / out {metrics.outputTokens}
           </p>
         </details>
       )}
