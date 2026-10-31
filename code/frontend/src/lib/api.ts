@@ -1,5 +1,6 @@
 import type {
   ExtractedText,
+  InsightReport,
   Persona,
   PersonaCreate,
   Session,
@@ -79,6 +80,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(events),
     }).then(json<{ accepted: number }>),
+  // Needs an ended session with a complete transcript; 409 if it isn't, 422 without interview questions.
+  debrief: (id: string) =>
+    fetch(`/api/sessions/${encodeURIComponent(id)}/debrief`, { method: "POST" }).then(json<InsightReport>),
   getPersona: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}`, { cache: "no-store" }).then(json<Persona>),
 };
