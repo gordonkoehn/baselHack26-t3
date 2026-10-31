@@ -17,8 +17,9 @@ type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: numbe
 // Realtime server events we act on (subset of the GA event list).
 type ServerEvent = {
   type: string;
+  item_id?: string;
   transcript?: string;
-  response?: { status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+  response?: { id?: string; status?: string; usage?: { input_tokens?: number; output_tokens?: number } };
   error?: { message?: string };
 };
 
@@ -39,6 +40,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
   const [ended, setEnded] = useState<{ id: string; questions: number } | null>(null);
   const questions = useRef(0);
+  // Provider work still in flight: committed speech awaiting its transcript, and open responses.
+  // "End" waits for both, so the last turn isn't cut off by closing the call.
+  const pending = useRef(new Set<string>());
+  const [lastTurnMissing, setLastTurnMissing] = useState(false);
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
@@ -69,13 +74,24 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           askedAt.current = null;
         }
         break;
+      case "input_audio_buffer.committed":
+        if (e.item_id) pending.current.add(`t:${e.item_id}`);
+        break;
+      case "conversation.item.input_audio_transcription.failed":
+        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
+        break;
+      case "response.created":
+        if (e.response?.id) pending.current.add(`r:${e.response.id}`);
+        break;
       case "conversation.item.input_audio_transcription.completed":
+        if (e.item_id) pending.current.delete(`t:${e.item_id}`);
         if (e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
         if (e.transcript?.trim()) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
+        if (e.response?.id) pending.current.delete(`r:${e.response.id}`);
         const usage = e.response?.usage;
         setMetrics((m) => ({
           ...m,
@@ -151,6 +167,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     events.current = [];
     saved.current = 0;
     setEnded(null);
+    pending.current.clear();
+    setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
     try {
       const interviewGuide = guide
@@ -213,9 +231,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
 
   async function end() {
     setPhase("ending");
-    // Mic off first, then give the last transcriptions a moment to arrive before closing the call.
+    // Mic off first, then wait until the provider has finished every transcript and answer it
+    // started; only then close the call. After 10 s we close anyway and say so instead of
+    // pretending the transcript is complete.
     mic.current?.getTracks().forEach((t) => t.stop());
-    await new Promise((r) => setTimeout(r, 1500));
+    for (let waited = 0; pending.current.size > 0 && waited < 10_000; waited += 200) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    setLastTurnMissing(pending.current.size > 0);
     hangUp();
     record("session.ended", { durationSeconds: Math.round((Date.now() - liveSince.current) / 1000) });
     await finish();
@@ -270,7 +293,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           </>
         )}
         {phase === "ending" && <span className="text-sm opacity-70">Saving transcript…</span>}
-        {phase === "ended" && <span className="text-sm opacity-70">Ended. Microphone is off, transcript saved.</span>}
+        {phase === "ended" && (
+          <span className="text-sm opacity-70">
+            {lastTurnMissing
+              ? "Ended. The last turn was still being processed when the call closed and may be missing."
+              : "Ended. Microphone is off, transcript saved."}
+          </span>
+        )}
         {phase === "unsaved" && (
           <button type="button" className="rounded border border-current/30 px-3 py-1.5 text-sm" onClick={finish}>
             Save again
