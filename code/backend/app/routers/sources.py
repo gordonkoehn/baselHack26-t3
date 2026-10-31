@@ -13,6 +13,17 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 100
 # Roughly 50 dense pages; more would not fit one extraction prompt anyway.
 MAX_CHARS = 200_000
+# Scans are read page by page by the vision model: keep it well inside the request timeout.
+MAX_SCANNED_PAGES = 20
+
+
+def _transcribe(body: bytes, mime: str) -> str:
+    try:
+        return extract.transcribe(body, mime)
+    except extract.ProviderUnavailable:
+        raise HTTPException(503, "transcription provider unavailable") from None
+    except extract.ExtractionFailed as exc:
+        raise HTTPException(502, f"file could not be transcribed: {exc}") from None
 
 
 @router.post("/pdf", response_model_by_alias=True)
@@ -38,9 +49,12 @@ async def extract_pdf(request: Request) -> ExtractedText:
         raise HTTPException(422, f"PDF could not be read ({type(exc).__name__})") from None
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     if not text:
-        raise HTTPException(
-            422, "PDF has no text layer (scanned or image-only); OCR is not supported"
-        )
+        # Scanned or image-only: let the vision model read the pages instead.
+        if len(reader.pages) > MAX_SCANNED_PAGES:
+            raise HTTPException(413, f"scanned PDF has more than {MAX_SCANNED_PAGES} pages")
+        text = _transcribe(body, "application/pdf")
+    if not text:
+        raise HTTPException(422, "PDF has no readable text")
     if len(text) > MAX_CHARS:
         # Refuse instead of truncating: a cut-off source would look complete in the UI.
         raise HTTPException(413, f"PDF text is longer than {MAX_CHARS:,} characters")
@@ -73,12 +87,7 @@ async def extract_image(request: Request) -> ExtractedText:
     mime = _image_type(body)
     if mime is None:
         raise HTTPException(422, "not a PNG, JPEG, WebP or GIF image")
-    try:
-        text = extract.transcribe_image(body, mime)
-    except extract.ProviderUnavailable:
-        raise HTTPException(503, "image provider unavailable") from None
-    except extract.ExtractionFailed as exc:
-        raise HTTPException(502, f"image could not be transcribed: {exc}") from None
+    text = _transcribe(body, mime)
     if not text:
         raise HTTPException(422, "image has no readable text")
     if len(text) > MAX_CHARS:

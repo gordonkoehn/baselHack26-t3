@@ -106,7 +106,7 @@ def test_missing_key_is_unavailable(monkeypatch):
 
 def test_transcribe_image_sends_data_url_and_strips(monkeypatch):
     fake = use_client(monkeypatch, FakeResponses(SimpleNamespace(output_text="  Zettel 1\n")))
-    assert extract.transcribe_image(b"\x89PNG", "image/png") == "Zettel 1"
+    assert extract.transcribe(b"\x89PNG", "image/png") == "Zettel 1"
     image = fake.calls[0]["input"][0]["content"][0]
     assert image == {"type": "input_image", "image_url": "data:image/png;base64,iVBORw=="}
 
@@ -114,4 +114,11 @@ def test_transcribe_image_sends_data_url_and_strips(monkeypatch):
 def test_transcribe_image_maps_errors(monkeypatch):
     use_client(monkeypatch, FakeResponses(error=status_error(openai.RateLimitError, 429)))
     with pytest.raises(ProviderUnavailable):
-        extract.transcribe_image(b"x", "image/png")
+        extract.transcribe(b"x", "image/png")
+
+
+def test_transcribe_pdf_sends_input_file(monkeypatch):
+    fake = use_client(monkeypatch, FakeResponses(SimpleNamespace(output_text="Seite 1")))
+    assert extract.transcribe(b"%PDF", "application/pdf") == "Seite 1"
+    part = fake.calls[0]["input"][0]["content"][0]
+    assert part["type"] == "input_file" and part["file_data"].startswith("data:application/pdf;")
