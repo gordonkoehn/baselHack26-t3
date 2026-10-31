@@ -67,7 +67,7 @@ export class RequestDeadlineError extends Error {
   }
 }
 
-async function deadline<T>(request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+async function deadline<T>(request: (signal: AbortSignal) => Promise<T>, timeoutMs = 4_000): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -77,7 +77,7 @@ async function deadline<T>(request: (signal: AbortSignal) => Promise<T>): Promis
         timer = setTimeout(() => {
           reject(new RequestDeadlineError());
           controller.abort();
-        }, 4_000);
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -85,17 +85,18 @@ async function deadline<T>(request: (signal: AbortSignal) => Promise<T>): Promis
   }
 }
 
-function persisted<T>(url: string, init: RequestInit): Promise<T> {
-  return deadline((signal) => fetch(url, { ...init, signal }).then(json<T>));
+function persisted<T>(url: string, init: RequestInit, timeoutMs = 4_000): Promise<T> {
+  return deadline((signal) => fetch(url, { ...init, signal }).then(json<T>), timeoutMs);
 }
 
 function updateSession(id: string, body: SessionUpdate): Promise<Session> {
+  // Startup can include a cold backend; final saves keep their shorter budget.
   // The store makes ended terminal, including after ambiguous startup failures.
   return persisted<Session>(`/api/sessions/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, body.status === "live" ? 15_000 : 4_000);
 }
 
 export const api = {
