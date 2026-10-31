@@ -299,13 +299,25 @@ export default function Home() {
       </section>
 
       <div ref={card} className="scroll-mt-6">
-        {result && <PersonaCard {...result} />}
+        {result && <PersonaCard {...result} onPersona={(persona) => setResult({ ...result, persona })} />}
       </div>
     </main>
   );
 }
 
-function PersonaCard({ persona, sources, seconds }: Result) {
+type FactField = "jobs" | "pains" | "objections";
+
+function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPersona: (p: Persona) => void }) {
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The server decides the labels: an edited or new fact always comes back as a guess.
+  async function save(field: FactField, facts: Fact[]) {
+    setSaveError(null);
+    try {
+      onPersona(await api.updatePersona(persona.id, { [field]: facts }));
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? `Could not save (${e.status}): ${e.detail}` : "Could not save the change.");
+    }
+  }
   const facts = [...persona.jobs, ...persona.pains, ...persona.objections];
   const grounded = facts.filter((f) => f.label === "grounded").length;
   const meta = [persona.age && `${persona.age}`, persona.location, persona.context?.job]
@@ -321,9 +333,20 @@ function PersonaCard({ persona, sources, seconds }: Result) {
       {meta && <p className="text-sm text-muted">{meta}</p>}
       <p className="mt-3 leading-relaxed">{persona.summary}</p>
 
-      <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} />
-      <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} />
-      <FactList title="Objections" facts={persona.objections} persona={persona} sources={sources} />
+      {saveError && (
+        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          {saveError}
+        </p>
+      )}
+      <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} onSave={(f) => save("jobs", f)} />
+      <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} onSave={(f) => save("pains", f)} />
+      <FactList
+        title="Objections"
+        facts={persona.objections}
+        persona={persona}
+        sources={sources}
+        onSave={(f) => save("objections", f)}
+      />
       {/* Keyed by persona so a new persona never inherits the previous call. */}
       <InterviewRoom key={persona.id} persona={persona} />
     </article>
@@ -335,8 +358,9 @@ function FactList(props: {
   facts: Fact[];
   persona: Persona;
   sources: PersonaSource[];
+  onSave: (facts: Fact[]) => void;
 }) {
-  const { title, facts, persona, sources } = props;
+  const { title, facts, persona, sources, onSave } = props;
   return (
     <section className="mt-6">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">{title}</h3>
@@ -350,6 +374,7 @@ function FactList(props: {
               fact={fact}
               evidence={persona.evidence.find((e) => e.id === fact.evidenceId)}
               sources={sources}
+              onChange={(next) => onSave(next ? facts.map((f, j) => (j === i ? next : f)) : facts.filter((_, j) => j !== i))}
             />
           ))}
         </ul>
@@ -362,11 +387,15 @@ function FactItem({
   fact,
   evidence,
   sources,
+  onChange,
 }: {
   fact: Fact;
   evidence?: Evidence;
   sources: PersonaSource[];
+  /** A changed fact, or null to remove it. */
+  onChange: (fact: Fact | null) => void;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
   // Only trust "grounded" when the evidence is really there; the backend guarantees it, this is a guard.
   const isGrounded = fact.label === "grounded" && evidence !== undefined;
   // sourceRef is "source:N" (1-based) into the submitted sources.
@@ -382,7 +411,44 @@ function FactItem({
       >
         {isGrounded ? "grounded" : "guess"}
       </span>
-      {fact.text}
+      {draft === null ? (
+        fact.text
+      ) : (
+        <input
+          aria-label="Fact text"
+          className="w-full max-w-xl rounded-md border border-line bg-surface px-2 py-1 text-sm"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setDraft(null);
+            if (e.key !== "Enter") return;
+            const text = draft.trim();
+            setDraft(null);
+            if (text && text !== fact.text) onChange({ text, label: "guess", evidenceId: null });
+          }}
+        />
+      )}
+      <span className="ml-2 inline-flex gap-1 text-xs text-muted">
+        {draft === null && (
+          <button type="button" className="hover:text-foreground" aria-label={`Edit: ${fact.text}`} onClick={() => setDraft(fact.text)}>
+            edit
+          </button>
+        )}
+        {isGrounded && (
+          <button
+            type="button"
+            className="hover:text-foreground"
+            aria-label={`Mark as guess: ${fact.text}`}
+            onClick={() => onChange({ ...fact, label: "guess", evidenceId: null })}
+          >
+            mark guess
+          </button>
+        )}
+        <button type="button" className="hover:text-foreground" aria-label={`Remove: ${fact.text}`} onClick={() => onChange(null)}>
+          remove
+        </button>
+      </span>
       {isGrounded && (
         <blockquote className="mt-1.5 border-l-2 border-accent/40 pl-3 text-foreground/80 wrap-anywhere">
           “{evidence.quote}”

@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
+    "check:contracts": "node scripts/check-contract-examples.mjs",
+    "test:contracts": "node scripts/check-contract-examples.mjs --self-test",
     "test:e2e": "playwright test",
     "test": "vitest run"
   },

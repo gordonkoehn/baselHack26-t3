@@ -1,0 +1,17 @@
+{
+  "pains": [
+    {
+      "text": "Points programmes pay out so little that she forgets about them",
+      "label": "grounded",
+      "evidenceId": "e1"
+    },
+    {
+      "text": "Has no time for complicated apps",
+      "label": "guess",
+      "evidenceId": null
+    }
+  ],
+  "speechStyle": {
+    "notes": "Standard German with Swiss words: Quartier, Znüni, Velo, parkieren, Abo."
+  }
+}
