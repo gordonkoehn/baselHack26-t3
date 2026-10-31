@@ -1,24 +1,48 @@
 {
   "id": "p_1",
-  "sprintId": "sprint_2026_11_ebike",
+  "sprintId": "sprint_quartier_boerse",
   "version": 1,
-  "name": "Reto",
-  "age": 46,
-  "location": "Baar ZG",
+  "name": "Sandra",
+  "age": 41,
+  "location": "Luzern-Littau",
   "language": "de",
-  "summary": "Commutes 12 km to work, considers an e-bike but distrusts new brands.",
-  "context": { "job": "Logistics planner", "household": "Married, two kids", "toolsToday": ["SBB app", "Car"] },
-  "jobs": [{ "text": "Get to work without being sweaty", "label": "grounded", "evidenceId": "e1" }],
-  "pains": [{ "text": "Bike theft at the station", "label": "guess", "evidenceId": null }],
-  "objections": [{ "text": "Won't pay more than CHF 3,000", "label": "grounded", "evidenceId": "e2" }],
-  "attitudes": { "techAffinity": 2, "priceSensitivity": 4, "trustInNewBrands": 2 },
-  "speechStyle": { "register": "informal", "verbosity": "short", "fillers": true, "notes": "Uses Velo, Billett, parkieren." },
-  "voiceId": "stock_m_02",
-  "faceId": "stock_m_02",
+  "summary": "Works 80 % in HR, shares a household with her partner and two kids, has the paper-and-PET pickup subscription and collects points everywhere but rarely redeems them.",
+  "context": {
+    "job": "HR specialist, 80 %",
+    "household": "Dual income, partner and two kids (8, 11)",
+    "toolsToday": ["Recycling pickup subscription", "Coop Supercard", "Migros Cumulus", "TWINT"]
+  },
+  "jobs": [
+    { "text": "Get rid of paper, PET and aluminium without driving to the collection point", "label": "grounded", "evidenceId": "e1" },
+    { "text": "Feel that the household's effort is worth something", "label": "guess", "evidenceId": null }
+  ],
+  "pains": [
+    { "text": "Points programmes pay out so little that she forgets about them", "label": "grounded", "evidenceId": "e1" },
+    { "text": "Little time for neighbourhood engagement next to work and kids", "label": "guess", "evidenceId": null }
+  ],
+  "objections": [
+    { "text": "If I give my shares away, that's my reward gone", "label": "guess", "evidenceId": null },
+    { "text": "Wants proof that the money really reaches the project, otherwise it's just advertising", "label": "guess", "evidenceId": null },
+    { "text": "A bakery doubling it sounds like a marketing gimmick", "label": "guess", "evidenceId": null }
+  ],
+  "attitudes": { "techAffinity": 3, "priceSensitivity": 4, "trustInNewBrands": 2 },
+  "speechStyle": {
+    "register": "informal",
+    "verbosity": "short",
+    "fillers": true,
+    "notes": "Standard German with Swiss words: Quartier, Znüni, Velo, parkieren, Abo."
+  },
+  "voiceId": "stock_f_01",
+  "faceId": "stock_f_01",
   "cloned": false,
-  "readiness": { "score": 0.78, "consistency": 0.86, "grounding": 0.91 },
+  "readiness": { "score": 0.74, "consistency": 0.85, "grounding": 0.87 },
   "evidence": [
-    { "id": "e1", "kind": "transcript", "claim": "Wants to arrive fresh", "quote": "Ich will nicht verschwitzt im Büro ankommen.", "sourceRef": "t1" },
-    { "id": "e2", "kind": "miro", "claim": "Budget ceiling", "quote": "max 3000.-", "sourceRef": "miro:sticky_123" }
+    {
+      "id": "e1",
+      "kind": "miro",
+      "claim": "Target group: subscribers of the pickup service around Luzern, 30–55, dual-income households, at least 2 people, use points or loyalty programmes",
+      "quote": "Doppelverdiener-Haushalte. Mind. 2 Personen, die heute Punkte- oder Treueprogramme aktiv nutzen.",
+      "sourceRef": "miro:uXjVETHF-1k=/interview-leitfaden"
+    }
   ]
 }

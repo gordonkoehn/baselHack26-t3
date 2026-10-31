@@ -3,21 +3,34 @@
   "generatedAt": "2026-10-31T14:31:30Z",
   "questions": [
     {
-      "question": "Would Reto switch from car to e-bike?",
-      "signal": "unclear",
+      "question": "Matching wirkt: does the Bäckerei Muff matching raise the share put into the project?",
+      "signal": "supports",
       "insights": [
         {
           "id": "i1",
-          "theme": "Car is the default commute",
-          "quote": "Meistens mit dem Auto, ehrlich gesagt.",
-          "turnSeq": 2,
+          "theme": "Matching tips the split fully to the project",
+          "quote": "Hmm, wenn die Bäckerei das verdoppelt, dann geb ich halt alles ins Projekt.",
+          "turnSeq": 3,
           "label": "guess",
           "evidenceId": null
         }
       ],
-      "followUps": [
-        "Ask real commuters what would make them leave the car at home."
-      ]
+      "followUps": ["Ask real subscribers how they would split without the matching badge."]
+    },
+    {
+      "question": "Mehrwert statt Verlust: do users see sharing for the neighbourhood as added value rather than giving something up?",
+      "signal": "unclear",
+      "insights": [
+        {
+          "id": "i2",
+          "theme": "Confirmation screen contradicts the chosen split",
+          "quote": "Moment, ich hab doch alles ins Projekt gegeben? Da steht sechs und sechs.",
+          "turnSeq": 6,
+          "label": "guess",
+          "evidenceId": null
+        }
+      ],
+      "followUps": ["Fix the 'Angelegt' screen to show the real split before testing with customers."]
     }
   ]
 }
