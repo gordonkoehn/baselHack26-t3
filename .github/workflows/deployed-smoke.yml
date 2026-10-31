@@ -1,0 +1,70 @@
+name: deployed-smoke
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Never execute the deployment SHA or a pull request's smoke script with secrets.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Validate deployment identity and exact target
+        env:
+          TRUSTED_TARGETS: ${{ vars.DEPLOYED_SMOKE_TARGETS }}
+          TRUSTED_CREATOR_ID: ${{ vars.DEPLOYED_SMOKE_CREATOR_ID }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.parse import urlsplit
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          deployment = event["deployment"]
+          status = event["deployment_status"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          require(event["repository"]["full_name"] == repo, "Repository mismatch")
+          creator = os.environ["TRUSTED_CREATOR_ID"]
+          require(creator.isdigit(), "Configure DEPLOYED_SMOKE_CREATOR_ID")
+          require(str(deployment["creator"]["id"]) == creator
+                  and str(status["creator"]["id"]) == creator, "Untrusted deployment creator")
+          require(deployment["repository_url"] == "https://api.github.com/repos/" + repo,
+                  "Deployment repository mismatch")
+          try:
+              targets = json.loads(os.environ["TRUSTED_TARGETS"])
+              target = targets[deployment["environment"]]
+          except (ValueError, KeyError, TypeError):
+              raise SystemExit("Configure DEPLOYED_SMOKE_TARGETS for this environment") from None
+          require(status["environment"] == deployment["environment"], "Environment mismatch")
+          url = status.get("environment_url", "")
+          require(isinstance(target, dict) and url == target.get("origin"),
+                  "Target must exactly match an administrator-approved project origin")
+          parsed = urlsplit(url)
+          require(parsed.scheme == "https" and parsed.hostname and parsed.port in (None, 443)
+                  and not parsed.username and not parsed.password and not parsed.query
+                  and not parsed.fragment and parsed.path == ""
+                  and all(32 < ord(c) < 127 for c in url), "Invalid trusted HTTPS origin")
+          persona = target.get("persona_id", "")
+          import re
+          require(isinstance(persona, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", persona),
+                  "Configure a synthetic persona_id")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"SMOKE_BASE_URL={url}\nSMOKE_ALLOWED_ORIGIN={url}\nSMOKE_PERSONA_ID={persona}\n")
+          PY
+      - name: Check deployed frontend, proxy and session store
+        env:
+          SMOKE_AUTH_HEADER_NAME: ${{ vars.DEPLOYED_SMOKE_AUTH_HEADER_NAME }}
+          SMOKE_AUTH_HEADER_VALUE: ${{ secrets.DEPLOYED_SMOKE_AUTH_HEADER_VALUE }}
+          SMOKE_VERCEL_BYPASS_TOKEN: ${{ secrets.DEPLOYED_SMOKE_VERCEL_BYPASS_TOKEN }}
+        run: bash code/scripts/smoke.sh "$SMOKE_BASE_URL"
