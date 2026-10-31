@@ -1,5 +1,6 @@
 // One watcher per call. Disposal suppresses intentional close events and stale grace timers.
-export function watchConnection(pc: RTCPeerConnection, dc: RTCDataChannel, onLoss: () => void) {
+// onDisconnected fires even if the call recovers within the grace: words said meanwhile leave no event.
+export function watchConnection(pc: RTCPeerConnection, dc: RTCDataChannel, onLoss: () => void, onDisconnected: () => void) {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const clear = () => {
@@ -15,6 +16,7 @@ export function watchConnection(pc: RTCPeerConnection, dc: RTCDataChannel, onLos
     if (stopped) return;
     if (pc.connectionState === "failed" || pc.connectionState === "closed") fail();
     else if (pc.connectionState === "disconnected") {
+      onDisconnected();
       timer ??= setTimeout(fail, 5_000);
     } else if (pc.connectionState === "connected") clear();
   };

@@ -3,7 +3,7 @@
 // place is reserved when the provider announces it; text leaves for the immutable event stream only
 // once everything before it is final. A failed transcription is a hole: nothing is released past it.
 
-type Speaker = "interviewer" | "persona";
+export type Speaker = "interviewer" | "persona";
 
 /** One row of the transcript as shown. No text: speech still being transcribed (pending), or lost. */
 export type Turn = {

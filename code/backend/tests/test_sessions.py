@@ -53,6 +53,17 @@ def new_session(client) -> dict:
     return res.json()
 
 
+def test_sample_flag_defaults_off_and_survives_ending(client):
+    assert new_session(client)["sample"] is False
+    res = client.post(
+        "/api/sessions", json={"personaId": PERSONA["id"], "interviewGuide": ["Q1"], "sample": True}
+    )
+    assert res.json()["sample"] is True
+    ended = client.patch(f"/api/sessions/{res.json()['id']}", json={"status": "ended"})
+    assert ended.json()["sample"] is True and ended.json()["startedAt"] is None
+    assert client.get(f"/api/sessions/{res.json()['id']}").json()["sample"] is True
+
+
 def test_create_then_read(client):
     s = new_session(client)
     assert s["id"].startswith("s_") and s["status"] == "created"
@@ -117,7 +128,7 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
     assert session["audio"]["input"]["transcription"]["language"] == "de"
     assert session["audio"]["input"]["turn_detection"] == {
         "type": "semantic_vad",
-        "eagerness": "low",
+        "eagerness": "high",
     }
     assert session["audio"]["input"]["noise_reduction"] == {"type": "near_field"}
 

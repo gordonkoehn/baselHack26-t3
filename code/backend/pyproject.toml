@@ -1,12 +1,13 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "OpenTwin backend: personas, interview sessions and debriefs"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.162.0",
     "openai>=3.42.0",
+    "pillow>=13.0.0",
     "pypdf>=6.21.4",
     "upstash-redis>=1.8.0",
     "uvicorn[standard]>=0.54.0",
@@ -14,9 +15,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "fakeredis[lua]>=2.40.0",
     "httpx>=0.28.1",
     "jsonschema",
     "pytest>=9.2.0",
+    "python-dotenv>=1.2.4",
     "ruff>=0.17.3",
 ]
 

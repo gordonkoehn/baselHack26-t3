@@ -18,7 +18,7 @@ type WireEvent = {
 type SentEvent = {
   type: string;
   event_id?: string;
-  item?: { content: { type: string; text?: string }[] };
+  item?: { id?: string; content: { type: string; text?: string }[] };
 };
 
 declare global {
@@ -26,6 +26,8 @@ declare global {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
       lose: () => void;
+      connection: (state: RTCPeerConnectionState) => void;
+      voice: () => void;
       stale: (() => void)[];
       sent: SentEvent[];
       closed: boolean;
@@ -33,16 +35,21 @@ declare global {
       microphones: MediaStreamTrack[];
       audioConstraints: (boolean | MediaTrackConstraints | undefined)[];
       cameraRequests: number;
+      // camera: "pending" only: answers the open camera prompt with a synthetic video track.
+      grantCamera: () => void;
+      cameraTracks: MediaStreamTrack[];
     };
   }
 }
 
-export async function installRealtime(page: Page) {
-  await page.addInitScript(({ keepMicrophoneLive }) => {
+// camera "denied" refuses at once; "pending" leaves the prompt open until grantCamera().
+export async function installRealtime(page: Page, { camera = "denied" }: { camera?: "denied" | "pending" } = {}) {
+  await page.addInitScript(({ keepMicrophoneLive, camera }) => {
     const state: Window["e2eRealtime"] = {
       emit: () => { throw new Error("No realtime channel yet"); },
-      lose: () => {}, stale: [],
+      lose: () => {}, connection: () => {}, voice: () => {}, stale: [],
       sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
+      grantCamera: () => { throw new Error("No camera prompt open"); }, cameraTracks: [],
     };
     window.e2eRealtime = state;
     class Channel extends EventTarget {
@@ -59,11 +66,23 @@ export async function installRealtime(page: Page) {
     }
     class Peer extends EventTarget {
       channel = new Channel();
+      link: RTCPeerConnectionState = "connected";
+      get connectionState() { return this.link; }
+      ontrack: ((event: { streams: MediaStream[]; track: MediaStreamTrack }) => void) | null = null;
       addTrack() {}
       createDataChannel() {
+        // The persona's voice arriving: a silent synthetic track, for the avatar lifecycle.
+        state.voice = () => {
+          const stream = new AudioContext().createMediaStreamDestination().stream;
+          this.ontrack?.({ streams: [stream], track: stream.getAudioTracks()[0] });
+        };
         state.lose = () => {
           this.channel.readyState = "closed";
           this.channel.dispatchEvent(new Event("close"));
+        };
+        state.connection = (value) => {
+          this.link = value;
+          this.dispatchEvent(new Event("connectionstatechange"));
         };
         state.emit = (event) => this.channel.onmessage?.(new MessageEvent("message", { data: JSON.stringify(event) }));
         return this.channel;
@@ -87,6 +106,19 @@ export async function installRealtime(page: Page) {
       value: async (constraints: MediaStreamConstraints) => {
         if (constraints.video) {
           state.cameraRequests += 1;
+          if (camera === "pending") {
+            return new Promise<MediaStream>((resolve) => {
+              state.grantCamera = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = 64;
+                canvas.height = 48;
+                canvas.getContext("2d")!.fillRect(0, 0, 64, 48);
+                const stream = canvas.captureStream(1);
+                state.cameraTracks.push(stream.getVideoTracks()[0]);
+                resolve(stream);
+              };
+            });
+          }
           throw new DOMException("Camera is deliberately unavailable in this test", "NotAllowedError");
         }
         if (!constraints.audio) throw new Error("Expected an audio request");
@@ -102,9 +134,10 @@ export async function installRealtime(page: Page) {
       },
     });
     Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", {
+      configurable: true, // A test that shares its screen replaces this.
       value: () => Promise.reject(new Error("Screen capture is outside this test")),
     });
-  }, { keepMicrophoneLive: process.env.E2E_KEEP_MIC_LIVE === "1" });
+  }, { keepMicrophoneLive: process.env.E2E_KEEP_MIC_LIVE === "1", camera });
 }
 
 export async function emit(page: Page, event: WireEvent) {

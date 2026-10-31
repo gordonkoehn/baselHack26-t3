@@ -11,9 +11,11 @@ PAID_ROUTES = [
     "/api/personas",
     "/api/sources/pdf",
     "/api/sources/image",
+    "/api/guides/review",
     "/api/sessions/s_1/token",
     "/api/sessions/s_1/avatar-token",
     "/api/sessions/s_1/debrief",
+    "/api/mcp",
 ]
 
 

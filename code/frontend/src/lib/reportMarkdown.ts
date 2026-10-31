@@ -1,5 +1,7 @@
 import type { InsightReport } from "./contracts";
 
+export const TRANSCRIPT_GAPS = "This transcript may have gaps: part of the call may not have been captured, so this debrief only covers what was saved. A question with no quotes may just mean its answer was lost.";
+
 // Escape report text so headings, links, HTML and list markers remain literal content.
 function textLines(value: string): string[] {
   return value.replace(/\r\n?/g, "\n").split("\n").map((line) =>
@@ -22,17 +24,21 @@ export function reportMarkdownFilename(report: InsightReport, personaName: strin
 }
 
 /** Export only the saved report, with a stable UTC date and explicit synthetic-evidence caveats. */
-export function formatReportMarkdown(report: InsightReport, personaName: string): string {
+export function formatReportMarkdown(report: InsightReport, personaName: string, sample = false): string {
   const lines = [
     "# Debrief",
     "",
+    ...(sample ? ["**SAMPLE INTERVIEW: a scripted demo transcript with no live call. Nobody was interviewed.**", ""] : []),
+    ...(report.transcriptGaps ? [`**${TRANSCRIPT_GAPS}**`, ""] : []),
     `Persona: ${textLines(personaName).join("  \n")}`,
     "",
     `Date (UTC): ${reportDate(report) ?? "unavailable"}`,
     "",
     "Simulated AI persona: hypotheses, not customer evidence.",
     "",
-    'Quotes are from the simulated interview. "grounded" means the persona\'s sources also support the statement; "guess" means they do not. Neither is validated customer evidence.',
+    sample
+      ? 'Quotes are from the sample script, not from an interview. If the persona uses the prefilled example sources, they contain the same script, so "grounded" proves nothing here. Neither label is validated customer evidence.'
+      : 'Quotes are from the simulated interview. "grounded" means the persona\'s sources also support the statement; "guess" means they do not. Neither is validated customer evidence.',
   ];
 
   for (const [index, question] of report.questions.entries()) {
@@ -42,7 +48,7 @@ export function formatReportMarkdown(report: InsightReport, personaName: string)
     for (const insight of question.insights) {
       lines.push(`- **[${insight.label}]** ${textLines(insight.theme).join("  \n  ")}`, "",
         ...textLines(insight.quote).map((line) => `  > ${line}${line ? "  " : ""}`), "",
-        `  Interview turn ${insight.turnSeq} · ${insight.label === "grounded" ? "also in the persona's sources" : "not backed by the persona's sources"}`, "");
+        `  ${sample ? "Sample script turn" : "Interview turn"} ${insight.turnSeq} · ${insight.label === "grounded" ? "also in the persona's sources" : "not backed by the persona's sources"}`, "");
     }
     lines.push("### Follow-up questions for real customers", "");
     if (!question.followUps?.length) lines.push("No follow-up questions recorded.");

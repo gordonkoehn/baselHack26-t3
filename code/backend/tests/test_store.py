@@ -1,11 +1,13 @@
+import itertools
 import json
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from app.contracts import InsightReport, Persona, Session, SessionEvent
-from app.store import TTL_SECONDS, EventConflict, Store, StoreUnavailable
+from app.store import PERSONA_LIST_SIZE, TTL_SECONDS, EventConflict, Store, StoreUnavailable
 from tests.fakes import FakeRedis
 
 EXAMPLES = Path(__file__).parents[2] / "shared" / "examples"
@@ -101,6 +103,103 @@ def test_concurrent_appends_store_each_seq_once(redis):
         t.join()
     assert sum(added) == 1
     assert len(store.get_events(event.session_id)) == 1
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    ticks = itertools.count(1_700_000_000)
+    monkeypatch.setattr(time, "time", lambda: next(ticks))
+
+
+def persona(persona_id: str) -> Persona:
+    return Persona.model_validate(load("persona.json")).model_copy(update={"id": persona_id})
+
+
+def test_list_is_newest_first_with_summary_fields(redis, clock):
+    store = Store(redis)
+    store.save_persona(persona("p_old"))
+    store.save_persona(persona("p_new"))
+    assert [p.model_dump(by_alias=True) for p in store.list_personas()] == [
+        {
+            "id": "p_new",
+            "name": "Sandra",
+            "role": "HR specialist, 80 %",
+            "createdAt": "2023-11-14T22:13:21Z",
+            "readiness": persona("p_new").readiness.model_dump(),
+        },
+        {
+            "id": "p_old",
+            "name": "Sandra",
+            "role": "HR specialist, 80 %",
+            "createdAt": "2023-11-14T22:13:20Z",
+            "readiness": persona("p_old").readiness.model_dump(),
+        },
+    ]
+
+
+def test_list_keeps_only_the_newest_personas(redis, clock):
+    store = Store(redis)
+    for i in range(PERSONA_LIST_SIZE + 1):
+        store.save_persona(persona(f"p_{i:02}"))
+    assert [p.id for p in store.list_personas()] == [
+        f"p_{i:02}" for i in range(PERSONA_LIST_SIZE, 0, -1)
+    ]
+    assert len(redis.data["ot:personas"]) == PERSONA_LIST_SIZE
+
+
+def test_saving_again_keeps_creation_time_and_shows_the_change(redis, clock):
+    store = Store(redis)
+    store.save_persona(persona("p_a"))
+    store.save_persona(persona("p_b"))
+    created = store.list_personas()[1].created_at
+    store.save_persona(persona("p_a").model_copy(update={"name": "Renamed"}))
+    assert [(p.id, p.name) for p in store.list_personas()] == [
+        ("p_b", "Sandra"),
+        ("p_a", "Renamed"),
+    ]
+    assert store.list_personas()[1].created_at == created
+
+
+def test_list_skips_expired_personas(redis, clock):
+    store = Store(redis)
+    store.save_persona(persona("p_a"))
+    store.save_persona(persona("p_b"))
+    del redis.data["ot:persona:p_b"]
+    assert [p.id for p in store.list_personas()] == ["p_a"]
+
+
+def test_list_skips_a_persona_the_contract_cannot_read(redis, clock):
+    store = Store(redis)
+    store.save_persona(persona("p_old_contract"))
+    store.save_persona(persona("p_ok"))
+    stored = json.loads(redis.data["ot:persona:p_old_contract"])
+    del stored["voiceId"]
+    redis.data["ot:persona:p_old_contract"] = json.dumps(stored)
+    assert [p.id for p in store.list_personas()] == ["p_ok"]
+
+
+def test_empty_list_needs_no_persona_reads(redis):
+    assert Store(redis).list_personas() == []
+
+
+def test_persona_index_has_the_shared_ttl(redis):
+    Store(redis).save_persona(persona("p_a"))
+    assert redis.ttl["ot:personas"] == TTL_SECONDS
+
+
+def test_edit_keeps_the_expiry_so_a_persona_never_outlives_its_sources(redis):
+    store = Store(redis)
+    store.save_persona(persona("p_a"))
+    redis.ttl["ot:persona:p_a"] = 60  # as old as its sources by now
+    store.update_persona(persona("p_a").model_copy(update={"name": "Edited"}))
+    assert store.get_persona("p_a").name == "Edited"
+    assert redis.ttl["ot:persona:p_a"] == 60
+
+
+def test_edit_does_not_revive_a_persona_that_expired_meanwhile(redis):
+    store = Store(redis)
+    store.update_persona(persona("p_gone"))
+    assert store.get_persona("p_gone") is None
 
 
 def test_all_keys_share_one_ttl(redis):

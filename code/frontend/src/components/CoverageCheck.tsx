@@ -1,0 +1,226 @@
+"use client";
+
+import { useState } from "react";
+import type { CoverageCriterion } from "@/lib/contracts";
+import type { Coverage } from "@/lib/useCoverage";
+
+const STATUS: Record<CoverageCriterion["status"], { label: string; className: string }> = {
+  covered: { label: "covered", className: "bg-accent-soft text-accent" },
+  guessed: { label: "guessed", className: "bg-line text-foreground" },
+  missing: { label: "missing", className: "bg-alert-tint text-on-alert" },
+};
+
+export function CoverageCheck({ coverage }: { coverage: Coverage }) {
+  const { goal, setGoal, criteria, setCriteria, report, current, answers, setAnswers, checking, submitting, busy, error, stale, personaChanged, check, submit } = coverage;
+  const [newCriterion, setNewCriterion] = useState("");
+
+  const given = (report?.questions ?? [])
+    .map((question, i) => ({ question, answer: answers[i]?.trim() ?? "" }))
+    .filter((a) => a.answer);
+
+  // The row being edited and what the team writes for it.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [rowText, setRowText] = useState("");
+
+  return (
+    <section className="rounded-xl border border-line bg-surface p-5 shadow-sm" data-testid="coverage-check">
+      <h2 className="text-xl font-semibold tracking-tight">Is this persona good enough for your test?</h2>
+      <p className="text-sm text-muted">
+        Checks what the persona really knows against what you will test, and asks you for what is missing.
+      </p>
+      <label className="mt-4 block text-sm font-medium" htmlFor="test-goal">
+        What will you test with this persona?
+      </label>
+      <textarea
+        id="test-goal"
+        className="mt-1 h-20 w-full rounded-md border border-line bg-surface p-2 text-sm"
+        value={goal}
+        onChange={(e) => setGoal(e.target.value)}
+        disabled={busy}
+      />
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        {criteria.map((c) => (
+          <span key={c} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5">
+            {c}
+            <button
+              type="button"
+              className="text-muted hover:text-foreground"
+              aria-label={`Remove criterion: ${c}`}
+              onClick={() => setCriteria(criteria.filter((x) => x !== c))}
+              disabled={busy}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {criteria.length < 8 && (
+          <input
+            aria-label="Add your own criterion"
+            placeholder="+ own criterion, e.g. cares about design"
+            className="min-w-56 flex-1 rounded-md border border-line bg-surface px-2 py-1"
+            value={newCriterion}
+            maxLength={120}
+            onChange={(e) => setNewCriterion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const c = newCriterion.trim();
+              if (c && !criteria.some((x) => x.toLowerCase() === c.toLowerCase())) setCriteria([...criteria, c]);
+              setNewCriterion("");
+            }}
+            disabled={busy}
+          />
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-40"
+          onClick={() => void check()}
+          disabled={busy || !goal.trim()}
+        >
+          {checking ? "Checking…" : report ? "Check again" : "Check coverage"}
+        </button>
+        {stale && (
+          <span className="text-sm text-muted">The {personaChanged ? "persona" : "test"} changed since this check.</span>
+        )}
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-3 rounded-md bg-alert-tint p-3 text-sm text-on-alert">
+          {error}
+        </p>
+      )}
+
+      {report && (
+        <div className="mt-4">
+          <p className="flex flex-wrap items-baseline gap-3">
+            <span className="text-3xl font-semibold tabular-nums" data-testid="coverage-score">
+              {Math.round(report.score * 100)}%
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                current?.overall === "good_enough"
+                  ? "bg-accent-soft text-accent"
+                  : current?.overall === "add_more"
+                    ? STATUS.missing.className
+                    : "bg-line text-muted"
+              }`}
+              data-testid="coverage-verdict"
+            >
+              {stale
+                ? "Needs a new check."
+                : current?.overall === "good_enough"
+                  ? "Good enough to test."
+                  : current?.overall === "add_more"
+                    ? "Add more first."
+                    : "Not checked"}
+            </span>
+          </p>
+          <ul className="mt-3 divide-y divide-line text-sm">
+            {report.criteria.map((c) => (
+              <li key={c.name} className="flex flex-wrap items-baseline gap-x-2 py-1.5">
+                <span className={`inline-block w-16 rounded px-1.5 py-0.5 text-center text-xs font-medium ${STATUS[c.status].className}`}>
+                  {/* One quote counts less in the score (0.75); say so instead of a plain "covered". */}
+                  {c.status === "covered" && c.evidenceIds.length === 1 ? "thin" : STATUS[c.status].label}
+                </span>
+                <span className="font-medium">
+                  {c.name}
+                  {c.custom && <span className="ml-1 text-xs font-normal text-muted">(yours)</span>}
+                </span>
+                <span className="text-xs text-muted" aria-label={`weight ${c.weight} of 3`}>
+                  {"●".repeat(c.weight)}
+                  {"○".repeat(3 - c.weight)}
+                </span>
+                {editing !== c.name && (
+                  <button
+                    type="button"
+                    className="ml-auto text-xs text-muted hover:text-foreground disabled:opacity-40"
+                    aria-label={`Edit: ${c.name}`}
+                    onClick={() => {
+                      setEditing(c.name);
+                      setRowText("");
+                    }}
+                    disabled={busy}
+                  >
+                    edit
+                  </button>
+                )}
+                <span className="basis-full pl-[4.5rem] text-muted">
+                  {c.note}
+                  {c.evidenceIds.length > 0 && ` · ${c.evidenceIds.join(", ")}`}
+                </span>
+                {editing === c.name && (
+                  <form
+                    className="basis-full space-y-2 pt-2 pl-[4.5rem]"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const answer = rowText.trim();
+                      if (!answer || busy) return;
+                      if (await submit([{ question: `${c.name}: ${c.note}`, answer }])) setEditing(null);
+                    }}
+                  >
+                    <textarea
+                      aria-label={`What you know about real customers: ${c.name}`}
+                      className="h-20 w-full rounded-md border border-line bg-surface p-2"
+                      placeholder={
+                        c.status === "covered"
+                          ? "Correct or add to this, from what you know about real customers…"
+                          : "What do you know about real customers here?"
+                      }
+                      value={rowText}
+                      onChange={(e) => setRowText(e.target.value)}
+                      disabled={busy}
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        className="rounded-md border border-line bg-surface px-3 py-1.5 hover:border-muted disabled:opacity-40"
+                        disabled={busy || !rowText.trim()}
+                      >
+                        {submitting ? "Adding to persona…" : "Save to persona"}
+                      </button>
+                      <button type="button" className="px-2 text-muted hover:text-foreground" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {report.questions.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <p className="text-sm font-medium">Fill the gaps: answer what you know about real customers</p>
+              {report.questions.map((q, i) => (
+                <label key={q} className="block text-sm">
+                  {q}
+                  <textarea
+                    className="mt-1 h-16 w-full rounded-md border border-line bg-surface p-2"
+                    value={answers[i] ?? ""}
+                    onChange={(e) => setAnswers({ ...answers, [i]: e.target.value })}
+                    disabled={busy}
+                  />
+                </label>
+              ))}
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted disabled:opacity-40"
+                  onClick={() => submit(given)}
+                  disabled={busy || given.length === 0}
+                >
+                  {submitting ? "Adding to persona…" : "Add answers to persona"}
+                </button>
+                <span className="text-sm text-muted">or go to the interview anyway.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

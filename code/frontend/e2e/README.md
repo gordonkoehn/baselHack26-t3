@@ -14,12 +14,12 @@ The browser drives sample sources → persona → live interview → typed and s
 turns → end/save → debrief with exact existing fixture quotes. It verifies ordered stored
 turns, provider redelivery deduplication, waiting for the last response, microphone/connection
 cleanup, modal opening/closing, the visible expanded final transcript and report turn attribution. The error scenarios check an accessible connection
-failure with preserved sources and successful retry, plus incomplete transcription with no
-end marker and a real 409 debrief response.
+failure with preserved sources and successful retry, plus a failed turn that still reaches a
+debrief marked as having gaps, on the room and the shared report.
 
 Real: Next UI/handlers/proxy, FastAPI routes/contracts, persona evidence checks, Store
 serialization/event sequencing, session transitions, debrief input/quote checks and saved
-report. Fake: deterministic extraction outputs from shared examples, token provider client,
+report. Fake: deterministic extraction outputs from shared examples, readiness probe answers, token provider client,
 existing FakeRedis transport, SDP/WebRTC data channel and a silent synthetic microphone track.
 Camera requests are explicitly rejected and the visible voice-only fallback is checked. Every
 original microphone track is retained for cleanup assertions; closing the fake peer does not
@@ -49,6 +49,18 @@ and commits they belong to, with independent response/output item IDs and `previ
 It checks the UI and stored order, retry payloads, failed/missing/lost input and the debrief
 turn numbers. The events are synthetic: real provider timing still needs a manual walkthrough.
 
+## Demo fallbacks (#74)
+
+`demo-fallbacks.spec.ts` covers the avatar off switch, cancelling a call stuck connecting, and the
+sample interview. The avatar runs
+the real SDK against a mocked token and a fake Simli websocket; only its first-frame and socket
+failure events are fired by the test (they need a real LiveKit video track and a real socket
+failure), through a `Map.prototype.set` hook on the SDK's private event table, so a `simli-client`
+upgrade may need that hook adjusted. No real
+Simli video or audible voice handover is claimed. The sample interview runs through the real
+routes, store and debrief checks with the fixed fake debrief, so its report has no insights; the
+label on quotes and exports is checked with a mocked saved report.
+
 ## Transcript finalization (#99)
 
 `finalization.spec.ts` adds behavioral checks for End during active speech, a conditional
@@ -64,7 +76,12 @@ with and without a connection-loss event. Captured startup turns remain visible 
 through incomplete finalization; a delayed live mutation after ended receives 409 and cannot
 change endedAt. The backend enforces this ordering atomically, without client mutation fences.
 Startup timeout cases also exercise hung POST/PATCH Save again recovery with the same
-payload/seq, visible captured turns and the incomplete debrief gate.
+payload/seq, visible captured turns and the debrief gate for calls that never went live. A
+call that did go live always gets an end marker: lost turns set `transcriptGaps` on it and the
+debrief says so (#156). A drop always counts, since turns it cut off leave no event, and so does
+any `disconnected` report during the call or the drain, even if it recovers. On a healthy
+connection, audio still playing after End is not a lost turn. Audio heard with no saved words
+is, and so are saved words answering speech that transcribed to nothing.
 It also covers server playback drain, empty/failed transcription, cancelled/
 failed/incomplete answers, bounded ten-second recovery and explicit continuation, incomplete
 close, generation isolation, response rejection, connection loss during drain/recovery, and

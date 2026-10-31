@@ -1,4 +1,4 @@
-"""Shared demo passcode for the routes that spend provider credit (#67).
+"""Shared demo passcode for the routes that spend provider credit (#67) and the persona list (#93).
 
 Local dev and tests run without DEMO_PASSCODE. On Vercel a missing passcode fails closed, so the
 public URL can't spend credit by accident.

@@ -8,6 +8,7 @@ from app import avatar, realtime
 from app.auth import require_passcode
 from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
 from app.extract import ProviderUnavailable
+from app.rate_limit import rate_limit
 from app.store import SessionConflict, Store, get_store
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -38,6 +39,7 @@ def create_session(body: SessionCreate, store: StoreDep) -> Session:
         # The browser connects to realtime.CALLS_URL with the token; there's no room to join.
         join_url=None,
         interview_guide=body.interview_guide,
+        sample=body.sample,
     )
     store.save_session(session)
     return session
@@ -60,7 +62,9 @@ def update_session(session_id: str, body: SessionUpdate, store: StoreDep) -> Ses
 
 
 @router.post(
-    "/{session_id}/token", response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+    "/{session_id}/token",
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("tokens"))],
 )
 def session_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
     session = _load(store, session_id)
@@ -84,7 +88,7 @@ def session_token(session_id: str, response: Response, store: StoreDep) -> Sessi
 @router.post(
     "/{session_id}/avatar-token",
     response_model_by_alias=True,
-    dependencies=[Depends(require_passcode)],
+    dependencies=[Depends(require_passcode), Depends(rate_limit("tokens"))],
 )
 def avatar_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
     """Short-lived Simli token for the persona's face; the browser opens the avatar stream itself."""
