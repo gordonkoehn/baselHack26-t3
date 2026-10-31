@@ -1,4 +1,4 @@
-// Copy of documentation/testcase-quartier-boerse.md, used to prefill the demo source.
+// Copy of documentation/testcase-quartier-boerse.md below its status banner, used to prefill the example source.
 export const QUARTIER_BOERSE = `# Test case: Quartier-Börse
 
 The sprint case we demo and test the twin against. Source: the "Prototype" frame on the team Miro board (prototype + interview guide, 30 min timebox).
