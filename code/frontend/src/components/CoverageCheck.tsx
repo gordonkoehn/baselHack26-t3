@@ -11,7 +11,7 @@ const STATUS: Record<CoverageCriterion["status"], { label: string; className: st
 };
 
 export function CoverageCheck({ coverage }: { coverage: Coverage }) {
-  const { goal, setGoal, criteria, setCriteria, report, answers, setAnswers, checking, submitting, busy, error, stale, personaChanged, check, submit } = coverage;
+  const { goal, setGoal, criteria, setCriteria, report, current, answers, setAnswers, checking, submitting, busy, error, stale, personaChanged, check, submit } = coverage;
   const [newCriterion, setNewCriterion] = useState("");
 
   const given = (report?.questions ?? [])
@@ -101,10 +101,21 @@ export function CoverageCheck({ coverage }: { coverage: Coverage }) {
             </span>
             <span
               className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                report.recommendation === "ready" ? "bg-accent-soft text-accent" : STATUS.missing.className
+                current?.overall === "good_enough"
+                  ? "bg-accent-soft text-accent"
+                  : current?.overall === "add_more"
+                    ? STATUS.missing.className
+                    : "bg-line text-muted"
               }`}
+              data-testid="coverage-verdict"
             >
-              {report.recommendation === "ready" ? "Covers this test" : "Gaps to fill"}
+              {stale
+                ? "Needs a new check."
+                : current?.overall === "good_enough"
+                  ? "Good enough to test."
+                  : current?.overall === "add_more"
+                    ? "Add more first."
+                    : "Not checked"}
             </span>
           </p>
           <ul className="mt-3 divide-y divide-line text-sm">
