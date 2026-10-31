@@ -88,6 +88,19 @@
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } }
       }
     },
+    "PersonaUpdate": {
+      "type": "object",
+      "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. Bumps version.",
+      "properties": {
+        "jobs": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
+        "pains": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
+        "objections": { "type": "array", "items": { "$ref": "#/$defs/Fact" } },
+        "speechStyle": {
+          "type": "object",
+          "properties": { "notes": { "type": ["string", "null"] } }
+        }
+      }
+    },
     "PersonaSource": {
       "type": "object",
       "required": ["kind", "text"],
@@ -265,6 +278,7 @@
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
+    "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "Text layer first; scanned PDFs (no text layer, max 20 pages) are transcribed by the vision model. 413 over 10 MB, 100 pages (20 if scanned) or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no readable text; 502/503 transcription failed or provider unavailable." },
     "POST /api/sources/image": { "body": "raw PNG, JPEG, WebP or GIF bytes (max 10 MB, format sniffed from the bytes)", "response": "ExtractedText", "status": "draft", "note": "Visible text transcribed verbatim by the vision model. 413 over 10 MB or 200,000 characters; 422 not a supported image or no readable text; 502 unusable transcription; 503 provider unavailable." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
