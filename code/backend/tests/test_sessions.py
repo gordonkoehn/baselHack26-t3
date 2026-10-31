@@ -188,6 +188,7 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
         "type": "semantic_vad",
         "eagerness": "low",
     }
+    assert session["audio"]["input"]["noise_reduction"] == {"type": "near_field"}
 
 
 def test_token_instructions_carry_product_material_and_guide(client, secrets):
@@ -223,6 +224,12 @@ def test_model_and_voice_configurable(client, secrets, monkeypatch):
     assert (
         session["model"] == "gpt-realtime-test" and session["audio"]["output"]["voice"] == "cedar"
     )
+
+
+def test_noise_reduction_configurable(client, secrets, monkeypatch):
+    monkeypatch.setenv("OPENAI_REALTIME_NOISE_REDUCTION", "far_field")
+    client.post(f"/api/sessions/{new_session(client)['id']}/token")
+    assert secrets.calls[0]["session"]["audio"]["input"]["noise_reduction"] == {"type": "far_field"}
 
 
 def test_voice_comes_from_persona():

@@ -23,6 +23,7 @@ declare global {
       closed: boolean;
       channelClosed: boolean;
       microphones: MediaStreamTrack[];
+      audioConstraints: (boolean | MediaTrackConstraints | undefined)[];
       cameraRequests: number;
     };
   }
@@ -33,7 +34,7 @@ export async function installRealtime(page: Page) {
     const state: Window["e2eRealtime"] = {
       dropChannel: () => { throw new Error("No realtime channel yet"); },
       emit: () => { throw new Error("No realtime channel yet"); },
-      sent: [], closed: false, channelClosed: false, microphones: [], cameraRequests: 0,
+      sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
     };
     window.e2eRealtime = state;
     class Channel extends EventTarget {
@@ -74,6 +75,7 @@ export async function installRealtime(page: Page) {
           throw new DOMException("Camera is deliberately unavailable in this test", "NotAllowedError");
         }
         if (!constraints.audio) throw new Error("Expected an audio request");
+        state.audioConstraints.push(constraints.audio);
         // A silent synthetic track; no OS microphone or screen permission is requested.
         const audio = new AudioContext();
         const stream = audio.createMediaStreamDestination().stream;

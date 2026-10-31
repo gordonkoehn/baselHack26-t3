@@ -92,6 +92,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const pc = useRef<RTCPeerConnection | null>(null);
   const channel = useRef<RTCDataChannel | null>(null);
   const mic = useRef<MediaStream | null>(null);
+  // Muted: the mic track sends silence, so room talk can't start a turn; typing still works.
+  const [muted, setMuted] = useState(false);
   // The interviewer's camera: shown to them in the popup and sent to the persona as still frames.
   const [cam, setCam] = useState<MediaStream | null>(null);
   const camStream = useRef<MediaStream | null>(null);
@@ -246,6 +248,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     if (audio.current) audio.current.srcObject = null;
     setVoice(null);
     setCam(null);
+    setMuted(false);
   }
 
   function loseConnection(g: number) {
@@ -461,7 +464,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         if (audio.current) audio.current.srcObject = ev.streams[0];
         setVoice(ev.track);
       };
-      const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Ask the browser to filter echo and room noise (ideal values: ignored where unsupported).
+      const microphone = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       if (!current()) {
         microphone.getTracks().forEach((t) => t.stop());
         return;
@@ -746,6 +752,18 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
               <button type="button" className={btn} onClick={end}>
                 End interview
               </button>
+              <button
+                type="button"
+                className={btn}
+                aria-pressed={muted}
+                onClick={() => {
+                  mic.current?.getAudioTracks().forEach((t) => (t.enabled = muted));
+                  setMuted(!muted);
+                }}
+              >
+                {muted ? "Unmute mic" : "Mute mic"}
+              </button>
+              {muted && <span className="text-sm text-muted">Mic muted, type your question instead.</span>}
               <ScreenShareButton pc={pc} ask={askWith} />
             </>
           )}
