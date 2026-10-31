@@ -4,24 +4,26 @@ One structured run of the full demo on **https://baselhack26-t3-web.vercel.app**
 
 How to fill it in: copy the file (or edit it in a PR), set **Result** to `Pass`, `Fail`, `Skipped` or `Untested` for every row, and write what you actually saw under **Notes** (exact message text, timings, counts). A row you could not run stays `Untested`, never `Pass`.
 
-The original UI/backend expectations were written at `90e25e1`; language defaults, guide/session lifecycle, fullscreen Script/Transcript and Score navigation were source-checked at `main` commit `762ea99`, with #170 and #183 merged. Real-model, production and manual acceptance remain open. This correction includes no deployed-app, provider or manual run: all rows remain **Untested**. If the text on screen differs, write down what it says.
+The original UI/backend expectations were written at `90e25e1`; language defaults, guide/session lifecycle, fullscreen Script/Transcript and Score navigation were source-checked at `main` commit `762ea99`, with #170 and #183 merged. Those source-derived expectations are preserved below. The current partial native checkpoint is recorded separately in [Native evidence for #75](qa-evidence-75.md), including narrowly scoped subcase results. All **39 full checklist rows remain Untested** for this checkpoint; #75 remains open. If the text on screen differs, write down what it says.
 
 ## Run details
 
 | Field | Value |
 |---|---|
-| Date and time | |
-| Tester | |
-| Deployed commit | |
-| Browser and version | |
-| OS and device | |
-| Microphone and speakers (headset, laptop, external) | |
-| Network (venue Wi-Fi, hotspot, home) | |
-| Persona used (name, language) | |
+| Date and time | 2026-10-31; native observations recorded at 22:30:28 UTC (23:30:28 Europe/Zurich). Individual interaction times not supplied. Partial checkpoint. |
+| Tester | Codex using native browser automation (CUA accessibility trees and screenshots) in real installed Chrome and Safari. |
+| Deployed commit | Frontend `50d34cb75351eefd1e8a69a462f1817a2064a99f`, mapped by public `dpl_EZEhDD2JXDMXUKk6JAdagkDENhuE` to the supplied successful Vercel web status. Exact backend revision unconfirmed. See evidence report. |
+| Browser and version | Chrome 156.0.8078.74 (build 8078.74); Safari 26.6.2 (build 21624.5.1.11.3). Native partial cases, no full browser pass. |
+| OS and device | macOS 26.6.2; desktop surface. Device model and screen dimensions not recorded. No physical phone tested. |
+| Microphone and speakers (headset, laptop, external) | Untested; no real voice or person spoken. Hardware not recorded. |
+| Network (venue Wi-Fi, hotspot, home) | Not recorded. Production frontend and backend-rendered sample report observed. |
+| Persona used (name, language) | Existing fictional Miriam Kessler in Safari; four Lumen guide lines. UI defaults to English; saved persona language and spoken language not independently recorded. |
+
+**Current limits:** Chrome authenticated QA remains **pending / Untested**, not Skipped; the address bar was presented for the existing valid team link and input is pending. At 22:41:05 UTC, both native browser handles became unavailable (`cgWindowNotFound`); fresh selection and one CUA reset failed. This blocks further automation and is a tool limitation, not an app Fail. Safari's scripted sample supports only the separate subcase results, including six UI quote fragments. Clipboard feedback succeeded, but TextEdit readback timed out and no matching download file was found in default Downloads; export content/integrity remains Untested. [Native evidence for #75](qa-evidence-75.md) records the boundaries. No new QA execution or results occurred in this documentation follow-up.
 
 **Reading the deployed commit:** the app shows no version. Open the Vercel dashboard for the `baselhack26-t3-web` project (and the `*-api` backend project), open the current production deployment and copy the commit SHA it was built from. Or run `vercel ls baselhack26-t3-web` and `vercel inspect <url>` if you have the CLI linked. Write both SHAs if frontend and backend differ.
 
-**Before you start:** open the app through the existing team link with `?code=…`. When the backend has a demo passcode configured, missing or wrong codes return HTTP 401 with detail "passcode missing or wrong: open the team link" on persona creation, PDF/image extraction, token and debrief requests. Text files are read locally and need no passcode. The UI renders that 401 differently: persona creation shows "This needs the team link with the passcode. Ask in Discord."; PDF/image imports show `<file name>: passcode missing or wrong: open the team link`; voice-token failure shows "Could not start (401): passcode missing or wrong: open the team link"; debrief creation shows "Debrief failed (401): passcode missing or wrong: open the team link". Local development without a configured passcode allows these requests; Vercel without one returns 503 "demo passcode not configured" instead. Record the actual status and UI text; do not expect one shared message for every route.
+**Before you start (source-derived expectations, not measured native HTTP statuses):** open the app through the existing team link with `?code=…`. When the backend has a demo passcode configured, missing or wrong codes return HTTP 401 with detail "passcode missing or wrong: open the team link" on persona creation, PDF/image extraction, token and debrief requests. Text files are read locally and need no passcode. The UI renders that 401 differently: persona creation shows "This needs the team link with the passcode. Ask in Discord."; PDF/image imports show `<file name>: passcode missing or wrong: open the team link`; voice-token failure shows "Could not start (401): passcode missing or wrong: open the team link"; debrief creation shows "Debrief failed (401): passcode missing or wrong: open the team link". Local development without a configured passcode allows these requests; Vercel without one returns 503 "demo passcode not configured" instead. Record the actual status and UI text; do not expect one shared message for every route.
 
 Check that `https://baselhack26-t3-web.vercel.app/api/health` returns `{"status":"ok"}`. Rehearsals count against the hourly rate limits (see `DEMO-RUNBOOK.md`); a "Too many requests … Try again in n min." message is a limit, not a bug in the row you are testing.
 
@@ -95,7 +97,7 @@ Related: #58 and #59. Run each case in a fresh call.
 | 5.4 | End while the twin speaks | Press **End interview** in the middle of a persona answer. | Status shows "Checking the final provider events", then "Saving captured text" and "Closing the saved session" with seconds elapsed. Ends with "Ended. Microphone and camera are off, transcript saved." and a debrief. If the answer's audio outlasts the wait, the room closes by itself about 10 seconds after End and the rest of the audio is cut off, with its words saved. If a turn may have been lost, it ends instead with "Ended. Microphone and camera are off. This transcript may have gaps: part of the call may not have been captured." and the debrief carries the same warning. A warning can be false: record whether anything was really missing. Each completed turn appears once. | Untested | |
 | 5.5 | End during your last sentence | Press **End interview** while you are still speaking. | Same as 5.4. If the wait limit hits: "The wait limit was reached. Capture is off." with **Continue waiting (10 seconds)** and **Close without it**. Record the elapsed seconds. | Untested | |
 | 5.6 | Save failure | (Optional) Go offline right after **End interview**. | "Could not finish saving (n/m events stored). The call is closed. Choose Save again to retry." Back online, **Save again** completes. | Untested | |
-| 5.7 | Turn order | Look at the whole transcript after a call. | Turns are in spoken order. An out-of-order turn is the known bug #110: record it there, not as a new issue. | Untested | |
+| 5.7 | Turn order | Look at the whole transcript after a call. | Turns are in spoken order, also when your speech finishes transcribing after the persona's answer. Text that arrives after its place has passed goes to the end of the transcript and nothing on screen says so, so check the order by reading it. An out-of-order turn is a Fail: record the turns in a new issue. | Untested | |
 | 5.8 | Avatar off and on | During a live call press **Turn avatar off**, then **Turn avatar on**. | "Avatar off, voice only." and the voice keeps playing. Turning it on brings a new face. | Untested | |
 
 ## 6. Debrief
@@ -129,4 +131,4 @@ Every Fail becomes its own bug issue, linked from #75. Use one line per issue:
 
 Example: `[QA #75] Sources: 6 MB PDF shows "Request Entity Too Large" (expected: PDF larger than 10 MB); Chrome 130/macOS, commit abc1234, row 4.5`.
 
-Post the filled-in table as a comment on #75 or commit it here. Known open items stay where they are: turn order (#110), selected-board snapshots (#136).
+Post the filled-in table as a comment on #75 or commit it here. The known open item stays where it is: selected-board snapshots (#136).

@@ -211,6 +211,16 @@
     },
 
     "Provider": { "enum": ["openai-realtime", "simli"], "description": "Which realtime vendor the browser joins." },
+    "Product": {
+      "type": "object",
+      "description": "What the sprint tests. The persona hears the name and description as background; the debrief uses the product as context. The prototype URL is a reference stored with the session and report, not evidence of browsing.",
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "What it is, who it is for and what the prototype shows, in plain words." },
+        "prototypeUrl": { "type": ["string", "null"], "maxLength": 500, "description": "Link to the prototype, for the team's reference. The persona never opens it; it only sees the shared screen." }
+      }
+    },
     "Session": {
       "type": "object",
       "required": ["id", "personaId", "status", "provider"],
@@ -224,7 +234,8 @@
         "readySeconds": { "type": ["number", "null"], "description": "Sources submitted to persona interview-ready." },
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
         "endedAt": { "type": ["string", "null"], "format": "date-time" },
-        "sample": { "type": "boolean", "description": "Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so." }
+        "sample": { "type": "boolean", "description": "Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so." },
+        "product": { "oneOf": [{ "$ref": "#/$defs/Product" }, { "type": "null" }], "description": "The product under test, if the team described one." }
       }
     },
     "SessionCreate": {
@@ -233,7 +244,8 @@
       "properties": {
         "personaId": { "type": "string" },
         "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." },
-        "sample": { "type": "boolean", "description": "See Session.sample." }
+        "sample": { "type": "boolean", "description": "See Session.sample." },
+        "product": { "oneOf": [{ "$ref": "#/$defs/Product" }, { "type": "null" }], "description": "See Session.product." }
       }
     },
     "SessionUpdate": {

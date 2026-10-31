@@ -571,6 +571,9 @@ def test_sdk_structured_output_uses_existing_model_and_supplies_saved_data(input
     assert data["interviewGuide"] == session.interview_guide
     assert data["events"] == [event.model_dump(by_alias=True) for event in events]
     assert data["persona"] == persona.model_dump(by_alias=True)
+    # The debrief knows what was tested, so findings read against the product, not in a vacuum.
+    assert data["product"] == session.product.model_dump(mode="json", by_alias=True)
+    assert "never as a finding or a quote" in call["instructions"]
     assert "real-customer validation" in call["instructions"]
 
 

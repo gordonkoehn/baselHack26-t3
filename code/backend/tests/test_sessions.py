@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import avatar, realtime
-from app.contracts import Persona, PersonaCreate
+from app.contracts import Persona, PersonaCreate, PersonaSource, Product
 from app.main import app
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
@@ -150,6 +150,52 @@ def test_token_instructions_carry_product_material_and_guide(client, secrets):
     assert "Kilo-Shares slider screen" in text and "- Q1" in text
     # Transcripts are already distilled into the facts, so they stay out of the prompt.
     assert "secret interview words" not in text
+
+
+PRODUCT = {
+    "name": "GlowPot",
+    "description": "A smart plant pot that waters itself and reports soil moisture in an app.",
+    "prototypeUrl": "https://example.com/glowpot",
+}
+
+
+def test_product_is_stored_on_the_session_and_optional(client):
+    assert new_session(client)["product"] is None
+    res = client.post(
+        "/api/sessions",
+        json={"personaId": PERSONA["id"], "interviewGuide": ["Q1"], "product": PRODUCT},
+    )
+    assert res.status_code == 201 and res.json()["product"] == PRODUCT
+    assert client.get(f"/api/sessions/{res.json()['id']}").json()["product"] == PRODUCT
+
+
+@pytest.mark.parametrize(
+    "product",
+    [{"name": "", "description": "x"}, {"name": "x", "description": ""}, {"name": "x"}],
+)
+def test_product_needs_a_name_and_a_description(client, product):
+    res = client.post("/api/sessions", json={"personaId": PERSONA["id"], "product": product})
+    assert res.status_code == 422
+
+
+def test_token_instructions_carry_the_product_brief_but_not_its_link(client, secrets):
+    res = client.post(
+        "/api/sessions",
+        json={"personaId": PERSONA["id"], "interviewGuide": ["Q1"], "product": PRODUCT},
+    )
+    client.post(f"/api/sessions/{res.json()['id']}/token")
+    text = secrets.calls[0]["session"]["instructions"]
+    assert "GlowPot: A smart plant pot that waters itself" in text
+    # The persona can't open links; it only knows the prototype from the shared screen.
+    assert PRODUCT["prototypeUrl"] not in text
+
+
+def test_product_brief_comes_before_pasted_material_so_it_survives_the_cut():
+    persona = Persona.model_validate(PERSONA)
+    long_note = PersonaSource(kind="note", text="x" * (realtime.BRIEFING_CHARS + 100))
+    product = Product(name="GlowPot", description="Smart plant pot.")
+    text = realtime.persona_instructions(persona, ["Q1"], [long_note], product)
+    assert "GlowPot: Smart plant pot." in text
 
 
 def test_guesses_are_marked_in_instructions():
