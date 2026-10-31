@@ -2,17 +2,55 @@
   "personaId": "p_1",
   "personaVersion": 1,
   "testGoal": "Clickable dashboard where pickup subscribers donate their recycling points to a neighbourhood project.",
-  "score": 0.5,
+  "score": 0.54,
   "recommendation": "needs_input",
+  "overall": "add_more",
+  "categories": [
+    {
+      "category": "persona",
+      "level": "red",
+      "score": 0.29,
+      "covered": 2,
+      "total": 7,
+      "reason": "Evidence backs 2 of 7 points; open: digital literacy and tools used today, objections and trust in the tested solution and 3 more.",
+      "recommendation": "Add a source that covers: digital literacy and tools used today."
+    },
+    {
+      "category": "challenge",
+      "level": "yellow",
+      "score": 0.5,
+      "covered": 2,
+      "total": 4,
+      "reason": "Evidence backs 2 of 4 points; open: pains in this area, who is involved and who decides.",
+      "recommendation": "Add a source that covers: pains in this area."
+    },
+    {
+      "category": "solution",
+      "level": "green",
+      "score": 0.75,
+      "covered": 3,
+      "total": 4,
+      "reason": "Evidence backs 3 of 4 points; open: key claims or figures.",
+      "recommendation": null
+    }
+  ],
+  "sourceDiversity": { "count": 2, "kinds": ["note", "transcript"], "minimum": 2, "met": true },
   "criteria": [
     { "name": "Demographics and household", "status": "covered", "weight": 2, "note": "Dual-income household around Luzern is quoted from the target group.", "evidenceIds": ["e1"], "custom": false },
     { "name": "Job and daily routine", "status": "guessed", "weight": 1, "note": "HR job and weekly routine are invented.", "evidenceIds": [], "custom": false },
     { "name": "Digital literacy and tools used today", "status": "guessed", "weight": 3, "note": "Tech affinity 3/5 is a guess; nothing says how she uses dashboards.", "evidenceIds": [], "custom": false },
     { "name": "Goals related to what is tested", "status": "covered", "weight": 3, "note": "Uses points programmes, quoted from the target group.", "evidenceIds": ["e1"], "custom": false },
-    { "name": "Pains in this area", "status": "guessed", "weight": 2, "note": "Forgetting points is plausible but not quoted.", "evidenceIds": [], "custom": false },
     { "name": "Objections and trust in the tested solution", "status": "missing", "weight": 3, "note": "No source says how subscribers feel about donating points.", "evidenceIds": [], "custom": false },
     { "name": "Attitude to price and value", "status": "guessed", "weight": 1, "note": "Price sensitivity is a guess.", "evidenceIds": [], "custom": false },
     { "name": "Language and way of speaking", "status": "guessed", "weight": 1, "note": "Swiss German style is assumed from the region.", "evidenceIds": [], "custom": false },
+    { "name": "Pains in this area", "status": "guessed", "weight": 2, "note": "Forgetting points is plausible but not quoted.", "evidenceIds": [], "custom": false },
+    { "name": "Current process steps", "status": "covered", "weight": 2, "note": "The interview guide walks through the pickup and the weigh-in.", "evidenceIds": ["source:1"], "custom": false },
+    { "name": "Who is involved and who decides", "status": "missing", "weight": 1, "note": "Nothing says who decides in the household.", "evidenceIds": [], "custom": false },
+    { "name": "What happens today when it goes wrong", "status": "covered", "weight": 1, "note": "A lost pickup is described in the transcript.", "evidenceIds": ["source:2"], "custom": false },
+    { "name": "What the solution is", "status": "covered", "weight": 3, "note": "The interview guide describes the dashboard.", "evidenceIds": ["source:1"], "custom": false },
+    { "name": "What the user sees and does", "status": "covered", "weight": 2, "note": "The clickable flow is listed step by step.", "evidenceIds": ["source:1"], "custom": false },
+    { "name": "Key claims or figures", "status": "guessed", "weight": 2, "note": "The doubling rule is mentioned without numbers.", "evidenceIds": [], "custom": false },
+    { "name": "What we want to learn", "status": "covered", "weight": 2, "note": "The guide states the learning goals.", "evidenceIds": ["source:1"], "custom": false },
     { "name": "Cares about design", "status": "missing", "weight": 2, "note": "Nothing in the sources.", "evidenceIds": [], "custom": true }
   ],
   "questions": [

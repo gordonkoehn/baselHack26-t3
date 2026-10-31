@@ -1,6 +1,7 @@
+import re
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -9,7 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app import avatar, extract
 from app.auth import require_passcode
 from app.contracts import (
+    CoverageCategory,
+    CoverageCategoryName,
     CoverageCriterion,
+    CoverageLevel,
     CoverageReport,
     CoverageRequest,
     CustomFace,
@@ -22,9 +26,12 @@ from app.contracts import (
     PersonaSource,
     PersonaSummary,
     PersonaUpdate,
+    SourceDiversity,
 )
 from app.extract import (
+    CATEGORY_CRITERIA,
     DEFAULT_CRITERIA,
+    SOURCE_CRITERIA,
     AnswersDraft,
     CoverageDraft,
     ExtractionFailed,
@@ -59,7 +66,9 @@ def get_extractor() -> Callable[[PersonaCreate], PersonaDraft]:
 
 ExtractorDep = Annotated[Callable[[PersonaCreate], PersonaDraft], Depends(get_extractor)]
 
-CoverageChecker = Callable[[Persona, CoverageRequest, list[str]], CoverageDraft]
+CoverageChecker = Callable[
+    [Persona, CoverageRequest, list[str], list[PersonaSource]], CoverageDraft
+]
 
 
 def get_coverage_checker() -> CoverageChecker:
@@ -183,6 +192,17 @@ STATUS_VALUE = {"covered": 1.0, "guessed": 0.5, "missing": 0.0}
 # One quote is a thin basis for a whole criterion.
 THIN_VALUE = 0.75
 READY_SCORE = 0.7
+# Category levels: the share of its criteria that are covered.
+GREEN_FROM = 0.7
+YELLOW_FROM = 0.4
+MIN_SOURCES = 2
+# A short phrase turns up somewhere in any long source, so citing one takes a whole clause.
+# Persona quotes stay at two words: they are short and were picked for what they show.
+MIN_PASSAGE_WORDS = 6
+# The team's own answers, stored as a note so the interview can read them: no extra source.
+ANSWERS_TITLE = "Answers to gap questions"
+# More gaps than this are counted, not named: the reason must stay one short sentence.
+NAMED_GAPS = 2
 
 
 def _value(c: CoverageCriterion) -> float:
@@ -191,30 +211,95 @@ def _value(c: CoverageCriterion) -> float:
     return STATUS_VALUE[c.status]
 
 
+def level_for(share: float) -> CoverageLevel:
+    if share >= GREEN_FROM:
+        return "green"
+    return "yellow" if share >= YELLOW_FROM else "red"
+
+
+def score_category(
+    name: CoverageCategoryName, criteria: list[CoverageCriterion]
+) -> CoverageCategory:
+    wanted = {n.casefold() for n in CATEGORY_CRITERIA[name]}
+    rows = [c for c in criteria if c.name.casefold() in wanted]
+    # Most important gap first, so the recommendation names what matters most for this test.
+    gaps = sorted((c for c in rows if c.status != "covered"), key=lambda c: -c.weight)
+    covered = len(rows) - len(gaps)
+    share = covered / len(rows)
+    level = level_for(share)
+    # A must-have without evidence is never green, however much else is covered.
+    if level == "green" and any(c.weight == 3 for c in gaps):
+        level = "yellow"
+    reason = f"Evidence backs {covered} of {len(rows)} points"
+    if gaps:
+        named = ", ".join(c.name.lower() for c in gaps[:NAMED_GAPS])
+        more = len(gaps) - NAMED_GAPS
+        reason += f"; open: {named}" + (f" and {more} more" if more > 0 else "")
+    return CoverageCategory(
+        category=name,
+        level=level,
+        score=round(share, 2),
+        covered=covered,
+        total=len(rows),
+        reason=f"{reason}.",
+        recommendation=(
+            None if level == "green" else f"Add a source that covers: {gaps[0].name.lower()}."
+        ),
+    )
+
+
+def source_diversity(sources: Sequence[PersonaSource]) -> SourceDiversity:
+    """The same text pasted twice is one source; no model involved."""
+    real = (s for s in sources if s.title != ANSWERS_TITLE)
+    distinct = {_norm(s.text).casefold(): s.kind for s in real}
+    kinds = list(dict.fromkeys(distinct.values()))
+    count = len(distinct)
+    return SourceDiversity(count=count, kinds=kinds, minimum=MIN_SOURCES, met=count >= MIN_SOURCES)
+
+
+def passage(source: PersonaSource) -> str:
+    """What a source itself says. In the answers note that is the answers: the questions are ours."""
+    text = source.text
+    if source.title == ANSWERS_TITLE:
+        text = " ".join(re.findall(r"^A: (.*?)(?=\n\nQ: |\Z)", text, re.DOTALL | re.MULTILINE))
+    return _norm(text).casefold()
+
+
 def score_coverage(
     persona: Persona,
     request: CoverageRequest,
     names: list[str],
     draft: CoverageDraft,
     previous: CoverageReport | None = None,
+    sources: Sequence[PersonaSource] = (),
 ) -> CoverageReport:
     """Turn the model's rows into the report; the checks and the score never trust the model.
 
     Every requested criterion appears once, in order. "covered" needs evidence the persona
     really has and the model's support words found verbatim in one of the cited quotes, so a
     quote about another topic can't cover a criterion; otherwise it becomes "guessed". With a
-    previous report for the same test, weights stay and no row drops below its previous value
-    while the evidence behind it is still there, so answering gap questions can't make the score
-    fall because the model re-rolled other rows.
+    previous report for the same test and an earlier persona version (answers, a new face or
+    voice), weights stay and no row drops below its previous value while the evidence behind it
+    is still there, so answering gap questions can't make the score fall because the model
+    re-rolled other rows. A re-check of the same version scores fresh, so repeated checks can't
+    pile up the best of several model runs.
+
+    Challenge and solution criteria may also cite a source (source:N): they are about the problem
+    and the product, which a persona needn't have absorbed. Criteria about the person may not.
+    A source is long, so its support needs MIN_PASSAGE_WORDS. That proves the words are there, not
+    that they are on topic: for a passage the topic stays the model's call.
     """
     quotes = {e.id: _norm(e.quote or "").casefold() for e in persona.evidence}
-    known = set(quotes)
+    passages = {f"source:{i}": passage(s) for i, s in enumerate(sources, start=1)}
+    from_sources = {n.casefold() for n in SOURCE_CRITERIA}
     rows = {_norm(r.name).casefold(): r for r in draft.criteria}
     before = {c.name.casefold(): c for c in previous.criteria} if previous else {}
     criteria = []
     for i, name in enumerate(names):
         row = rows.get(_norm(name).casefold())
         custom = i >= len(DEFAULT_CRITERIA)
+        citable = {**quotes, **passages} if name.casefold() in from_sources else quotes
+        known = set(citable)
         if row is None:
             current = CoverageCriterion(
                 name=name,
@@ -227,7 +312,11 @@ def score_coverage(
         else:
             ids = [x for x in dict.fromkeys(row.evidence_ids) if x in known]
             support = _norm(row.support).casefold()
-            backed = len(support.split()) >= 2 and any(support in quotes[x] for x in ids)
+            words = len(support.split())
+            backed = any(
+                support in citable[x] and words >= (MIN_PASSAGE_WORDS if x in passages else 2)
+                for x in ids
+            )
             status = row.status
             if status == "covered" and not backed:
                 status = "guessed"
@@ -242,23 +331,32 @@ def score_coverage(
         old = before.get(name.casefold())
         if old is not None:
             still_backed = old.status != "covered" or set(old.evidence_ids) <= known
-            # shortcut: a guessed row can't fall to missing after a fact is deleted; fine while
-            # answers only add facts, revisit if edits should lower the score.
+            # Only across answers, a face or a voice: an edit forgets the report (update_persona).
+            # shortcut: a fact an answer replaces keeps its row; answers mostly add.
             if still_backed and _value(old) > _value(current):
                 current = old.model_copy(update={"custom": custom})
             current = current.model_copy(update={"weight": old.weight})
         criteria.append(current)
     total = sum(c.weight for c in criteria)
     score = round(sum(c.weight * _value(c) for c in criteria) / total, 2)
-    blocked = any(c.weight == 3 and c.status == "missing" for c in criteria)
+    # Guessed counts as open: a must-have the quote check downgraded is still unbacked.
+    blocked = any(c.weight == 3 and c.status != "covered" for c in criteria)
     # Questions only while something that matters is still guessed or missing.
     gaps = any(c.weight >= 2 and c.status != "covered" for c in criteria)
+    categories = [score_category(name, criteria) for name in CATEGORY_CRITERIA]
+    diversity = source_diversity(sources)
+    ready = score >= READY_SCORE and not blocked
+    # Never "good enough" here while Add more says "Gaps to fill" for the same report.
+    good = ready and diversity.met and all(c.level != "red" for c in categories)
     return CoverageReport(
         persona_id=persona.id,
         persona_version=persona.version,
         test_goal=request.test_goal,
         score=score,
-        recommendation="ready" if score >= READY_SCORE and not blocked else "needs_input",
+        recommendation="ready" if ready else "needs_input",
+        overall="good_enough" if good else "add_more",
+        categories=categories,
+        source_diversity=diversity,
         criteria=criteria,
         questions=[q.strip() for q in draft.questions if q.strip()][:5] if gaps else [],
     )
@@ -285,19 +383,23 @@ def check_coverage(
             seen.add(c.casefold())
             custom.append(c)
     names = DEFAULT_CRITERIA + custom
+    stored = store.get_persona_sources(persona.id)
+    sources = stored.sources if stored else []
     try:
-        draft = checker(persona, body, names)
+        draft = checker(persona, body, names, sources)
     except ProviderUnavailable:
         raise HTTPException(503, "coverage provider unavailable") from None
     except ExtractionFailed as exc:
         raise HTTPException(502, f"coverage check unusable: {exc}") from None
     previous = store.get_coverage(persona.id)
-    if previous and (previous.test_goal, [c.name for c in previous.criteria]) != (
-        body.test_goal,
-        names,
+    if previous and (
+        previous.persona_version == persona.version
+        or (previous.test_goal, [c.name for c in previous.criteria]) != (body.test_goal, names)
     ):
         previous = None
-    report = score_coverage(persona, body, names, draft, previous)
+    report = score_coverage(persona, body, names, draft, previous, sources)
+    # Not saved if the persona changed during the model call: an edit deleted the old report, and
+    # this one judged the persona before it. The browser sees its old version and asks again.
     store.save_coverage(report)
     return report
 
@@ -383,7 +485,7 @@ def add_answers(
         raise HTTPException(503, "persona provider unavailable") from None
     except ExtractionFailed as exc:
         raise HTTPException(502, f"answers unusable: {exc}") from None
-    source = PersonaSource(kind="note", title="Answers to gap questions", text=answers_text(body))
+    source = PersonaSource(kind="note", title=ANSWERS_TITLE, text=answers_text(body))
     stored = store.get_persona_sources(persona.id)
     if stored is None:
         stored = PersonaCreate(
@@ -583,4 +685,8 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
         )
     persona = persona.model_copy(update=changes)
     store.update_persona(persona)
+    # The next check judges the edited persona afresh; the old rows must not hold its level up.
+    # A new face or voice changes nothing the persona knows.
+    if body.model_fields_set - {"face_id", "voice_id"}:
+        store.delete_coverage(persona.id)
     return persona
