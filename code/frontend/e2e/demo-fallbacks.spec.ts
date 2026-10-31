@@ -12,6 +12,7 @@ const sampleLabel = "Sample interview: a scripted demo transcript with no live c
 declare global {
   interface Window {
     e2eSimliStart: () => void;
+    e2eSimliSocketFailed: () => void;
   }
 }
 
@@ -51,15 +52,19 @@ test.beforeEach(async ({ page, context }) => {
     socket.onMessage(() => {});
   });
   await installRealtime(page);
-  // A real first frame needs a LiveKit video track, so fire the SDK's own "start" handler instead.
+  // A real first frame needs a LiveKit video track and a mocked socket can't fail, so fire the
+  // SDK's own "start" and "startup_error" handlers instead.
   await page.addInitScript(() => {
     const set = Map.prototype.set;
     let handlers: Set<() => void> | undefined;
+    let failures: Set<(reason: string) => void> | undefined;
     Map.prototype.set = function (key, value) {
       if (key === "start" && value instanceof Set) handlers = value;
+      if (key === "startup_error" && value instanceof Set) failures = value;
       return set.call(this, key, value);
     };
     window.e2eSimliStart = () => handlers?.forEach((handler) => handler());
+    window.e2eSimliSocketFailed = () => failures?.forEach((handler) => handler("Websocket Failed"));
   });
 });
 
@@ -114,6 +119,21 @@ test("the avatar switch hands the voice back mid-call and can bring the avatar b
   await expect(dialog.getByText("Avatar off, voice only.")).toHaveCount(0);
   await expect.poll(avatarTokens).toBe(2);
   await expect.poll(() => simliSockets.length).toBe(2);
+});
+
+test("turning the avatar off during the SDK's retry backoff closes the socket that retry opens", async ({ page }) => {
+  await createPersona(page);
+  await startCall(page);
+  const dialog = page.getByRole("dialog");
+  await page.evaluate(() => window.e2eRealtime.voice());
+  await expect.poll(() => simliSockets.length).toBe(1);
+
+  await page.evaluate(() => window.e2eSimliSocketFailed()); // The SDK now waits 1 to 1.2 s to retry.
+  await dialog.getByRole("button", { name: "Turn avatar off", exact: true }).click();
+  await expect(dialog.getByText("Avatar off, voice only.")).toBeVisible();
+  await expect.poll(() => simliSockets.length).toBe(2);
+  await expect.poll(() => simliSockets[1].closed).toBe(true);
+  await expect(dialog.getByText("Live, speak now")).toBeVisible();
 });
 
 test("with the avatar turned off before the call, no avatar is requested", async ({ page }) => {
