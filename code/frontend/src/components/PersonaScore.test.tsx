@@ -264,7 +264,7 @@ describe("useCoverage", () => {
 
 describe("hasLevels", () => {
   it("rejects a report from an older API, so the screen can't crash on it", () => {
-    const { categories: _, ...older } = exampleReport;
+    const older = { ...exampleReport, categories: undefined };
 
     expect(hasLevels(exampleReport as unknown as CoverageReport)).toBe(true);
     expect(hasLevels(older as unknown as CoverageReport)).toBe(false);
