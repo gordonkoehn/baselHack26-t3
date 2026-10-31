@@ -12,7 +12,7 @@ const env: Record<string, string> = {
   NEXT_TELEMETRY_DISABLED: "1",
   BACKEND_URL: "http://127.0.0.1:8165",
   NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.resolve("e2e/font-mock.cjs"),
-  // The whole suite shares one backend and one IP, so it would use up the hourly persona limit.
+  // Every test shares one server and IP, so the suite alone would use up the per-IP persona limit.
   RATE_LIMIT_MULTIPLIER: "10",
 };
 for (const key of Object.keys(process.env)) {

@@ -9,7 +9,7 @@ type State =
   | { kind: "loading" }
   | { kind: "missing" }
   | { kind: "failed" }
-  | { kind: "ready"; report: InsightReport; personaName: string };
+  | { kind: "ready"; report: InsightReport; personaName: string; sample?: boolean };
 
 // One saved debrief for whoever has the link. It only reads, so a browser without the team passcode
 // works, and opening a link can never spend model credit.
@@ -23,7 +23,7 @@ export function ReportView({ sessionId }: { sessionId: string }) {
       try {
         const session = await api.getSession(sessionId);
         const [persona, report] = await Promise.all([api.getPersona(session.personaId), api.getInsights(sessionId)]);
-        if (!cancelled) setState({ kind: "ready", report, personaName: persona.name });
+        if (!cancelled) setState({ kind: "ready", report, personaName: persona.name, sample: session.sample });
       } catch (e) {
         if (!cancelled) setState({ kind: e instanceof ApiError && e.status === 404 ? "missing" : "failed" });
       }
@@ -66,5 +66,5 @@ export function ReportView({ sessionId }: { sessionId: string }) {
     );
   }
 
-  return <DebriefView sessionId={sessionId} personaName={state.personaName} savedReport={state.report} />;
+  return <DebriefView sessionId={sessionId} personaName={state.personaName} savedReport={state.report} sample={state.sample} />;
 }

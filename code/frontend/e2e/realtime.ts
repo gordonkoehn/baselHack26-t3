@@ -25,6 +25,7 @@ declare global {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
       lose: () => void;
+      voice: () => void;
       stale: (() => void)[];
       sent: SentEvent[];
       closed: boolean;
@@ -40,7 +41,7 @@ export async function installRealtime(page: Page) {
   await page.addInitScript(({ keepMicrophoneLive }) => {
     const state: Window["e2eRealtime"] = {
       emit: () => { throw new Error("No realtime channel yet"); },
-      lose: () => {}, stale: [],
+      lose: () => {}, voice: () => {}, stale: [],
       sent: [], closed: false, channelClosed: false, microphones: [], audioConstraints: [], cameraRequests: 0,
     };
     window.e2eRealtime = state;
@@ -58,8 +59,14 @@ export async function installRealtime(page: Page) {
     }
     class Peer extends EventTarget {
       channel = new Channel();
+      ontrack: ((event: { streams: MediaStream[]; track: MediaStreamTrack }) => void) | null = null;
       addTrack() {}
       createDataChannel() {
+        // The persona's voice arriving: a silent synthetic track, for the avatar lifecycle.
+        state.voice = () => {
+          const stream = new AudioContext().createMediaStreamDestination().stream;
+          this.ontrack?.({ streams: [stream], track: stream.getAudioTracks()[0] });
+        };
         state.lose = () => {
           this.channel.readyState = "closed";
           this.channel.dispatchEvent(new Event("close"));
