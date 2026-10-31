@@ -9,6 +9,7 @@ from app.auth import require_passcode
 from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaSummary, PersonaUpdate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
+from app.rate_limit import rate_limit
 from app.store import Store, get_store
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
@@ -77,7 +78,10 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
 
 
 @router.post(
-    "", status_code=201, response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+    "",
+    status_code=201,
+    response_model_by_alias=True,
+    dependencies=[Depends(require_passcode), Depends(rate_limit("personas"))],
 )
 def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep) -> Persona:
     if any(not s.text.strip() for s in body.sources):

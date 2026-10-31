@@ -1,7 +1,7 @@
 import re
 import threading
 
-from app.store import APPEND_EVENTS, INDEX_PERSONA, TRANSITION_SESSION
+from app.store import APPEND_EVENTS, COUNT_HIT, INDEX_PERSONA, TRANSITION_SESSION
 
 
 class FakeRedis:
@@ -41,6 +41,8 @@ class FakeRedis:
         """Model the supported scripts atomically; only INDEX_PERSONA really runs its commands."""
         if script == INDEX_PERSONA:
             return self._run_commands(script, keys, args)
+        if script == COUNT_HIT:
+            return self._count_hit(keys, args)
         with self.lock:
             if script == TRANSITION_SESSION:
                 raw = self.data.get(keys[0])
@@ -102,3 +104,10 @@ class FakeRedis:
         # A negative stop past the start of the set removes nothing.
         for old in sorted(z, key=lambda m: (z[m], m))[max(start, 0) : max(stop + 1, 0)]:
             del z[old]
+
+    def _count_hit(self, keys, args):
+        with self.lock:
+            self.data[keys[0]] = self.data.get(keys[0], 0) + 1
+            if self.data[keys[0]] == 1:
+                self.ttl[keys[0]] = int(args[0])
+            return [self.data[keys[0]], self.ttl[keys[0]]]
