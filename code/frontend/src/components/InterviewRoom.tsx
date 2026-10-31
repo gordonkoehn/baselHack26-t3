@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { DebriefView } from "@/components/DebriefView";
 import { ApiError, api } from "@/lib/api";
 import type { Persona, SessionEvent } from "@/lib/contracts";
 import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
@@ -37,6 +38,9 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const sending = useRef<Promise<void> | null>(null);
   const [saveState, setSaveState] = useState({ saved: 0, total: 0, failed: false });
   const liveSince = useRef(0);
+  // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
+  const [ended, setEnded] = useState<{ id: string; questions: number } | null>(null);
+  const questions = useRef(0);
   // Provider work still in flight: committed speech awaiting its transcript, and open responses.
   // "End" waits for both, so the last turn isn't cut off by closing the call.
   const pending = useRef(new Set<string>());
@@ -194,6 +198,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     const g = gen.current;
     events.current = [];
     saved.current = 0;
+    setEnded(null);
     sending.current = null;
     seen.current.clear();
     lost.current = false;
@@ -206,6 +211,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         .split("\n")
         .map((q) => q.trim())
         .filter(Boolean);
+      questions.current = interviewGuide.length;
       const session = await api.createSession({ personaId: persona.id, interviewGuide });
       sessionId.current = session.id;
       const token = await api.sessionToken(session.id);
@@ -297,7 +303,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     }
     try {
       if (!ok) throw new Error("transcript not saved");
-      if (sessionId.current) await api.updateSession(sessionId.current, { status: "ended" });
+      if (sessionId.current) {
+        await api.updateSession(sessionId.current, { status: "ended" });
+        setEnded({ id: sessionId.current, questions: questions.current });
+      }
       setPhase("ended");
     } catch {
       setPhase("unsaved");
@@ -420,6 +429,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <p className="mt-3 text-xs tabular-nums opacity-60" data-testid="metrics">
           Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
           {metrics.inputTokens} / out {metrics.outputTokens}
+        </p>
+      )}
+      {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (
+        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} />
+      )}
+      {phase === "ended" && ended && ended.questions === 0 && (
+        <p className="mt-4 text-sm opacity-70">
+          No debrief: this interview had no interview questions. Add some above and start again.
         </p>
       )}
     </section>
