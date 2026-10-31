@@ -36,13 +36,14 @@ for (const width of [320, 360, 390, 414]) {
   test(`source file errors wrap inside their box at ${width} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/");
-    // The five step tabs overflow on their own below 414 px, with or without an error, and would
-    // hide what this test measures. Drop this line once they fit.
-    await page.addStyleTag({ content: 'nav[aria-label="Steps"] { display: none; }' });
     const input = page.getByLabel("Add files…", { exact: true });
     const titles = page.getByRole("textbox", { name: /^Source \d+ title$/ });
     await expect(input).toBeAttached();
     await expectPageFits(page);
+    // Every step tab stays on screen, not just inside a bar that can be scrolled.
+    const tabs = page.getByRole("navigation", { name: "Steps" }).getByRole("button");
+    await expect(tabs).toHaveCount(5);
+    for (const tab of await tabs.all()) await expect(tab).toBeInViewport({ ratio: 1 });
 
     const text = "Synthetic source for the narrow-screen check.";
     await input.setInputFiles({ name: "synthetic.txt", mimeType: "text/plain", buffer: Buffer.from(text) });

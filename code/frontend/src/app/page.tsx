@@ -536,7 +536,7 @@ function WorkspaceBar({
           OpenTwin
           {persona && <span className="truncate font-normal text-muted">/ {persona.name}</span>}
         </p>
-        <nav aria-label="Steps" className="order-last flex w-full rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
+        <nav aria-label="Steps" className="order-last flex w-full flex-wrap rounded-lg border border-line bg-background p-1 sm:order-none sm:w-auto">
           {TABS.map((t) => {
             const locked = t.id !== "sources" && !persona;
             return (
@@ -547,7 +547,7 @@ function WorkspaceBar({
                 disabled={locked}
                 title={locked ? "Create a persona first" : undefined}
                 onClick={() => onTab(t.id)}
-                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs uppercase tracking-widest sm:flex-none sm:px-5 ${
+                className={`flex-1 rounded-md px-3 py-1.5 font-mono text-xs whitespace-nowrap uppercase tracking-widest sm:flex-none sm:px-5 ${
                   tab === t.id ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground disabled:opacity-40"
                 }`}
               >
