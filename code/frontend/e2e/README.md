@@ -44,7 +44,8 @@ the happy path must detect that the microphone remains live even after the peer 
 
 ## Demo fallbacks (#74)
 
-`demo-fallbacks.spec.ts` covers the avatar off switch and the sample interview. The avatar runs
+`demo-fallbacks.spec.ts` covers the avatar off switch, cancelling a call stuck connecting, and the
+sample interview. The avatar runs
 the real SDK against a mocked token and a fake Simli websocket; only its first-frame event is
 fired by the test (it needs a real LiveKit video track), through a `Map.prototype.set` hook on
 the SDK's private event table, so a `simli-client` upgrade may need that hook adjusted. No real

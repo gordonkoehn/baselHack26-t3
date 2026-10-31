@@ -590,6 +590,20 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     }
   }
 
+  // A startup step can hang with nothing else to press: leave at once so the fallbacks are reachable.
+  // The ended status is terminal on the server, so a startup request finishing late can't reopen it.
+  function cancelStart() {
+    const sid = sessionId.current;
+    gen.current += 1;
+    hangUp();
+    sessionId.current = null;
+    setSaveState({ saved: 0, total: 0, failed: false });
+    setTurns([]);
+    setError(null);
+    setPhase("idle");
+    if (sid) void api.updateSession(sid, { status: "ended" }).catch(() => {});
+  }
+
   // Demo fallback when the live call can't run: save the scripted transcript as an ended session
   // marked sample, then show its debrief. No token, microphone or provider call is involved.
   async function runSample() {
@@ -597,6 +611,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     gen.current += 1;
     const g = gen.current;
     sessionId.current = null;
+    startupFailure.current = null;
     setPhase("sample");
     setError(null);
     setTurns([]);
@@ -876,7 +891,14 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       >
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="font-semibold">{persona.name}</h3>
-          {phase === "connecting" && <span className="text-sm text-muted">Connecting…</span>}
+          {phase === "connecting" && (
+            <>
+              <span className="text-sm text-muted">Connecting…</span>
+              <button type="button" className={btn} onClick={cancelStart}>
+                Cancel
+              </button>
+            </>
+          )}
           {phase === "live" && (
             <>
               <span className="flex items-center gap-2 text-sm font-medium text-accent">

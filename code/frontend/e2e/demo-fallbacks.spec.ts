@@ -174,6 +174,46 @@ test("the sample interview reaches a labelled debrief without a live call", asyn
   await expect(page.getByTestId("sample-label")).toContainText(sampleLabel);
 });
 
+test("a call stuck connecting can be cancelled and the sample interview still runs", async ({ page, request }) => {
+  await createPersona(page);
+  // The call setup is never answered, so only Cancel can get out of the popup.
+  const posted = page.waitForRequest("https://api.openai.com/v1/realtime/calls");
+  await page.route("https://api.openai.com/v1/realtime/calls", () => {});
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  const abandoned: Session = await (await created).json();
+  await posted;
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Connecting…")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use sample interview", exact: true })).toHaveCount(0);
+
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await page.evaluate(() => ({
+    microphone: window.e2eRealtime.microphones[0].readyState,
+    closed: window.e2eRealtime.closed,
+  }))).toEqual({ microphone: "ended", closed: true });
+  await expect.poll(async () => (await (await request.get(`/api/sessions/${abandoned.id}`)).json()).status).toBe("ended");
+  await expect(page.getByTestId("interview-room").getByRole("alert")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Use sample interview", exact: true }).click();
+  await expect(page.getByTestId("debrief").getByTestId("sample-label")).toContainText(sampleLabel);
+});
+
+test("the sample interview after a failed start shows only the sample status", async ({ page }) => {
+  await createPersona(page);
+  await page.route("https://api.openai.com/v1/realtime/calls", (route) => route.fulfill({ status: 500, body: "" }));
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  const room = page.getByTestId("interview-room");
+  await expect(room).toContainText("Interview could not start.");
+
+  await page.getByRole("button", { name: "Use sample interview", exact: true }).click();
+  await expect(page.getByTestId("debrief").getByTestId("sample-label")).toContainText(sampleLabel);
+  await expect(room).toContainText("No live call took place and nobody was interviewed.");
+  await expect(room).not.toContainText("Interview could not start.");
+  await expect(room.getByRole("alert")).toHaveCount(0);
+});
+
 test("a saved sample report labels quotes and exports; a real one does not", async ({ page }) => {
   const sessionId = "s-sample-74";
   const report: InsightReport = { ...(exampleReport as InsightReport), sessionId };
@@ -203,7 +243,11 @@ test("a saved sample report labels quotes and exports; a real one does not", asy
   await expect(page.getByTestId("sample-label")).toContainText(`${examplePersona.name} did not say these lines`);
   await expect(page.getByTestId("debrief")).toContainText(`Sample script · turn ${quote.turnSeq}`);
   await expect(page.getByTestId("debrief")).not.toContainText(`${examplePersona.name} · interview turn`);
-  expect(await download()).toContain("SAMPLE INTERVIEW");
+  const sampleExport = await download();
+  expect(sampleExport).toContain("SAMPLE INTERVIEW");
+  expect(sampleExport).toContain(`Sample script turn ${quote.turnSeq}`);
+  expect(sampleExport).not.toContain("Interview turn");
+  expect(sampleExport).not.toContain("simulated interview");
 
   await open(false);
   await expect(page.getByTestId("sample-label")).toHaveCount(0);

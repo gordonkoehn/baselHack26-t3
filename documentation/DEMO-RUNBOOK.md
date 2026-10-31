@@ -24,7 +24,8 @@ For the pitch of the Quartier-Börse demo. Fallbacks, best first: voice without 
 | "Avatar unavailable, voice only." | Nothing. The call already continues by voice. | Everything except the face. |
 | You know Simli is down before the call | **Turn avatar off** on the persona card before **Start voice interview**. It stays off for this persona; building a new persona turns it on again. | Everything except the face. |
 | Room too loud | **Mute mic** and type the questions. | Everything. |
-| Call won't connect, or drops ("Connection lost") | **Use sample interview** on the persona card. Say out loud that this is a scripted sample. | Debrief, labelled as a sample. Needs the OpenAI API and the store, not Realtime or a microphone. |
+| Popup stuck on "Connecting…" | **Cancel** in the popup, then **Use sample interview** on the persona card. Don't reload: that loses the persona on screen. Say out loud that this is a scripted sample. | Debrief, labelled as a sample. Needs the OpenAI API and the store, not Realtime or a microphone. |
+| Call fails to start, or drops ("Connection lost") | **Use sample interview** on the persona card. Say out loud that this is a scripted sample. | Same as above. |
 | Persona or debrief fails, or OpenAI is down | Show the saved report link from the check above. It reads the stored report, so it needs no model and no passcode. | That one report, while the store is reachable. |
 | Wi-Fi or the deployed app is gone | Play the backup video. Phone hotspot first if there's time. | The video. |
 
