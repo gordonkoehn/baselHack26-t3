@@ -29,6 +29,13 @@ BaselHack structure, keep it: all code in `code/`, docs in `documentation/`, vid
 - Secrets only in `.env` (gitignored) and Vercel env vars. Never commit keys.
 - Next.js here is v16 — read `code/frontend/AGENTS.md` before using Next APIs you're unsure about.
 
+## Design system (every page)
+The OpenTwin design system is binding for all UI: https://claude.ai/artifact/1gtnRf163VDRipjg3bMpAZ. Read `documentation/DESIGN.md` before touching anything visible.
+- Colours only through the tokens in `code/frontend/src/app/globals.css` (`bg-surface`, `text-muted`, `bg-accent`, …). No raw hex in components; a missing colour is added as a token first.
+- Inter for all text: 800 headlines, 700 labels and buttons, 400 body. Headlines are full sentences with a full stop.
+- Emerald (`accent`) is fill and accent; `signal` is the dot, never text on light grounds. There is no red.
+- No emojis, no gradients except the dark glow; status always carries a word, not just a colour.
+
 ## Agent coordination (MCP Agent Mail)
 All agents (Claude, Codex, Gemini, Copilot, …) share one Agent Mail server. Use it; it is how the team's agents know what the others are doing.
 - **Project key is always `/Users/kollers/Documents/dev/baselHack26-t3`** (Johan's path, used as a shared name) — on every machine, never your own repo path, or you end up alone in your own project.

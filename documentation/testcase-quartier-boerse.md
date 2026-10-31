@@ -1,3 +1,5 @@
+> **Former demo case.** The demo is now the Lumen case, see [#158](https://github.com/gordonkoehn/baselHack26-t3/issues/158). Quartier-Börse is now only the built-in example: the app prefills its sources and interview questions from it, **Use sample interview** runs its synthetic transcript, and `make eval` uses it.
+
 # Test case: Quartier-Börse
 
 The sprint case we demo and test the twin against. Source: the "Prototype" frame on the team Miro board (prototype + interview guide, 30 min timebox).

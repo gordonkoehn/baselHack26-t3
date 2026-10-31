@@ -7,15 +7,26 @@ import { captureFrame } from "@/lib/screenFrames";
 const FALLBACK_MESSAGE_BYTES = 256 * 1024;
 const ENVELOPE_BYTES = 1024;
 
-// Lets the interviewer show the persona their screen: one frame per click, sent as an image into
-// the running Realtime conversation. Nothing is stored or sent anywhere else.
+// Largest data URL one data-channel message can carry on this call.
+export function frameBudget(pc: RTCPeerConnection | null) {
+  const negotiated = pc?.sctp?.maxMessageSize;
+  const limit = Number.isFinite(negotiated) && negotiated ? negotiated : FALLBACK_MESSAGE_BYTES;
+  return Math.min(limit, FALLBACK_MESSAGE_BYTES) - ENVELOPE_BYTES;
+}
+
+// Lets the interviewer show the persona their screen. While shared, InterviewRoom sends fresh frames
+// as silent context (onSharing); a click here asks the persona to react to the screen right now.
+// Nothing is stored or sent anywhere else.
 export function ScreenShareButton({
   pc,
   ask,
+  onSharing,
 }: {
   pc: RefObject<RTCPeerConnection | null>;
   // InterviewRoom's send path: registers the expected answer so "End" waits for it.
   ask: (content: object[]) => boolean;
+  // Live preview lives in the call stage; the parent attaches it to a <video> and refreshes frames.
+  onSharing?: (stream: MediaStream | null) => void;
 }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,6 +35,10 @@ export function ScreenShareButton({
   const mounted = useRef(true);
   // One browser picker at a time; a second click while it is open does nothing.
   const picking = useRef(false);
+  const report = useRef(onSharing);
+  useEffect(() => {
+    report.current = onSharing;
+  });
 
   // Stop sharing when the interview ends or the card goes away.
   useEffect(() => {
@@ -32,6 +47,7 @@ export function ScreenShareButton({
       mounted.current = false;
       current.current?.getTracks().forEach((t) => t.stop());
       current.current = null;
+      report.current?.(null);
     };
   }, []);
 
@@ -50,13 +66,16 @@ export function ScreenShareButton({
       s.getVideoTracks()[0]?.addEventListener(
         "ended",
         () => {
-          if (current.current === s) current.current = null;
-          if (mounted.current) setStream((cur) => (cur === s ? null : cur));
+          if (current.current !== s) return;
+          current.current = null;
+          report.current?.(null);
+          if (mounted.current) setStream(null);
         },
         { once: true },
       );
       current.current = s;
       setStream(s);
+      report.current?.(s);
     } catch {
       if (mounted.current) setNote("Screen sharing was cancelled or blocked.");
     } finally {
@@ -68,6 +87,7 @@ export function ScreenShareButton({
     stream?.getTracks().forEach((t) => t.stop());
     current.current = null;
     setStream(null);
+    report.current?.(null);
   }
 
   async function show() {
@@ -76,11 +96,7 @@ export function ScreenShareButton({
     setBusy(true);
     setNote(null);
     try {
-      const negotiated = pc.current?.sctp?.maxMessageSize;
-      const limit = Number.isFinite(negotiated) && negotiated ? negotiated : FALLBACK_MESSAGE_BYTES;
-      const image = await captureFrame(shared, {
-        maxBytes: Math.min(limit, FALLBACK_MESSAGE_BYTES) - ENVELOPE_BYTES,
-      });
+      const image = await captureFrame(shared, { maxBytes: frameBudget(pc.current) });
       // Sharing stopped (or the card closed) while capturing: send nothing.
       if (!mounted.current || current.current !== shared) return;
       // The persona reacts to what it now sees, in character.
@@ -118,7 +134,39 @@ export function ScreenShareButton({
           </button>
         </>
       )}
+      {stream && !note && (
+        <span className="text-xs text-muted">
+          Share the prototype&apos;s tab or window, not this call.
+        </span>
+      )}
       {note && <span className="text-xs text-muted">{note}</span>}
     </>
+  );
+}
+
+// Mirrors the capture stream into a video element for the call stage preview.
+export function ScreenSharePreview({ stream }: { stream: MediaStream }) {
+  const video = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    el.srcObject = stream;
+    void el.play().catch(() => {});
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream]);
+
+  return (
+    <video
+      ref={video}
+      autoPlay
+      muted
+      playsInline
+      aria-label="Shared screen preview"
+      data-testid="screen-share-preview"
+      className="aspect-video w-full rounded-lg bg-black object-contain"
+    />
   );
 }

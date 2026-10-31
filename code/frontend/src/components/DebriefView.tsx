@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
+import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
@@ -10,6 +11,38 @@ const SIGNAL = {
   contradicts: { text: "contradicts", className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
   unclear: { text: "unclear", className: "bg-line text-foreground" },
 } as const;
+
+function SummaryGroup({ title, items }: { title: string; items: SummaryItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h4 className="text-lg font-bold tracking-tight">{title}</h4>
+      <ul className="mt-2 space-y-3">
+        {items.map((item) => (
+          <li key={item.question}>
+            <p className="font-medium">
+              <span className="evidence-bar mr-2 !w-6" data-grounded={item.grounded} aria-hidden />
+              {item.theme}
+            </p>
+            <p className="mt-1 text-sm text-muted">{item.grounded ? "Also in the sources" : "Persona's guess"}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// The short version, first thing after a call. Details and quotes stay below.
+function DebriefSummaryPanel({ report }: { report: InsightReport }) {
+  const { heldUp, didNot, open } = summarizeDebrief(report);
+  return (
+    <div data-testid="debrief-summary" className="mt-3 space-y-5 rounded-lg border border-line bg-surface p-5">
+      <SummaryGroup title="What held up" items={heldUp} />
+      <SummaryGroup title="What didn't" items={didNot} />
+      <SummaryGroup title="Still open" items={open} />
+    </div>
+  );
+}
 
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
 // Quotes are verbatim from the synthetic interview; "grounded" means the statement repeats a persona
@@ -150,6 +183,7 @@ export function DebriefView({
       ) : (
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          <DebriefSummaryPanel report={report} />
           {sample ? (
             <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
               Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not

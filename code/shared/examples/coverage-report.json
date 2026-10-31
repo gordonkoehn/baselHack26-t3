@@ -1,0 +1,23 @@
+{
+  "personaId": "p_1",
+  "personaVersion": 1,
+  "testGoal": "Clickable dashboard where pickup subscribers donate their recycling points to a neighbourhood project.",
+  "score": 0.5,
+  "recommendation": "needs_input",
+  "criteria": [
+    { "name": "Demographics and household", "status": "covered", "weight": 2, "note": "Dual-income household around Luzern is quoted from the target group.", "evidenceIds": ["e1"], "custom": false },
+    { "name": "Job and daily routine", "status": "guessed", "weight": 1, "note": "HR job and weekly routine are invented.", "evidenceIds": [], "custom": false },
+    { "name": "Digital literacy and tools used today", "status": "guessed", "weight": 3, "note": "Tech affinity 3/5 is a guess; nothing says how she uses dashboards.", "evidenceIds": [], "custom": false },
+    { "name": "Goals related to what is tested", "status": "covered", "weight": 3, "note": "Uses points programmes, quoted from the target group.", "evidenceIds": ["e1"], "custom": false },
+    { "name": "Pains in this area", "status": "guessed", "weight": 2, "note": "Forgetting points is plausible but not quoted.", "evidenceIds": [], "custom": false },
+    { "name": "Objections and trust in the tested solution", "status": "missing", "weight": 3, "note": "No source says how subscribers feel about donating points.", "evidenceIds": [], "custom": false },
+    { "name": "Attitude to price and value", "status": "guessed", "weight": 1, "note": "Price sensitivity is a guess.", "evidenceIds": [], "custom": false },
+    { "name": "Language and way of speaking", "status": "guessed", "weight": 1, "note": "Swiss German style is assumed from the region.", "evidenceIds": [], "custom": false },
+    { "name": "Cares about design", "status": "missing", "weight": 2, "note": "Nothing in the sources.", "evidenceIds": [], "custom": true }
+  ],
+  "questions": [
+    "Would subscribers rather keep their points or give them to a neighbourhood project, and why?",
+    "How comfortable are they with apps and dashboards for household services?",
+    "How much does the look of an app influence whether they trust it?"
+  ]
+}

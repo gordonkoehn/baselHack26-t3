@@ -39,7 +39,8 @@ describe("DebriefView", () => {
 
     screen.getByText("Does matching work?");
     screen.getByText("contradicts");
-    screen.getByText("Doubling convinces", { exact: false });
+    // Once in the summary and once in the details.
+    expect(screen.getAllByText("Doubling convinces", { exact: false })).toHaveLength(2);
     screen.getByText("Feels like marketing", { exact: false });
     screen.getByText("Ask real users next: Ask how they split without the badge.");
     const [backed, unbacked] = Array.from(container.querySelectorAll("blockquote"), (quote) => quote.textContent);
@@ -47,6 +48,14 @@ describe("DebriefView", () => {
     expect(unbacked).toBe("“Klingt nach Werbung.”Anna (AI persona) · interview turn 5 · not matched to a source");
     const labels = Array.from(container.querySelectorAll("li li > span"), (label) => label.textContent);
     expect(labels).toEqual(["grounded", "guess"]);
+  });
+
+  it("leads with a summary of what held up and what didn't", async () => {
+    render(<DebriefView sessionId="s_1" personaName="Sandra" savedReport={REPORT} />);
+
+    const summary = await screen.findByTestId("debrief-summary");
+    expect(summary.textContent).toContain("Doubling convinces");
+    expect(screen.getByTestId("debrief").firstElementChild?.nextElementSibling).toBe(summary);
   });
 
   it("states that the persona is an AI and the quotes are hypotheses", async () => {
