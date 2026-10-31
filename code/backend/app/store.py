@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.contracts import InsightReport, Persona, Session, SessionEvent
+from app.contracts import InsightReport, Persona, PersonaCreate, Session, SessionEvent
 
 # shortcut: one TTL for every key so events/reports never outlive their session; revisit after the demo.
 TTL_SECONDS = 7 * 24 * 3600
@@ -69,6 +69,13 @@ class Store:
 
     def get_persona(self, persona_id: str) -> Persona | None:
         return self._load(f"{PREFIX}:persona:{persona_id}", Persona)
+
+    # The voice persona needs the product material later; the persona itself only keeps facts.
+    def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:
+        self._put(f"{PREFIX}:persona:{persona_id}:sources", request)
+
+    def get_persona_sources(self, persona_id: str) -> PersonaCreate | None:
+        return self._load(f"{PREFIX}:persona:{persona_id}:sources", PersonaCreate)
 
     def save_session(self, session: Session) -> None:
         self._put(f"{PREFIX}:session:{session.id}", session)

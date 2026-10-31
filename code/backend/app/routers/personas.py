@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
+from app.auth import require_passcode
 from app.contracts import Evidence, Fact, Persona, PersonaCreate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
@@ -75,7 +76,9 @@ def ground_draft(draft: PersonaDraft, request: PersonaCreate) -> PersonaDraft:
     )
 
 
-@router.post("", status_code=201, response_model_by_alias=True)
+@router.post(
+    "", status_code=201, response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+)
 def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep) -> Persona:
     if any(not s.text.strip() for s in body.sources):
         raise HTTPException(422, "every source needs text")
@@ -101,6 +104,7 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         readiness=None,
     )
     store.save_persona(persona)
+    store.save_persona_sources(persona.id, body)
     return persona
 
 

@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import avatar, realtime
-from app.contracts import Persona
+from app.contracts import Persona, PersonaCreate
 from app.main import app
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
@@ -112,12 +112,33 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
     assert PERSONA["name"] in session["instructions"]
     assert PERSONA["pains"][0]["text"] in session["instructions"]
     assert "design advice" in session["instructions"]
+    # Screen frames carry this exact label (ScreenShareButton, #101); the persona must read them.
+    assert "(Interviewer's shared screen, the prototype, right now.)" in session["instructions"]
     assert session["audio"]["input"]["transcription"]["language"] == "de"
     assert session["audio"]["input"]["turn_detection"] == {
         "type": "semantic_vad",
         "eagerness": "low",
     }
     assert session["audio"]["input"]["noise_reduction"] == {"type": "near_field"}
+
+
+def test_token_instructions_carry_product_material_and_guide(client, secrets):
+    store = app.dependency_overrides[get_store]()
+    store.save_persona_sources(
+        PERSONA["id"],
+        PersonaCreate(
+            language="de",
+            sources=[
+                {"kind": "note", "text": "Prototype: Kilo-Shares slider screen"},
+                {"kind": "transcript", "text": "P1: secret interview words"},
+            ],
+        ),
+    )
+    client.post(f"/api/sessions/{new_session(client)['id']}/token")
+    text = secrets.calls[0]["session"]["instructions"]
+    assert "Kilo-Shares slider screen" in text and "- Q1" in text
+    # Transcripts are already distilled into the facts, so they stay out of the prompt.
+    assert "secret interview words" not in text
 
 
 def test_guesses_are_marked_in_instructions():

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import openai
 
-from app.contracts import Fact, Persona, SessionToken
+from app.contracts import Fact, Persona, PersonaSource, SessionToken
 from app.extract import ProviderUnavailable, _client
 from app.faces import VOICES
 
@@ -21,6 +21,11 @@ CALLS_URL = "https://api.openai.com/v1/realtime/calls"
 # Only needed to start the call; a reconnect fetches a fresh one.
 SECRET_TTL_SECONDS = 600
 
+# Product material (Miro boards, notes); interview transcripts are already distilled into the facts.
+PRODUCT_KINDS = {"miro", "note"}
+# shortcut: hard cut keeps the prompt small for the mini model; summarize instead if briefings get long.
+BRIEFING_CHARS = 8000
+
 LANGUAGE = {"de": "German (Swiss Standard German, Swiss words welcome)", "en": "English"}
 
 
@@ -29,7 +34,30 @@ def _facts(title: str, facts: list[Fact]) -> str:
     return f"{title}:\n" + ("\n".join(lines) or "- none")
 
 
-def persona_instructions(p: Persona) -> str:
+def _briefing(guide: list[str], sources: list[PersonaSource]) -> list[str]:
+    product = "\n\n".join(s.text.strip() for s in sources if s.kind in PRODUCT_KINDS)
+    parts = []
+    if product:
+        parts.append(
+            "What you know about the product before this call: you were invited to test a "
+            "prototype and have a rough idea what it is about, but you have never used it. This "
+            "is background only, from the team's material: use it to understand what the "
+            "interviewer shows or talks about, but react to every screen fresh, as yourself. "
+            "Never quote it, never mention a briefing, a guide, assumptions, observation notes, "
+            "a test plan or a twin.\n<<<\n" + product[:BRIEFING_CHARS] + "\n>>>"
+        )
+    if guide:
+        parts.append(
+            "What the interviewer wants to find out (never mention this list and never steer "
+            "toward it; just answer honestly as yourself when it comes up):\n"
+            + "\n".join(f"- {q}" for q in guide)
+        )
+    return parts
+
+
+def persona_instructions(
+    p: Persona, guide: list[str] | None = None, sources: list[PersonaSource] | None = None
+) -> str:
     """Build deterministic, in-character interview instructions from a persona."""
     who = ", ".join(str(x) for x in [p.name, p.age, p.location, p.context.job] if x)
     style = p.speech_style
@@ -79,12 +107,16 @@ def persona_instructions(p: Persona) -> str:
                 "want it, and let your pains and objections come out one at a time, not all at "
                 "once. You only know the prototype from what the interviewer shows or describes "
                 "in this call; if you haven't seen something, say so instead of inventing screens "
-                "or buttons."
+                "or buttons. Images labelled \"(Interviewer's shared screen, the prototype, right "
+                'now.)" show the prototype: look at them closely and, when asked, name the exact '
+                "texts, labels and buttons you see and react to them as this customer. Camera "
+                "images only show the interviewer."
             ),
             f"About you: {p.summary}",
             _facts("What you want to get done", p.jobs),
             _facts("What bothers you", p.pains),
             _facts("Why you might say no", p.objections),
+            *_briefing(guide or [], sources or []),
             (
                 "Behaviour: you are a customer, a bit reserved, not an assistant. Answer what was "
                 "asked, naturally in 1-3 short sentences, sometimes only half a sentence. Don't "
@@ -118,14 +150,16 @@ def voice_for(persona: Persona) -> str:
     return persona.voice_id if persona.voice_id in VOICES.values() else DEFAULT_VOICE
 
 
-def mint_client_secret(persona: Persona) -> SessionToken:
+def mint_client_secret(
+    persona: Persona, guide: list[str] | None = None, sources: list[PersonaSource] | None = None
+) -> SessionToken:
     try:
         secret = _client().realtime.client_secrets.create(
             expires_after={"anchor": "created_at", "seconds": SECRET_TTL_SECONDS},
             session={
                 "type": "realtime",
                 "model": os.environ.get("OPENAI_REALTIME_MODEL") or DEFAULT_MODEL,
-                "instructions": persona_instructions(persona),
+                "instructions": persona_instructions(persona, guide, sources),
                 "audio": {
                     # Transcribe the interviewer too, so the browser can log both sides.
                     "input": {

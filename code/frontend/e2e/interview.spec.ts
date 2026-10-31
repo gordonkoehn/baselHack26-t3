@@ -191,3 +191,18 @@ test("mute silences the microphone without ending the call; typing still works",
   expect(await enabled()).toEqual([true]);
   expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
 });
+
+test("the team link passcode is sent, leaves the address bar and survives blocked storage", async ({ page }) => {
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new Error("storage blocked");
+    };
+  });
+  const created = page.waitForRequest(
+    (request) => request.method() === "POST" && request.url().endsWith("/api/personas"),
+  );
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  expect((await created).headers()["x-demo-passcode"]).toBe("team-pass");
+  await expect.poll(() => page.url()).not.toContain("code=");
+});
