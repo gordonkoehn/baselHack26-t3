@@ -1,0 +1,85 @@
+import uuid
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from app import realtime
+from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
+from app.extract import ProviderUnavailable
+from app.store import Store, get_store
+
+router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+StoreDep = Annotated[Store, Depends(get_store)]
+
+# Allowed status moves. Repeating the current status is a no-op (idempotent end).
+NEXT = {"created": {"live", "ended"}, "live": {"ended"}, "ended": set()}
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _load(store: Store, session_id: str) -> Session:
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return session
+
+
+@router.post("", status_code=201, response_model_by_alias=True)
+def create_session(body: SessionCreate, store: StoreDep) -> Session:
+    if store.get_persona(body.persona_id) is None:
+        raise HTTPException(404, "persona not found")
+    session = Session(
+        id=f"s_{uuid.uuid4().hex[:12]}",
+        persona_id=body.persona_id,
+        status="created",
+        provider="openai-realtime",
+        # The browser connects to realtime.CALLS_URL with the token; there's no room to join.
+        join_url=None,
+        interview_guide=body.interview_guide,
+    )
+    store.save_session(session)
+    return session
+
+
+@router.get("/{session_id}", response_model_by_alias=True)
+def read_session(session_id: str, store: StoreDep) -> Session:
+    return _load(store, session_id)
+
+
+@router.patch("/{session_id}", response_model_by_alias=True)
+def update_session(session_id: str, body: SessionUpdate, store: StoreDep) -> Session:
+    # shortcut: read-modify-write, two racing PATCHes can both win; fine for one interviewer.
+    session = _load(store, session_id)
+    if body.status == session.status:
+        return session
+    if body.status not in NEXT[session.status]:
+        raise HTTPException(409, f"cannot go from {session.status} to {body.status}")
+    update: dict = {"status": body.status}
+    if body.status == "live":
+        update["started_at"] = _now()
+    if body.status == "ended":
+        update["ended_at"] = _now()
+    session = session.model_copy(update=update)
+    store.save_session(session)
+    return session
+
+
+@router.post("/{session_id}/token", response_model_by_alias=True)
+def session_token(session_id: str, response: Response, store: StoreDep) -> SessionToken:
+    session = _load(store, session_id)
+    if session.status == "ended":
+        raise HTTPException(409, "session has ended")
+    persona = store.get_persona(session.persona_id)
+    if persona is None:
+        raise HTTPException(404, "persona not found")
+    try:
+        token = realtime.mint_client_secret(persona)
+    except ProviderUnavailable:
+        raise HTTPException(503, "voice provider unavailable") from None
+    # A bearer token: never cache it anywhere between the backend and the browser.
+    response.headers["Cache-Control"] = "no-store"
+    return token

@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
+import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
 
 const KINDS: SourceKind[] = ["note", "transcript", "miro", "real_interview"];
-// Files the browser can read as plain text without any extra library.
+// Files the browser can read as plain text without any extra library; PDFs go through the backend.
 const TEXT_FILES = ".txt,.md,.csv,.json,.tsv";
+const ACCEPTED = `${TEXT_FILES},.pdf`;
 
 type Draft = PersonaSource & { id: number };
 type Result = { persona: Persona; sources: PersonaSource[]; seconds: number };
@@ -24,9 +26,6 @@ const SAMPLES = (): Draft[] => [
   draft("note", "Interview guide Quartier-Börse", QUARTIER_BOERSE),
   draft("transcript", "Interview transcript (synthetic)", SAMPLE_TRANSCRIPT),
 ];
-
-// A board export (Miro/FigJam CSV) is the usual .csv; everything else starts as a note.
-const kindFor = (name: string): SourceKind => (name.toLowerCase().endsWith(".csv") ? "miro" : "note");
 
 function errorMessage(e: unknown): string {
   if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
@@ -46,8 +45,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
+  // While building or reading files, nothing is editable: a late file result can't land in a
+  // reset list, and the submitted sources can't change under a running request.
+  const busy = loading || reading;
 
   // Tick a visible timer while the persona is being built: the demo claims "ready in minutes".
   useEffect(() => {
@@ -61,22 +64,31 @@ export default function Home() {
 
   async function addFiles(files: FileList | File[]) {
     setError(null);
-    const added: Draft[] = [];
-    const skipped: string[] = [];
+    setReading(true);
+    const problems: string[] = [];
     for (const file of Array.from(files)) {
       const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
-      if (!TEXT_FILES.split(",").includes(ext)) {
-        skipped.push(file.name);
-        continue;
+      try {
+        if (ext === ".pdf") {
+          const { text, pages } = await api.extractPdf(file);
+          const title = `${file.name} (${pages} ${pages === 1 ? "page" : "pages"})`;
+          setDrafts((ds) => [...ds, draft("note", title, text)]);
+        } else if (TEXT_FILES.split(",").includes(ext)) {
+          const text = await file.text();
+          setDrafts((ds) => [...ds, draft("note", file.name, text)]);
+        } else {
+          problems.push(`${file.name}: not supported (use ${ACCEPTED})`);
+        }
+      } catch (e) {
+        problems.push(`${file.name}: ${e instanceof ApiError ? e.detail : "could not be read"}`);
       }
-      added.push(draft(kindFor(file.name), file.name, await file.text()));
     }
-    setDrafts((ds) => [...ds, ...added]);
-    if (skipped.length) setError(`Not supported yet (use ${TEXT_FILES}): ${skipped.join(", ")}`);
+    setReading(false);
+    if (problems.length) setError(problems.join(" · "));
   }
 
   async function create() {
-    if (loading || filled.length === 0) return;
+    if (busy || filled.length === 0) return;
     // Snapshot the input: the card's citations must keep pointing at what was actually sent.
     const sources: PersonaSource[] = filled.map(({ kind, title, text }) => ({ kind, title, text }));
     startedAt.current = Date.now();
@@ -104,7 +116,7 @@ export default function Home() {
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        if (!loading) addFiles(e.dataTransfer.files);
+        if (!busy) addFiles(e.dataTransfer.files);
       }}
     >
       <h1 className="mb-1 text-2xl font-semibold">OpenTwin</h1>
@@ -125,14 +137,14 @@ export default function Home() {
                 className="min-w-0 flex-1 rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
                 value={d.title ?? ""}
                 onChange={(e) => update(d.id, { title: e.target.value })}
-                disabled={loading}
+                disabled={busy}
               />
               <select
                 aria-label={`Source ${i + 1} kind`}
                 className="rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
                 value={d.kind}
                 onChange={(e) => update(d.id, { kind: e.target.value as SourceKind })}
-                disabled={loading}
+                disabled={busy}
               >
                 {KINDS.map((k) => (
                   <option key={k} value={k}>
@@ -144,7 +156,7 @@ export default function Home() {
                 type="button"
                 className="rounded px-2 py-1 text-sm opacity-60 hover:opacity-100 disabled:opacity-30"
                 onClick={() => setDrafts((ds) => ds.filter((x) => x.id !== d.id))}
-                disabled={loading}
+                disabled={busy}
                 aria-label={`Remove source ${i + 1}`}
               >
                 Remove
@@ -155,7 +167,7 @@ export default function Home() {
               className="h-40 w-full rounded border border-current/30 bg-transparent p-3 font-mono text-xs"
               value={d.text}
               onChange={(e) => update(d.id, { text: e.target.value })}
-              disabled={loading}
+              disabled={busy}
             />
           </div>
         ))}
@@ -165,7 +177,7 @@ export default function Home() {
             type="button"
             className="rounded border border-current/30 px-3 py-1.5 disabled:opacity-40"
             onClick={() => setDrafts((ds) => [...ds, draft("note", `Source ${ds.length + 1}`, "")])}
-            disabled={loading}
+            disabled={busy}
           >
             Add text source
           </button>
@@ -174,21 +186,23 @@ export default function Home() {
             <input
               type="file"
               multiple
-              accept={TEXT_FILES}
+              accept={ACCEPTED}
               className="hidden"
-              disabled={loading}
+              disabled={busy}
               onChange={(e) => {
                 if (e.target.files) addFiles(e.target.files);
                 e.target.value = "";
               }}
             />
           </label>
-          <span className="opacity-60">or drop {TEXT_FILES} files anywhere</span>
+          <span className="opacity-60">
+            {reading ? "Reading files…" : "or drop text, CSV or PDF files anywhere"}
+          </span>
           <button
             type="button"
             className="ml-auto rounded px-2 py-1 opacity-60 hover:opacity-100 disabled:opacity-30"
             onClick={() => setDrafts(SAMPLES())}
-            disabled={loading}
+            disabled={busy}
           >
             Reset to example
           </button>
@@ -200,7 +214,7 @@ export default function Home() {
             className="rounded border border-current/30 bg-transparent px-2 py-1 text-sm"
             value={language}
             onChange={(e) => setLanguage(e.target.value as Language)}
-            disabled={loading}
+            disabled={busy}
           >
             <option value="de">Deutsch</option>
             <option value="en">English</option>
@@ -209,7 +223,7 @@ export default function Home() {
             type="button"
             className="rounded bg-foreground px-4 py-2 text-sm text-background disabled:opacity-40"
             onClick={create}
-            disabled={loading || filled.length === 0}
+            disabled={busy || filled.length === 0}
           >
             {loading ? "Building persona…" : "Create persona"}
           </button>
@@ -247,6 +261,8 @@ function PersonaCard({ persona, sources, seconds }: Result) {
       <FactList title="Jobs" facts={persona.jobs} persona={persona} sources={sources} />
       <FactList title="Pains" facts={persona.pains} persona={persona} sources={sources} />
       <FactList title="Objections" facts={persona.objections} persona={persona} sources={sources} />
+      {/* Keyed by persona so a new persona never inherits the previous call. */}
+      <InterviewRoom key={persona.id} persona={persona} />
     </article>
   );
 }

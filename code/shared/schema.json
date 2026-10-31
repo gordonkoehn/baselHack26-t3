@@ -97,6 +97,15 @@
         "text": { "type": "string", "description": "Pasted content. Vercel caps request bodies at 4.5 MB; larger files go to blob storage first." }
       }
     },
+    "ExtractedText": {
+      "type": "object",
+      "description": "Plain text pulled from an uploaded file, to be sent as a PersonaSource. Scanned PDFs have no text and are rejected.",
+      "required": ["text", "pages"],
+      "properties": {
+        "text": { "type": "string" },
+        "pages": { "type": "integer", "minimum": 1 }
+      }
+    },
     "PersonaCreate": {
       "type": "object",
       "required": ["language", "sources"],
@@ -129,6 +138,13 @@
       "properties": {
         "personaId": { "type": "string" },
         "interviewGuide": { "type": "array", "items": { "type": "string" }, "description": "Sprint questions the coach tracks coverage for." }
+      }
+    },
+    "SessionUpdate": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["live", "ended"], "description": "created -> live -> ended, or created -> ended. Repeating the current status is a no-op; going back is 409." }
       }
     },
     "SessionToken": {
@@ -249,9 +265,10 @@
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
+    "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "413 over 10 MB, 100 pages or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no text layer (no OCR)." },
     "POST /api/sessions": { "body": "SessionCreate", "response": "Session", "status": "draft" },
     "GET /api/sessions/{id}": { "response": "Session", "status": "draft" },
-    "PATCH /api/sessions/{id}": { "body": "{ status }", "response": "Session", "status": "draft" },
+    "PATCH /api/sessions/{id}": { "body": "SessionUpdate", "response": "Session", "status": "draft" },
     "POST /api/sessions/{id}/token": { "response": "SessionToken", "status": "draft" },
     "POST /api/sessions/{id}/events": { "body": "SessionEvent[]", "response": { "accepted": "integer" }, "status": "draft" },
     "GET /api/sessions/{id}/events?after={seq}": { "response": "SessionEvent[]", "status": "draft", "note": "Polling replaces the spec's WS /sessions/{id}/events." },

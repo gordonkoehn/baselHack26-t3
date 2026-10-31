@@ -92,6 +92,11 @@ class PersonaSource(Model):
     text: str
 
 
+class ExtractedText(Model):
+    text: str
+    pages: int = Field(ge=1)
+
+
 class PersonaCreate(Model):
     sprint_id: str | None = None
     language: Language
@@ -116,6 +121,10 @@ class Session(Model):
 class SessionCreate(Model):
     persona_id: str
     interview_guide: list[str] = []
+
+
+class SessionUpdate(Model):
+    status: Literal["live", "ended"]
 
 
 class SessionToken(Model):
