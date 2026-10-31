@@ -88,7 +88,7 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "spoken-1", transcript: spokenQuestion });
   await emit(page, { type: "response.created", response: { id: "answer-2" } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
-  await expect(page.getByText("Saving transcript…", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Waiting for the persona response");
   const duringEnd = await request.get(`/api/sessions/${session.id}/events`);
   expect(duringEnd.ok()).toBeTruthy();
   const pendingEvents: SessionEvent[] = await duringEnd.json();
@@ -204,6 +204,7 @@ test("failed last transcription cannot claim a complete transcript or show debri
   await answer(page, "answer-1", answers[0]);
   await emit(page, { type: "input_audio_buffer.committed", item_id: "lost-1" });
   await emit(page, { type: "conversation.item.input_audio_transcription.failed", item_id: "lost-1" });
+  await emit(page, { type: "response.done", response: { id: "lost-response", status: "completed", output: [] } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
   await expect(page.getByText("Ended without the last turn. This transcript is incomplete, so there is no debrief for it.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create debrief", exact: true })).toHaveCount(0);
