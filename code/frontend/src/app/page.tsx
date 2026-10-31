@@ -70,6 +70,10 @@ export default function Home() {
   const [reading, setReading] = useState(false);
   // Once a persona exists the sources fold away, so the persona and the interview get the screen.
   const [editing, setEditing] = useState(false);
+  // One source is open at a time, so the first screen stays calm. Closed ones stay mounted.
+  const [openId, setOpenId] = useState<number | null>(null);
+  const openSource = drafts.some((d) => d.id === openId) ? openId : (drafts[0]?.id ?? null);
+  const sourceCount = useRef(drafts.length);
   const card = useRef<HTMLDivElement>(null);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
@@ -83,6 +87,12 @@ export default function Home() {
     const id = setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 100);
     return () => clearInterval(id);
   }, [loading]);
+
+  // A newly added source opens, so it can be filled in right away.
+  useEffect(() => {
+    if (drafts.length > sourceCount.current) setOpenId(drafts[drafts.length - 1].id);
+    sourceCount.current = drafts.length;
+  }, [drafts]);
 
   // A new persona appears below the fold: bring it into view.
   useEffect(() => {
@@ -180,8 +190,10 @@ export default function Home() {
         className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-semibold">
-            Sources <span className="font-normal text-muted">({filled.length})</span>
+          <h2 className="text-lg">
+            <span className="mr-2 font-mono text-xs font-normal text-muted">Step 1 of 2</span>
+            What do you know about your user?{" "}
+            <span className="font-sans text-sm font-normal text-muted">({filled.length})</span>
           </h2>
           {result && !editing && (
             <>
@@ -200,7 +212,21 @@ export default function Home() {
         </div>
         <div hidden={result !== null && !editing} className="space-y-4">
         {drafts.map((d, i) => (
-          <div key={d.id} className="space-y-2 rounded-lg border border-line bg-background/60 p-3">
+          <div key={d.id} className="rounded-lg border border-line bg-background/60 p-3">
+            <button
+              type="button"
+              hidden={openSource === d.id}
+              className="flex w-full items-center justify-between gap-3 text-left text-sm"
+              aria-label={`Open source ${i + 1}: ${d.title || "Untitled"}`}
+              onClick={() => setOpenId(d.id)}
+              disabled={busy}
+            >
+              <span className="truncate font-medium">{d.title || "Untitled"}</span>
+              <span className="shrink-0 font-mono text-xs text-muted">
+                {d.text.trim() ? `${d.kind} · ${d.text.length} characters` : "empty"}
+              </span>
+            </button>
+            <div hidden={openSource !== d.id} className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <input
                 aria-label={`Source ${i + 1} title`}
@@ -239,6 +265,7 @@ export default function Home() {
               onChange={(e) => update(d.id, { text: e.target.value })}
               disabled={busy}
             />
+            </div>
           </div>
         ))}
 
@@ -283,6 +310,9 @@ export default function Home() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <span className="w-full font-mono text-xs text-muted">
+            Step 2 of 2 · Build the test user
+          </span>
           <select
             aria-label="Persona language"
             className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
