@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
-import { ScreenShareButton, frameBudget } from "@/components/ScreenShareButton";
+import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
+import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
@@ -1038,37 +1039,44 @@ export function InterviewRoom({
           )}
         </div>
 
-        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,16rem)_1fr]">
+        <div className="mt-4 grid items-start gap-4 sm:grid-cols-[minmax(0,20rem)_1fr]">
           <div className="space-y-3">
-            {showAvatar && sessionId.current && voice && (
-              <Avatar
-                sessionId={sessionId.current}
-                track={voice}
-                onActive={(control) => {
-                  avatar.current = control;
-                  setAvatarOn(control !== null);
-                }}
+            {screenShare && (
+              <ZoomStage label="Shared screen">
+                <ScreenSharePreview stream={screenShare} />
+                {phase === "live" && (
+                  <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
+                    {screenNote ??
+                      (screenSentAt === null
+                        ? "Sending the first screen image to the persona…"
+                        : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+                  </p>
+                )}
+              </ZoomStage>
+            )}
+            <ZoomStage label="Video call">
+              {showAvatar && sessionId.current && voice && (
+                <Avatar
+                  sessionId={sessionId.current}
+                  track={voice}
+                  onActive={(control) => {
+                    avatar.current = control;
+                    setAvatarOn(control !== null);
+                  }}
+                />
+              )}
+              {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
+              {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+              <video
+                ref={camView}
+                autoPlay
+                muted
+                playsInline
+                aria-label="Your camera"
+                className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
               />
-            )}
-            {avatarOff && phase === "live" && <p className="text-xs text-muted">Avatar off, voice only.</p>}
-            {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
-            <video
-              ref={camView}
-              autoPlay
-              muted
-              playsInline
-              aria-label="Your camera"
-              className={`aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
-            />
-            {camNote && <p className="text-xs text-muted">{camNote}</p>}
-            {screenShare && phase === "live" && (
-              <p className="text-xs text-muted" data-testid="screen-status">
-                {screenNote ??
-                  (screenSentAt === null
-                    ? "Sending the first screen image to the persona…"
-                    : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
-              </p>
-            )}
+              {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+            </ZoomStage>
           </div>
           <ol ref={transcript} className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 text-sm" data-testid="transcript">
             {turns.length === 0 && phase === "live" && <li className="text-muted">Say hello to start.</li>}
