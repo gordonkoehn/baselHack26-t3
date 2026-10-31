@@ -8,7 +8,7 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from app import realtime
+from app import avatar, realtime
 from app.contracts import Persona
 from app.main import app
 from app.store import Store, get_store
@@ -149,3 +149,68 @@ def test_provider_failure_is_503_without_details(client, secrets):
     )
     res = client.post(f"/api/sessions/{new_session(client)['id']}/token")
     assert res.status_code == 503 and "sk-secret" not in res.text
+
+
+class FakeSimli:
+    def __init__(self, status=200, body=None):
+        self.calls, self.status = [], status
+        self.body = {"session_token": "simli_tok", "warnings": []} if body is None else body
+
+    def post(self, url, headers, json, timeout):
+        self.calls.append({"url": url, "headers": headers, "json": json})
+        return httpx.Response(self.status, json=self.body, request=httpx.Request("POST", url))
+
+
+@pytest.fixture
+def simli(monkeypatch):
+    monkeypatch.setenv("SIMLI_API_KEY", "simli_secret")
+    monkeypatch.delenv("SIMLI_FACE_ID", raising=False)
+    fake = FakeSimli()
+    monkeypatch.setattr(avatar.httpx, "post", fake.post)
+    return fake
+
+
+def test_avatar_token_is_short_lived_simli_token(client, simli):
+    res = client.post(f"/api/sessions/{new_session(client)['id']}/avatar-token")
+    assert res.status_code == 200 and res.headers["cache-control"] == "no-store"
+    body = res.json()
+    assert body["provider"] == "simli" and body["token"] == "simli_tok" and body["url"] is None
+    assert body["expiresAt"].endswith("Z") and "simli_secret" not in res.text
+    call = simli.calls[0]
+    assert call["url"] == avatar.TOKEN_URL and call["headers"] == {
+        "x-simli-api-key": "simli_secret"
+    }
+    # The example persona has a stock face id, so the default Simli preset is used.
+    assert call["json"]["faceId"] == avatar.DEFAULT_FACE
+    assert call["json"]["maxSessionLength"] == avatar.MAX_SESSION_SECONDS
+
+
+def test_avatar_face_from_persona_uuid_or_env(monkeypatch):
+    p = Persona.model_validate(PERSONA)
+    monkeypatch.setenv("SIMLI_FACE_ID", "env-face")
+    assert avatar.face_for(p) == "env-face"
+    p.face_id = "f735e62c-dce7-4c0b-8e85-1c7e21774c45"
+    assert avatar.face_for(p) == p.face_id
+
+
+def test_avatar_token_without_key_or_on_simli_error_is_503(client, simli, monkeypatch):
+    sid = new_session(client)["id"]
+    monkeypatch.delenv("SIMLI_API_KEY")
+    assert client.post(f"/api/sessions/{sid}/avatar-token").status_code == 503
+    assert simli.calls == []
+    monkeypatch.setenv("SIMLI_API_KEY", "simli_secret")
+    cases = [(401, {"detail": "bad key simli_secret"}), (400, {"session_token": "FAIL TOKEN"})]
+    # Malformed 200 answers must also be a controlled 503, never a 500.
+    cases += [(200, b) for b in ([], "tok", 3, {}, {"session_token": None}, {"session_token": ""})]
+    for status, body in cases:
+        simli.status, simli.body = status, body
+        res = client.post(f"/api/sessions/{sid}/avatar-token")
+        assert res.status_code == 503 and "simli_secret" not in res.text
+
+
+def test_avatar_token_404_and_409(client, simli):
+    assert client.post("/api/sessions/s_missing/avatar-token").status_code == 404
+    sid = new_session(client)["id"]
+    client.patch(f"/api/sessions/{sid}", json={"status": "ended"})
+    assert client.post(f"/api/sessions/{sid}/avatar-token").status_code == 409
+    assert simli.calls == []
