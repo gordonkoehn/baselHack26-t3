@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -181,11 +182,44 @@ def test_budget_ends_a_hanging_probe_without_waiting_for_it(monkeypatch):
         release.set()
 
 
-def test_probes_get_only_the_time_extraction_left():
-    def never(_instructions, _question):
-        raise AssertionError("no time left: must not spend money on probes")
+def test_one_failed_run_ends_the_wait_for_hanging_runs():
+    release = threading.Event()
+    seen = []
+    lock = threading.Lock()
 
-    assert score(never, elapsed=readiness.LATEST_END_SECONDS) is None
+    def ask(_instructions, _question):
+        with lock:
+            seen.append(1)
+            first = len(seen) == 1
+        if first:
+            raise ProviderUnavailable("down")
+        release.wait(10)
+        return answer()
+
+    started = time.monotonic()
+    try:
+        assert score(ask) is None
+        assert time.monotonic() - started < 5
+    finally:
+        release.set()
+
+
+def test_probes_get_only_the_time_extraction_left():
+    calls = []
+
+    def ask(_instructions, question):
+        calls.append(question)
+        return answer()
+
+    assert score(ask, elapsed=readiness.LATEST_END_SECONDS) is None
+    assert calls == []  # no time left: no money spent on probes
+
+
+def test_response_comes_before_the_rewrite_proxy_gives_up():
+    config = (Path(__file__).parents[2] / "frontend" / "next.config.ts").read_text()
+    next_proxy_seconds = int(re.search(r"proxyTimeout: ([\d_]+)", config)[1]) / 1000
+    vercel_proxy_seconds = 120
+    assert readiness.LATEST_END_SECONDS < min(next_proxy_seconds, vercel_proxy_seconds)
 
 
 def test_slow_extraction_shortens_the_budget():

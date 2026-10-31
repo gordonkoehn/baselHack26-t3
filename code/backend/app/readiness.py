@@ -20,11 +20,11 @@ from app.realtime import persona_instructions
 logger = logging.getLogger("app.readiness")
 
 RUNS = 2
-# All probes together. Extraction takes up to ~180 s (90 s timeout, one retry), so normally the
-# whole request stays well under the 300 s function limit.
+# All probes together.
 BUDGET_SECONDS = 60
-# If extraction took unusually long, probes get less, leaving time to save and respond within 300 s.
-LATEST_END_SECONDS = 280
+# The browser comes through a rewrite, and Vercel gives up on those after 120 s, long before the
+# 300 s function limit. If extraction took long, probes get less, leaving time to save and respond.
+LATEST_END_SECONDS = 110
 
 # Closed questions, so two runs can be compared without a further provider call. Any persona can
 # answer them, whatever the sprint is about.
