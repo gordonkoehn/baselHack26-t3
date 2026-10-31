@@ -44,6 +44,17 @@ async function answer(page: Page, id: string, text: string) {
   await emit(page, { type: "response.done", response: { id, status: "completed" } });
 }
 
+const commits = (page: Page) =>
+  page.evaluate(() => window.e2eRealtime.sent.filter((event) => event.type === "input_audio_buffer.commit"));
+
+async function storedTypes(page: Page, id: string) {
+  const events: SessionEvent[] = await (await page.request.get(`/api/sessions/${id}/events`)).json();
+  return events.map((event) => event.type);
+}
+
+const INCOMPLETE = "Ended without the last turn. This transcript is incomplete, so there is no debrief for it.";
+const COMPLETE = "Ended. Microphone and camera are off, transcript saved.";
+
 let unexpected: string[] = [];
 
 test.afterEach(() => { expect(unexpected).toEqual([]); });
@@ -88,7 +99,7 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "spoken-1", transcript: spokenQuestion });
   await emit(page, { type: "response.created", response: { id: "answer-2" } });
   await page.getByRole("button", { name: "End interview", exact: true }).click();
-  await expect(page.getByText("Saving transcript…", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("end-wait")).toContainText("Waiting for the persona to finish answering");
   const duringEnd = await request.get(`/api/sessions/${session.id}/events`);
   expect(duringEnd.ok()).toBeTruthy();
   const pendingEvents: SessionEvent[] = await duringEnd.json();
@@ -102,6 +113,9 @@ test("sample sources to saved interview and exact-quote debrief", async ({ page,
   await expect(dialog).toHaveJSProperty("open", false);
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 5/5");
+  await expect(page.getByTestId("end-timings")).toHaveText(/provider finished \d+\.\d s · events saved \d+\.\d s · session closed \d+\.\d s/);
+  // No speech was reserved at End: an unconditional commit would be a provider error.
+  expect(await commits(page)).toEqual([]);
   const transcript = page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (4 turns)" });
   await expect(transcript).toBeVisible();
   await expect(transcript).toHaveJSProperty("open", false);
@@ -156,6 +170,154 @@ test("backend unavailable is announced and the same sources can be retried", asy
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+});
+
+test("End during speech commits the heard audio and captures the last sentence", async ({ page }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "input_audio_buffer.speech_started" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByTestId("end-wait")).toContainText("Transcribing your last sentence");
+  await expect.poll(() => commits(page)).toHaveLength(1);
+  expect(await page.evaluate(() => window.e2eRealtime.microphones.map((track) => track.readyState))).toEqual(["ended"]);
+  expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "last-1" });
+  expect(await storedTypes(page, session.id)).toEqual([]);
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "last-1", transcript: spokenQuestion });
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  expect(await storedTypes(page, session.id)).toEqual(["utterance", "session.ended"]);
+  expect(await commits(page)).toHaveLength(1);
+});
+
+test("a rejected commit of heard speech leaves the transcript incomplete", async ({ page, request }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "input_audio_buffer.speech_started" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect.poll(() => commits(page)).toHaveLength(1);
+  const [{ event_id }] = await commits(page);
+  await emit(page, { type: "error", error: { message: "Buffer too small.", event_id } });
+  await expect(page.getByText(INCOMPLETE, { exact: true })).toBeVisible();
+  expect(await storedTypes(page, session.id)).toEqual([]);
+  expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+});
+
+test("a commit that loses the race to VAD does not mark the transcript incomplete", async ({ page }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "input_audio_buffer.speech_started" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect.poll(() => commits(page)).toHaveLength(1);
+  const [{ event_id }] = await commits(page);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "vad-1" });
+  await emit(page, { type: "error", error: { message: "Buffer too small.", event_id } });
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "vad-1", transcript: spokenQuestion });
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  expect(await storedTypes(page, session.id)).toEqual(["utterance", "session.ended"]);
+  await expect(page.getByText("Buffer too small.")).toHaveCount(0);
+});
+
+test("a missing final transcript is explained by 10 seconds and closing keeps it incomplete", async ({ page, request }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "stuck-1" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  const close = page.getByRole("button", { name: "Close with incomplete transcript", exact: true });
+  await expect(close).toHaveCount(0);
+  await expect(close).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("end-wait")).toHaveText(/Transcribing your last sentence… \d+s/);
+  expect(await page.evaluate(() => window.e2eRealtime.closed)).toBe(false);
+  await close.click();
+  await expect(page.getByText(INCOMPLETE, { exact: true })).toBeVisible();
+  expect(await storedTypes(page, session.id)).toEqual([]);
+  expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+});
+
+test("a delayed final transcript still completes while the interviewer keeps waiting", async ({ page }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "slow-1" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close with incomplete transcript", exact: true })).toBeVisible({ timeout: 10_000 });
+  await emit(page, { type: "conversation.item.input_audio_transcription.completed", item_id: "slow-1", transcript: spokenQuestion });
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  expect(await storedTypes(page, session.id)).toEqual(["utterance", "session.ended"]);
+});
+
+test("an answer cancelled during End stays marked and the transcript still completes", async ({ page }) => {
+  const session = await startInterview(page);
+  await emit(page, { type: "response.created", response: { id: "cut-1" } });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByTestId("end-wait")).toContainText("Waiting for the persona to finish answering");
+  const done = { type: "response.done", response: { id: "cut-1", status: "cancelled" } };
+  await emit(page, done);
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("interview-room").locator("details li")).toHaveText(["Sandra: (interrupted)"]);
+  expect(await storedTypes(page, session.id)).toEqual(["session.ended"]);
+});
+
+test("repeated and out-of-order provider events cannot strand End or duplicate turns", async ({ page }) => {
+  const session = await startInterview(page);
+  const completed = { type: "conversation.item.input_audio_transcription.completed", item_id: "late-1", transcript: spokenQuestion };
+  await emit(page, completed);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "late-1" });
+  await emit(page, completed);
+  const done = { type: "response.done", response: { id: "dup-1", status: "cancelled" } };
+  await emit(page, { type: "response.created", response: { id: "dup-1" } });
+  await emit(page, done);
+  await emit(page, done);
+  await emit(page, { type: "response.created", response: { id: "dup-1" } });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  await expect(page.getByTestId("interview-room").locator("details li")).toHaveCount(2);
+  expect(await storedTypes(page, session.id)).toEqual(["utterance", "session.ended"]);
+});
+
+test("connection loss during End saves captured turns as incomplete", async ({ page, request }) => {
+  const session = await startInterview(page);
+  await page.getByLabel("Type a question").fill(typedQuestion);
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await answer(page, "answer-1", answers[0]);
+  await emit(page, { type: "input_audio_buffer.committed", item_id: "gone-1" });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await page.evaluate(() => window.e2eRealtime.dropChannel());
+  await expect(page.getByTestId("connection-lost")).toContainText("This transcript is incomplete");
+  await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 2/2");
+  expect(await storedTypes(page, session.id)).toEqual(["utterance", "utterance"]);
+  expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+});
+
+test("a hung event save reaches a retry state and Save again adds no duplicates", async ({ page }) => {
+  test.setTimeout(60_000);
+  const session = await startInterview(page);
+  await page.getByLabel("Type a question").fill(typedQuestion);
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await answer(page, "answer-1", answers[0]);
+  await expect(page.getByTestId("save-state")).toHaveText("Transcript saved 2/2");
+  let attempts = 0;
+  const hang = () => { attempts += 1; }; // Never answered: only the client deadline can end it.
+  await page.route("**/api/sessions/*/events", hang);
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByText("Saving transcript…", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save again", exact: true })).toBeVisible({ timeout: 40_000 });
+  // Three attempts, plus at most the request the end marker had already started.
+  expect(attempts).toBeLessThanOrEqual(4);
+  await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not finish saving (2/3 events stored)");
+  await page.unroute("**/api/sessions/*/events", hang);
+  await page.getByRole("button", { name: "Save again", exact: true }).click();
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible();
+  const stored: SessionEvent[] = await (await page.request.get(`/api/sessions/${session.id}/events`)).json();
+  expect(stored.map((event) => [event.seq, event.type])).toEqual([[1, "utterance"], [2, "utterance"], [3, "session.ended"]]);
+});
+
+test("a hung final PATCH is retried within its budget", async ({ page, request }) => {
+  const session = await startInterview(page);
+  let attempts = 0;
+  await page.route(`**/api/sessions/${session.id}`, (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    attempts += 1;
+    if (attempts > 1) return route.fallback();
+    // First attempt never answers.
+  });
+  await page.getByRole("button", { name: "End interview", exact: true }).click();
+  await expect(page.getByText(COMPLETE, { exact: true })).toBeVisible({ timeout: 15_000 });
+  expect(attempts).toBe(2);
+  expect(await (await request.get(`/api/sessions/${session.id}`)).json()).toMatchObject({ status: "ended" });
 });
 
 test("failed last transcription cannot claim a complete transcript or show debrief", async ({ page, request }) => {

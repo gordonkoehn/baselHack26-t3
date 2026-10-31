@@ -6,9 +6,11 @@ type WireEvent = {
   content_index?: number;
   transcript?: string;
   response?: { id: string; status?: string };
+  error?: { message?: string; event_id?: string };
 };
 type SentEvent = {
   type: string;
+  event_id?: string;
   item?: { content: { type: string; text?: string }[] };
 };
 
@@ -16,6 +18,7 @@ declare global {
   interface Window {
     e2eRealtime: {
       emit: (event: WireEvent) => void;
+      dropChannel: () => void;
       sent: SentEvent[];
       closed: boolean;
       channelClosed: boolean;
@@ -28,6 +31,7 @@ declare global {
 export async function installRealtime(page: Page) {
   await page.addInitScript(({ keepMicrophoneLive }) => {
     const state: Window["e2eRealtime"] = {
+      dropChannel: () => { throw new Error("No realtime channel yet"); },
       emit: () => { throw new Error("No realtime channel yet"); },
       sent: [], closed: false, channelClosed: false, microphones: [], cameraRequests: 0,
     };
@@ -49,6 +53,7 @@ export async function installRealtime(page: Page) {
       addTrack() {}
       createDataChannel() {
         state.emit = (event) => this.channel.onmessage?.(new MessageEvent("message", { data: JSON.stringify(event) }));
+        state.dropChannel = () => this.channel.dispatchEvent(new Event("close"));
         return this.channel;
       }
       async createOffer() { return { type: "offer", sdp: "e2e-offer" }; }

@@ -14,12 +14,29 @@ import { QUARTIER_BOERSE_GUIDE } from "@/lib/sample";
 // client secret from our backend. Our backend never holds the audio connection.
 
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
-type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
+type Phase = "idle" | "connecting" | "live" | "ending" | "waiting" | "saving" | "ended" | "unsaved" | "error";
 type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; inputTokens: number; outputTokens: number };
+type EndTimings = { drainMs?: number; saveMs?: number; closeMs?: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
 const CAMERA_FRAME_MS = 15_000;
+// After End: how long before the popup offers to close without the missing work.
+const DRAIN_PATIENCE_MS = 8_000;
+// After End: lets the last audio packets reach the provider before committing them.
+const COMMIT_DELAY_MS = 200;
+const SAVE_ATTEMPTS = 3;
+
+const seconds = (ms?: number) => (ms === undefined ? "–" : `${(ms / 1000).toFixed(1)} s`);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// What End is still waiting for, in the interviewer's words.
+function pendingNote(pending: Set<string>) {
+  const keys = [...pending];
+  if (keys.some((k) => k === "speech" || k.startsWith("t:"))) return "Transcribing your last sentence";
+  if (keys.some((k) => k.startsWith("a:"))) return "Waiting for the persona to take your question";
+  return "Waiting for the persona to finish answering";
+}
 
 // Realtime server events we act on (subset of the GA event list).
 type ServerEvent = {
@@ -60,6 +77,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const asks = useRef(0);
   const [lastTurnMissing, setLastTurnMissing] = useState(false);
   const giveUp = useRef(false);
+  // The commit End sent for speech the provider's VAD can no longer hear finish.
+  const endCommit = useRef<string | null>(null);
+  const waitSince = useRef(0);
+  const [endWait, setEndWait] = useState({ note: "", seconds: 0 });
+  const [endTimings, setEndTimings] = useState<EndTimings | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const callLost = useRef(false);
   const callClosed = useRef(true);
@@ -100,7 +122,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   }, []);
 
   // The call runs in a popup; it closes once the call is over and the result shows on the page.
-  const inCall = !connectionLost && (phase === "connecting" || phase === "live" || phase === "ending" || phase === "waiting");
+  const inCall = !connectionLost && (phase === "connecting" || phase === "live" || phase === "ending" || phase === "waiting" || phase === "saving");
   useEffect(() => {
     const d = dialog.current;
     if (inCall && !d?.open) d?.showModal();
@@ -192,6 +214,16 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     return () => clearInterval(id);
   }, [phase]);
 
+  // While End is in progress, say what it is waiting for and for how long.
+  useEffect(() => {
+    if (phase !== "ending" && phase !== "waiting" && phase !== "saving") return;
+    const id = setInterval(
+      () => setEndWait({ note: pendingNote(pending.current), seconds: Math.floor((performance.now() - waitSince.current) / 1000) }),
+      500,
+    );
+    return () => clearInterval(id);
+  }, [phase]);
+
   // Keep the newest turn visible; only the transcript box scrolls, never the page.
   useEffect(() => {
     const el = transcript.current;
@@ -249,28 +281,32 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         break;
       case "input_audio_buffer.committed":
         pending.current.delete("speech");
-        if (e.item_id) pending.current.add(`t:${e.item_id}`);
+        endCommit.current = null;
+        // Already settled: a late or repeated commit must not reopen a turn that can't finish again.
+        if (e.item_id && !seen.current.has(`t:${e.item_id}`)) pending.current.add(`t:${e.item_id}`);
         break;
       case "conversation.item.input_audio_transcription.failed":
         if (e.item_id) pending.current.delete(`t:${e.item_id}`);
+        once(`t:${e.item_id}`);
         lost.current = true;
         break;
       case "response.created": {
         // The oldest typed question waiting for its answer is now acknowledged by a real response.
         const ask = [...pending.current].find((k) => k.startsWith("a:"));
         if (ask) pending.current.delete(ask);
-        if (e.response?.id) pending.current.add(`r:${e.response.id}`);
+        if (e.response?.id && !seen.current.has(`r:${e.response.id}`)) pending.current.add(`r:${e.response.id}`);
         break;
       }
       case "conversation.item.input_audio_transcription.completed":
         if (e.item_id) pending.current.delete(`t:${e.item_id}`);
-        if (e.transcript?.trim() && once(`t:${e.item_id}`)) addTurn("interviewer", e.transcript.trim());
+        if (once(`t:${e.item_id}`) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
         break;
       case "response.output_audio_transcript.done":
         if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index}`)) addTurn("persona", e.transcript.trim());
         break;
       case "response.done": {
         if (e.response?.id) pending.current.delete(`r:${e.response.id}`);
+        if (!once(`r:${e.response?.id}`)) break;
         if (e.response?.status === "failed" || e.response?.status === "incomplete") lost.current = true;
         const usage = e.response?.usage;
         setMetrics((m) => ({
@@ -292,6 +328,13 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
           const missing = new RegExp(`^(?:Conversation )?Item(?: with ID)? ['"]?${removal.itemId}['"]? (?:not found|does not exist|already deleted)[.!]?$`, "i").test(message);
           removal.resolve(missing);
           if (missing) break;
+        }
+        if (e.error?.event_id?.startsWith("end_commit_")) {
+          endCommit.current = null;
+          // A natural commit can win the race and empty the buffer: then nothing is missing. If speech
+          // is still reserved, it was heard but can't be transcribed, so the transcript has a hole.
+          if (pending.current.delete("speech")) lost.current = true;
+          break;
         }
         // A rejected response.create (e.g. one is already running) will never get a response:
         // release its reservation so "End" doesn't wait for an answer that can't come.
@@ -392,6 +435,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     lost.current = false;
     pending.current.clear();
     giveUp.current = false;
+    endCommit.current = null;
+    setEndTimings(null);
     setLastTurnMissing(false);
     setSaveState({ saved: 0, total: 0, failed: false });
     try {
@@ -508,24 +553,38 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     setTyped("");
   }
 
+  // The mic is off, so VAD will never hear this speech end. Commit it, only while speech is really
+  // reserved (an empty commit is a provider error). A commit starts transcription, not a response.
+  function commitSpeech() {
+    const dc = channel.current;
+    if (!pending.current.has("speech") || endCommit.current || dc?.readyState !== "open") return;
+    const eventId = `end_commit_${++asks.current}`;
+    endCommit.current = eventId;
+    dc.send(JSON.stringify({ type: "input_audio_buffer.commit", event_id: eventId }));
+  }
+
   async function end() {
     if (finalizing.current) return;
     finalizing.current = true;
     const g = gen.current;
+    const since = performance.now();
+    waitSince.current = since;
+    setEndWait({ note: pendingNote(pending.current), seconds: 0 });
     setPhase("ending");
-    // Mic off first, then wait until the provider has finished every transcript and answer it
-    // started; only then close the call, so the last turn can't be cut off.
+    // Capture stops now (screen sharing with the live controls); the call stays open only so the
+    // provider can deliver every transcript and answer it started, so the last turn isn't cut off.
     mic.current?.getTracks().forEach((t) => t.stop());
-    for (let waited = 0; pending.current.size > 0 && !callLost.current && g === gen.current && waited < 10_000; waited += 200) {
-      await new Promise((r) => setTimeout(r, 200));
+    camStream.current?.getTracks().forEach((t) => t.stop());
+    setCam(null);
+    // No time limit: unresolved work is never dropped automatically, the interviewer decides.
+    while (pending.current.size > 0 && !giveUp.current && !callLost.current && g === gen.current) {
+      const waited = performance.now() - since;
+      if (waited >= COMMIT_DELAY_MS) commitSpeech();
+      if (waited >= DRAIN_PATIENCE_MS) setPhase("waiting");
+      await sleep(200);
     }
     if (g !== gen.current) return;
-    if (pending.current.size > 0 && !callLost.current) {
-      // Still not done: keep the call open and let the interviewer decide, never guess "complete".
-      setPhase("waiting");
-      while (pending.current.size > 0 && !giveUp.current && !callLost.current && g === gen.current) await new Promise((r) => setTimeout(r, 500));
-    }
-    if (g !== gen.current) return;
+    setEndTimings({ drainMs: performance.now() - since });
     const incomplete = pending.current.size > 0 || lost.current;
     setLastTurnMissing(incomplete);
     hangUp();
@@ -536,29 +595,44 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     await finish();
   }
 
+  // A finite retry budget; false once it is spent or a newer session took over.
+  async function retry(g: number, step: () => Promise<boolean>) {
+    for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
+      if (attempt) await sleep(1000 * attempt);
+      if (g !== gen.current) return false;
+      if (await step()) return true;
+    }
+    return false;
+  }
+
   // The session is only marked ended once the whole transcript, marker included, is stored.
   async function finish() {
     if (finishing.current) return;
     finishing.current = true;
     const g = gen.current;
     const sid = sessionId.current;
-    setPhase("ending");
+    let since = performance.now();
+    waitSince.current = since;
+    setEndWait({ note: "", seconds: 0 });
+    setPhase("saving");
     setError(null);
-    let ok = false;
-    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
-      if (attempt) await new Promise((r) => setTimeout(r, 1000 * attempt));
-      if (g !== gen.current) return;
-      ok = await flush();
-    }
-    if (g !== gen.current) return;
     try {
-      if (!ok) throw new Error("transcript not saved");
+      const stored = await retry(g, flush);
+      if (g !== gen.current) return;
+      if (!stored) throw new Error("transcript not saved");
+      const saveMs = performance.now() - since;
+      setEndTimings((t) => ({ ...t, saveMs }));
       if (sid) {
         // A loss while startup's PATCH is in flight must not let "live" overtake "ended".
         await sessionLive.current?.catch(() => {});
         if (g !== gen.current) return;
-        await api.updateSession(sid, { status: "ended" });
+        since = performance.now();
+        // Repeating "ended" is a no-op on the backend, so a timed-out PATCH is safe to resend.
+        const closed = await retry(g, () => api.updateSession(sid, { status: "ended" }).then(() => true, () => false));
         if (g !== gen.current) return;
+        if (!closed) throw new Error("session not closed");
+        const closeMs = performance.now() - since;
+        setEndTimings((t) => ({ ...t, closeMs }));
         if (!lost.current && pending.current.size === 0) setEnded({ id: sid, questions: questions.current });
       }
       setPhase("ended");
@@ -626,7 +700,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200" data-testid="connection-lost">
           Connection lost. Microphone, camera and screen sharing are off.
           {lastTurnMissing ? " This transcript is incomplete; no debrief will be generated." : ""}
-          {phase === "ending" ? " Saving captured turns…" : phase === "unsaved"
+          {phase === "saving" ? " Saving captured turns…" : phase === "unsaved"
             ? " Save the captured turns before starting again."
             : " Start again begins a new conversation."}
         </p>
@@ -674,14 +748,23 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
               <ScreenShareButton pc={pc} ask={askWith} />
             </>
           )}
-          {phase === "ending" && <span className="text-sm text-muted">Saving transcript…</span>}
+          {(phase === "ending" || phase === "waiting") && (
+            <span className="text-sm text-muted tabular-nums" data-testid="end-wait">
+              {endWait.note}… {endWait.seconds}s
+            </span>
+          )}
           {phase === "waiting" && (
             <>
-              <span className="text-sm text-muted">Waiting for the last turn to finish…</span>
+              <span className="text-sm text-muted">
+                This is taking longer than usual. You can keep waiting, or close now: the transcript stays incomplete and gets no debrief.
+              </span>
               <button type="button" className={btn} onClick={() => (giveUp.current = true)}>
-                Close without it
+                Close with incomplete transcript
               </button>
             </>
+          )}
+          {phase === "saving" && (
+            <span className="text-sm text-muted tabular-nums">Saving transcript… {endWait.seconds}s</span>
           )}
         </div>
 
@@ -761,6 +844,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         <p className="mt-3 text-xs tabular-nums text-muted" data-testid="metrics">
           Latency to first audio: {avgMs ?? "–"} ms avg over {metrics.latenciesMs.length} turns · tokens in{" "}
           {metrics.inputTokens} / out {metrics.outputTokens}
+        </p>
+      )}
+      {endTimings && (
+        <p className="mt-1 text-xs tabular-nums text-muted" data-testid="end-timings">
+          End call: provider finished {seconds(endTimings.drainMs)} · events saved {seconds(endTimings.saveMs)} · session closed {seconds(endTimings.closeMs)}
         </p>
       )}
       {phase === "ended" && ended && ended.questions > 0 && !lastTurnMissing && (

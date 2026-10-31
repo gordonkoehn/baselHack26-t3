@@ -57,6 +57,9 @@ function passcode(): Record<string, string> {
   return code ? { "X-Demo-Passcode": code } : {};
 }
 
+// Saving must never hang the end of a call: a stuck request fails here, and the caller retries it.
+const SAVE_TIMEOUT_MS = 6_000;
+
 export const api = {
   health: () => fetch("/api/health", { cache: "no-store" }).then(json<{ status: string }>),
   createPersona: (body: PersonaCreate) =>
@@ -90,6 +93,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(SAVE_TIMEOUT_MS),
     }).then(json<Session>),
   sessionToken: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store", headers: passcode() }).then(
@@ -106,6 +110,7 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(events),
+      signal: AbortSignal.timeout(SAVE_TIMEOUT_MS),
     }).then(json<{ accepted: number }>),
   // Needs an ended session with a complete transcript; 409 if it isn't, 422 without interview questions.
   debrief: (id: string) =>
