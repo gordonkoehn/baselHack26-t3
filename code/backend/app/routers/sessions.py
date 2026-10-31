@@ -8,14 +8,11 @@ from app import avatar, realtime
 from app.auth import require_passcode
 from app.contracts import Session, SessionCreate, SessionToken, SessionUpdate
 from app.extract import ProviderUnavailable
-from app.store import Store, get_store
+from app.store import SessionConflict, Store, get_store
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 StoreDep = Annotated[Store, Depends(get_store)]
-
-# Allowed status moves. Repeating the current status is a no-op (idempotent end).
-NEXT = {"created": {"live", "ended"}, "live": {"ended"}, "ended": set()}
 
 
 def _now() -> str:
@@ -53,19 +50,12 @@ def read_session(session_id: str, store: StoreDep) -> Session:
 
 @router.patch("/{session_id}", response_model_by_alias=True)
 def update_session(session_id: str, body: SessionUpdate, store: StoreDep) -> Session:
-    # shortcut: read-modify-write, two racing PATCHes can both win; fine for one interviewer.
-    session = _load(store, session_id)
-    if body.status == session.status:
-        return session
-    if body.status not in NEXT[session.status]:
-        raise HTTPException(409, f"cannot go from {session.status} to {body.status}")
-    update: dict = {"status": body.status}
-    if body.status == "live":
-        update["started_at"] = _now()
-    if body.status == "ended":
-        update["ended_at"] = _now()
-    session = session.model_copy(update=update)
-    store.save_session(session)
+    try:
+        session = store.transition_session(session_id, body.status, _now())
+    except SessionConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    if session is None:
+        raise HTTPException(404, "session not found")
     return session
 
 

@@ -14,8 +14,17 @@ const SIGNAL = {
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
 // Quotes are verbatim from the synthetic interview; "grounded" means the persona's sources say it
 // too. Neither means "validated with real users".
-export function DebriefView({ sessionId, personaName }: { sessionId: string; personaName: string }) {
-  const [report, setReport] = useState<InsightReport | null>(null);
+// With savedReport it is read-only: it shows that report and never asks the backend to write one.
+export function DebriefView({
+  sessionId,
+  personaName,
+  savedReport,
+}: {
+  sessionId: string;
+  personaName: string;
+  savedReport?: InsightReport;
+}) {
+  const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
@@ -38,15 +47,15 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
   // Once per session: React dev mode runs effects twice, and two parallel POSTs would both call the model.
   const started = useRef<string | null>(null);
   useEffect(() => {
-    if (started.current === sessionId) return;
+    if (savedReport || started.current === sessionId) return;
     started.current = sessionId;
     void create();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {
-    if (report) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [report]);
+    if (report && !savedReport) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [report, savedReport]);
 
   async function create() {
     setLoading(true);
@@ -61,6 +70,17 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
       else setError(`Debrief failed (${e.status}): ${e.detail}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function copyLink() {
+    const link = `${window.location.origin}/report/${encodeURIComponent(sessionId)}`;
+    setExportStatus(null);
+    try {
+      await navigator.clipboard.writeText(link);
+      setExportStatus({ error: false, text: "Link copied. Anyone with it can read this debrief." });
+    } catch {
+      setExportStatus({ error: true, text: `Could not copy the link. Copy it from here: ${link}` });
     }
   }
 
@@ -147,12 +167,21 @@ export function DebriefView({ sessionId, personaName }: { sessionId: string; per
             >
               Download .md
             </button>
+            {!savedReport && (
+              <button
+                type="button"
+                onClick={copyLink}
+                className="rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-line"
+              >
+                Copy link
+              </button>
+            )}
           </div>
           <p role="status" className="mt-2 text-sm text-muted">
             {exportStatus && !exportStatus.error ? exportStatus.text : ""}
           </p>
           {exportStatus?.error && (
-            <p role="alert" className="mt-2 text-sm text-red-800 dark:text-red-200">{exportStatus.text}</p>
+            <p role="alert" className="mt-2 text-sm wrap-anywhere text-red-800 dark:text-red-200">{exportStatus.text}</p>
           )}
           <ol className="mt-4 space-y-4">
             {report.questions.map((q) => (
