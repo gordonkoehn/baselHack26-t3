@@ -23,6 +23,11 @@ class FakeRedis:
     def get(self, key):
         return self.data.get(key)
 
+    def delete(self, *keys):
+        with self.lock:
+            for key in keys:
+                self.data.pop(key, None)
+
     def mget(self, *keys):
         if not keys:
             raise ValueError("wrong number of arguments for 'mget'")  # as real Redis

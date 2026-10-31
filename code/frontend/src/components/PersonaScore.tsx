@@ -37,9 +37,11 @@ export function PersonaScore({
   onInterview: () => void;
   onAddMore: () => void;
 }) {
-  const { current, stale, checking, error, check } = coverage;
+  const { current, stale, personaChanged, checking, error, check } = coverage;
   const diversity = current?.sourceDiversity ?? localDiversity(sources);
   const addMore = current?.overall === "add_more";
+  // Emphasis follows the advice, so it waits for it instead of jumping when the check lands.
+  const undecided = checking && !current;
 
   return (
     <section aria-labelledby="persona-score" className="space-y-4" data-testid="persona-score">
@@ -83,9 +85,14 @@ export function PersonaScore({
             </p>
           ) : (
             <div role={error ? "alert" : undefined} className="text-sm">
-              <p className="text-xl font-extrabold tracking-tight">No check has run yet.</p>
+              <p className="text-xl font-extrabold tracking-tight">{stale ? "Needs a new check." : "No check has run yet."}</p>
               <p className="text-muted">
-                {error ?? (stale ? `${persona.name} changed since the last check.` : "You can still go to the interview.")}{" "}
+                {error ??
+                  (personaChanged
+                    ? `${persona.name} changed since the last check.`
+                    : stale
+                      ? "The test changed since the last check."
+                      : "You can still go to the interview.")}{" "}
                 <button type="button" className="font-bold text-accent underline" onClick={() => void check()}>
                   Check now
                 </button>
@@ -96,7 +103,7 @@ export function PersonaScore({
         <button type="button" className={addMore ? PRIMARY : SECONDARY} onClick={onAddMore}>
           Add more
         </button>
-        <button type="button" className={addMore ? SECONDARY : PRIMARY} onClick={onInterview}>
+        <button type="button" className={addMore || undecided ? SECONDARY : PRIMARY} onClick={onInterview}>
           Go to the interview
         </button>
       </div>
@@ -122,7 +129,7 @@ function Category({
         <span className={`text-5xl font-extrabold tracking-tight tabular-nums ${level?.text ?? "text-muted"}`}>
           {result ? `${Math.round(result.score * 100)}%` : "–"}
         </span>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${level?.chip ?? "bg-line text-muted"}`}>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-widest ${level?.chip ?? "bg-line text-foreground"}`}>
           {level?.word ?? "Not checked"}
         </span>
       </p>

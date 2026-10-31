@@ -7,11 +7,11 @@ import type { Coverage } from "@/lib/useCoverage";
 const STATUS: Record<CoverageCriterion["status"], { label: string; className: string }> = {
   covered: { label: "covered", className: "bg-accent-soft text-accent" },
   guessed: { label: "guessed", className: "bg-line text-foreground" },
-  missing: { label: "missing", className: "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" },
+  missing: { label: "missing", className: "bg-alert-tint text-on-alert" },
 };
 
 export function CoverageCheck({ coverage }: { coverage: Coverage }) {
-  const { goal, setGoal, criteria, setCriteria, report, answers, setAnswers, checking, submitting, busy, error, stale, check, submit } = coverage;
+  const { goal, setGoal, criteria, setCriteria, report, answers, setAnswers, checking, submitting, busy, error, stale, personaChanged, check, submit } = coverage;
   const [newCriterion, setNewCriterion] = useState("");
 
   const given = (report?.questions ?? [])
@@ -82,11 +82,13 @@ export function CoverageCheck({ coverage }: { coverage: Coverage }) {
         >
           {checking ? "Checking…" : report ? "Check again" : "Check coverage"}
         </button>
-        {stale && <span className="text-sm text-muted">The persona changed since this check.</span>}
+        {stale && (
+          <span className="text-sm text-muted">The {personaChanged ? "persona" : "test"} changed since this check.</span>
+        )}
       </div>
 
       {error && (
-        <p role="alert" className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+        <p role="alert" className="mt-3 rounded-md bg-alert-tint p-3 text-sm text-on-alert">
           {error}
         </p>
       )}

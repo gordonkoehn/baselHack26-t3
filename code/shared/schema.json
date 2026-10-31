@@ -437,7 +437,7 @@
     },
     "SourceDiversity": {
       "type": "object",
-      "description": "Counted in code, without a model, and not a quality category. Sources with the same text count once.",
+      "description": "Counted in code, without a model, and not a quality category. Sources with the same text count once; the team's own answers to gap questions are not a source.",
       "required": ["count", "kinds", "minimum", "met"],
       "properties": {
         "count": { "type": "integer", "minimum": 0 },
@@ -456,7 +456,7 @@
         "testGoal": { "type": "string" },
         "score": { "type": "number", "minimum": 0, "maximum": 1 },
         "recommendation": { "enum": ["ready", "needs_input"], "description": "ready = score >= 0.7 and no weight-3 criterion missing." },
-        "overall": { "enum": ["good_enough", "add_more"], "description": "The one line on the score screen: good_enough = no red category and source diversity met. Advice only, it never blocks an interview." },
+        "overall": { "enum": ["good_enough", "add_more"], "description": "The one line on the score screen: good_enough = recommendation ready, no red category and source diversity met. Advice only, it never blocks an interview." },
         "categories": { "type": "array", "items": { "$ref": "#/$defs/CoverageCategory" }, "description": "persona, challenge, solution, in that order." },
         "sourceDiversity": { "$ref": "#/$defs/SourceDiversity" },
         "criteria": { "type": "array", "items": { "$ref": "#/$defs/CoverageCriterion" } },
@@ -470,7 +470,7 @@
     "GET /api/personas": { "response": "PersonaSummary[]", "note": "Newest first, max 20. An edit (PATCH) keeps a persona's place and createdAt. Needs the demo passcode (X-Demo-Passcode, 401 without it): the list exposes the ids that GET /api/personas/{id} reads. 503 store unavailable." },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
-    "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers can't lose ground: same test goal keeps weights and still-backed covered rows. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
+    "POST /api/personas/{id}/coverage": { "body": "CoverageRequest", "response": "CoverageReport", "note": "The last report per persona is kept so a re-check after answers can't lose ground: same test goal keeps weights and still-backed covered rows. An edit (PATCH) drops that report, so a check after it starts fresh. 404 unknown persona; 502 unusable model answer; 503 provider unavailable." },
     "GET /api/faces": { "response": "Face[]" },
     "PUT /api/personas/{id}/photo": { "body": "raw PNG, JPEG or WebP bytes (max 2 MB, sniffed)", "response": "Persona", "note": "Sets photoUrl (a new URL each upload); version unchanged, since a picture is not persona content. 404 unknown persona; 413 too large; 422 not a supported image." },
     "DELETE /api/personas/{id}/photo": { "response": "Persona", "note": "Clears photoUrl; version unchanged. 404 unknown persona." },

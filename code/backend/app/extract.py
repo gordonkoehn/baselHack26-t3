@@ -388,8 +388,10 @@ For EVERY criterion in `criteria`, in the same order, copying its name exactly, 
   does not cover a criterion. "guessed" if the persona only has guesses or an invented backstory
   for it; "missing" if the persona says nothing about it. support is empty unless covered.
   Criteria listed in `sourceCriteria` are about the problem and the tested solution, not the
-  person: they may also be covered by a passage of a source. Then list that source's id in
-  evidenceIds and copy the exact words into support. The testGoal alone covers nothing.
+  person: they may also be covered by a passage of a source that is about THIS criterion. Then list
+  that source's id in evidenceIds and copy into support at least 6 consecutive words of it. In the
+  "Answers to gap questions" source only the answers (A:) count, never the questions (Q:). The
+  testGoal alone covers nothing.
 - weight: how much THIS test (testGoal) depends on the criterion: 3 = the test result is
   meaningless without it, 2 = it matters, 1 = nice to have.
 - note: one short sentence saying what is known or what is missing.

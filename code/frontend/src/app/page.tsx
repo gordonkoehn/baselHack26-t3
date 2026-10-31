@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, api } from "@/lib/api";
 import { errorMessage } from "@/lib/errorMessage";
 import type {
@@ -547,9 +547,10 @@ function SaveError({ text }: { text: string }) {
   );
 }
 
-function NextButton({ onClick, children }: { onClick: () => void; children: string }) {
+function NextButton({ onClick, back, children }: { onClick: () => void; back?: ReactNode; children: string }) {
   return (
-    <div className="flex justify-end">
+    <div className="flex items-center justify-end gap-4">
+      {back}
       <button type="button" className="rounded-lg bg-accent px-5 py-2.5 text-sm font-bold text-surface hover:opacity-90" onClick={onClick}>
         {children}
       </button>
@@ -693,7 +694,16 @@ function PersonaProfile({
     </div>
     <div hidden={tab !== "verify"}>
       <section id="verify" className="space-y-4" data-testid="verify">
-        <NextButton onClick={() => onTab("score")}>Back to the score</NextButton>
+        <NextButton
+          onClick={() => onTab("interview")}
+          back={
+            <button type="button" className="text-sm font-bold text-accent underline" onClick={() => onTab("score")}>
+              Back to the score
+            </button>
+          }
+        >
+          Go to the interview
+        </NextButton>
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Add more before you interview.</h2>
           <p className="text-sm text-muted">

@@ -6,16 +6,17 @@ import examplePersona from "../../../shared/examples/persona.json";
 import { ApiError, api } from "@/lib/api";
 import type { CoverageReport, Persona, PersonaSource } from "@/lib/contracts";
 import { QUARTIER_BOERSE } from "@/lib/sample";
-import { OPEN_GOAL, SAMPLE_GOAL, localDiversity, startingInput, useCoverage, type Coverage } from "@/lib/useCoverage";
+import { OPEN_GOAL, SAMPLE_GOAL, localDiversity, sameTest, startingInput, useCoverage, type Coverage } from "@/lib/useCoverage";
 import { PersonaScore } from "./PersonaScore";
 
 const PERSONA = { ...examplePersona, id: "p_1", version: 1 } as unknown as Persona;
 const REPORT = exampleReport as unknown as CoverageReport;
+const NO_OWN = { ...REPORT, criteria: REPORT.criteria.filter((c) => !c.custom) };
 const NOTE: PersonaSource = { kind: "note", title: "Guide", text: "Schritt eins" };
 const CALL: PersonaSource = { kind: "transcript", title: "Call", text: "Ich zahle mit TWINT" };
 
 const idle = (over: Partial<Coverage> = {}) =>
-  ({ current: null, stale: false, checking: false, error: null, check: vi.fn(), ...over }) as unknown as Coverage;
+  ({ current: null, stale: false, personaChanged: false, checking: false, error: null, check: vi.fn(), ...over }) as unknown as Coverage;
 
 function show(coverage: Coverage, sources: PersonaSource[] = [NOTE, CALL]) {
   const onInterview = vi.fn();
@@ -79,6 +80,22 @@ describe("PersonaScore", () => {
     expect((addMore() as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("leaves the emphasis open until there is advice, so it doesn't jump", () => {
+    show(idle({ checking: true }));
+    expect(interview().className).not.toContain("bg-accent");
+    expect(addMore().className).not.toContain("bg-accent");
+  });
+
+  it("keeps the emphasis while an existing result is checked again", () => {
+    show(idle({ checking: true, current: REPORT }));
+    expect(addMore().className).toContain("bg-accent");
+  });
+
+  it("gives the not-checked chip readable contrast", () => {
+    show(idle());
+    expect(screen.getAllByText("Not checked")[0].className).toContain("text-foreground");
+  });
+
   it("shows a failed check, offers a retry and does not block the interview", () => {
     const check = vi.fn();
     const { onInterview } = show(idle({ error: "The coverage service is temporarily unavailable.", check }));
@@ -90,9 +107,14 @@ describe("PersonaScore", () => {
   });
 
   it("never shows the levels of an older version", () => {
-    show(idle({ stale: true }));
-    expect(screen.getByTestId("score-overall").textContent).toContain("changed since the last check");
+    show(idle({ stale: true, personaChanged: true }));
+    expect(screen.getByTestId("score-overall").textContent).toContain(`${PERSONA.name} changed since the last check`);
     expect(screen.queryByText("Red")).toBeNull();
+  });
+
+  it("says so when the test changed instead of the persona", () => {
+    show(idle({ stale: true }));
+    expect(screen.getByTestId("score-overall").textContent).toContain("The test changed since the last check");
   });
 
   it("uses the server's source count once there is a report", () => {
@@ -122,6 +144,32 @@ describe("localDiversity", () => {
   });
 });
 
+describe("localDiversity and the answers note", () => {
+  it("doesn't count the team's answers as a source", () => {
+    const answers: PersonaSource = { kind: "note", title: "Answers to gap questions", text: "Q: a\nA: b" };
+    expect(localDiversity([NOTE, answers])).toMatchObject({ count: 1, met: false });
+  });
+});
+
+describe("sameTest", () => {
+  const goal = REPORT.testGoal;
+
+  it("matches the same goal and own criteria", () => {
+    expect(sameTest(NO_OWN, ` ${goal} `, [])).toBe(true);
+    expect(sameTest(REPORT, goal, [" cares  about DESIGN"])).toBe(true);
+  });
+
+  it("ignores an own criterion the server dropped as a repeat of a default", () => {
+    expect(sameTest(NO_OWN, goal, [NO_OWN.criteria[0].name.toUpperCase()])).toBe(true);
+  });
+
+  it("sees another goal or other own criteria", () => {
+    expect(sameTest(NO_OWN, "Another test", [])).toBe(false);
+    expect(sameTest(NO_OWN, goal, ["Cares about design"])).toBe(false);
+    expect(sameTest(REPORT, goal, [])).toBe(false);
+  });
+});
+
 describe("startingInput", () => {
   const sample: PersonaSource[] = [{ kind: "note", title: "x", text: QUARTIER_BOERSE }];
 
@@ -148,13 +196,46 @@ describe("useCoverage", () => {
     options.onReport.mockClear();
   });
 
+  const OPEN_REPORT: CoverageReport = { ...NO_OWN, testGoal: OPEN_GOAL };
+
   it("runs one check by itself, even in strict mode", async () => {
-    const check = vi.spyOn(api, "checkCoverage").mockResolvedValue(REPORT);
+    const check = vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
     const { result } = mount(null);
-    await waitFor(() => expect(result.current.current).toEqual(REPORT));
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
     expect(check).toHaveBeenCalledOnce();
     expect(check).toHaveBeenCalledWith("p_1", { testGoal: OPEN_GOAL, criteria: [] });
-    expect(options.onReport).toHaveBeenCalledWith(REPORT);
+    expect(options.onReport).toHaveBeenCalledWith(OPEN_REPORT);
+  });
+
+  it("drops the levels when the goal changes, and keeps them when it changes back", async () => {
+    vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
+    const { result } = mount(null);
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
+    act(() => result.current.setGoal("Another test"));
+    expect(result.current.current).toBeNull();
+    expect(result.current.stale).toBe(true);
+    expect(result.current.personaChanged).toBe(false);
+    act(() => result.current.setGoal(OPEN_GOAL));
+    expect(result.current.current).toEqual(OPEN_REPORT);
+  });
+
+  it("drops the levels when own criteria change", async () => {
+    vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
+    const { result } = mount(null);
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
+    act(() => result.current.setCriteria(["Cares about design"]));
+    expect(result.current.current).toBeNull();
+  });
+
+  it("asks for a goal instead of posting an empty one", async () => {
+    const check = vi.spyOn(api, "checkCoverage").mockResolvedValue(OPEN_REPORT);
+    const { result } = mount(null);
+    await waitFor(() => expect(result.current.current).toEqual(OPEN_REPORT));
+    check.mockClear();
+    act(() => result.current.setGoal("   "));
+    await act(() => result.current.check());
+    expect(check).not.toHaveBeenCalled();
+    expect(result.current.error).toContain("Add more");
   });
 
   it("doesn't pay for a check the workspace still holds", async () => {

@@ -7,6 +7,8 @@ import { QUARTIER_BOERSE } from "@/lib/sample";
 
 const STORAGE_KEY = "opentwin.coverage";
 const MIN_SOURCES = 2;
+// The team's own answers, stored as a note: no extra source, on the server either.
+const ANSWERS_TITLE = "Answers to gap questions";
 
 // Matches the bundled Quartier-Börse sample, so the demo works with one click.
 export const SAMPLE_GOAL =
@@ -22,6 +24,8 @@ function errorMessage(e: unknown): string {
   return `Could not check (${e.status}): ${e.detail}`;
 }
 
+const norm = (text: string) => text.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
+
 /** The goal to start with: what this browser's user wrote, else one that fits the sources. */
 export function startingInput(saved: unknown, sources: PersonaSource[]): { goal: string; criteria: string[] } {
   const { goal, criteria } = (saved ?? {}) as { goal?: unknown; criteria?: unknown };
@@ -36,9 +40,18 @@ export function startingInput(saved: unknown, sources: PersonaSource[]): { goal:
 export function localDiversity(sources: PersonaSource[]): SourceDiversity | null {
   // A persona from the library keeps its sources on the server.
   if (sources.length === 0) return null;
-  const distinct = new Map(sources.map((s) => [s.text.split(/\s+/).filter(Boolean).join(" ").toLowerCase(), s.kind]));
+  const real = sources.filter((s) => s.title !== ANSWERS_TITLE);
+  const distinct = new Map(real.map((s) => [norm(s.text), s.kind]));
   const count = distinct.size;
   return { count, kinds: [...new Set(distinct.values())], minimum: MIN_SOURCES, met: count >= MIN_SOURCES };
+}
+
+/** Is this report about this test? Own criteria as the server keeps them: repeats are dropped. */
+export function sameTest(report: CoverageReport, goal: string, criteria: string[]): boolean {
+  const defaults = report.criteria.filter((c) => !c.custom).map((c) => norm(c.name));
+  const own = new Set(criteria.map(norm).filter((c) => c && !defaults.includes(c)));
+  const checked = report.criteria.filter((c) => c.custom).map((c) => norm(c.name));
+  return report.testGoal.trim() === goal.trim() && own.size === checked.length && checked.every((c) => own.has(c));
 }
 
 export type Coverage = ReturnType<typeof useCoverage>;
@@ -68,6 +81,11 @@ export function useCoverage({
   const [error, setError] = useState<string | null>(null);
 
   async function check(input = { goal, criteria }) {
+    // The score screen has no goal field, so it has to say where to fill it in.
+    if (!input.goal.trim()) {
+      setError("Say what you will test first, on Add more.");
+      return;
+    }
     setChecking(true);
     setError(null);
     try {
@@ -120,7 +138,7 @@ export function useCoverage({
       const patched = await api.answerGaps(persona.id, { answers: list });
       // Same layout as the backend's stored source; the card only shows its title.
       const text = list.map((a) => `Q: ${a.question}\nA: ${a.answer}`).join("\n\n");
-      onAnswered(patched, { kind: "note", title: "Answers to gap questions", text });
+      onAnswered(patched, { kind: "note", title: ANSWERS_TITLE, text });
     } catch (e) {
       setError(errorMessage(e));
       setSubmitting(false);
@@ -132,7 +150,10 @@ export function useCoverage({
   }
 
   // A rebuild makes a new persona; edits and answers bump the version.
-  const stale = report !== null && (report.personaId !== persona.id || report.personaVersion !== persona.version);
+  const personaChanged = report !== null && (report.personaId !== persona.id || report.personaVersion !== persona.version);
+  // A check answers one test: levels for another goal or other criteria would mislead just the same.
+  const testChanged = report !== null && !sameTest(report, goal, criteria);
+  const stale = personaChanged || testChanged;
 
   return {
     goal,
@@ -140,9 +161,10 @@ export function useCoverage({
     criteria,
     setCriteria: (next: string[]) => remember({ goal, criteria: next }),
     report,
-    /** Only a check of exactly this persona version; never an outdated level. */
+    /** Only a check of exactly this persona version and this test; never an outdated level. */
     current: stale ? null : report,
     stale,
+    personaChanged,
     answers,
     setAnswers,
     checking,

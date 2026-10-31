@@ -14,7 +14,7 @@
   --on-tint: #0b5a44;
   --warn-tint: #fbf1df;
   --on-warn: #8a5a12;
-  /* Not in the brand book, which has no red: only for a Red score, as agreed with the challenge owner. */
+  /* Not in the brand book, which has no red: only for a Red score and its missing rows, as agreed with the challenge owner. */
   --alert-tint: #fbe9e6;
   --on-alert: #a8281a;
   /* The dark ground, for the live interview. */

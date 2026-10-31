@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -195,6 +196,11 @@ READY_SCORE = 0.7
 GREEN_FROM = 0.7
 YELLOW_FROM = 0.4
 MIN_SOURCES = 2
+# A short phrase turns up somewhere in any long source, so citing one takes a whole clause.
+# Persona quotes stay at two words: they are short and were picked for what they show.
+MIN_PASSAGE_WORDS = 6
+# The team's own answers, stored as a note so the interview can read them: no extra source.
+ANSWERS_TITLE = "Answers to gap questions"
 # More gaps than this are counted, not named: the reason must stay one short sentence.
 NAMED_GAPS = 2
 
@@ -241,10 +247,19 @@ def score_category(
 
 def source_diversity(sources: Sequence[PersonaSource]) -> SourceDiversity:
     """The same text pasted twice is one source; no model involved."""
-    distinct = {_norm(s.text).casefold(): s.kind for s in sources}
+    real = (s for s in sources if s.title != ANSWERS_TITLE)
+    distinct = {_norm(s.text).casefold(): s.kind for s in real}
     kinds = list(dict.fromkeys(distinct.values()))
     count = len(distinct)
     return SourceDiversity(count=count, kinds=kinds, minimum=MIN_SOURCES, met=count >= MIN_SOURCES)
+
+
+def passage(source: PersonaSource) -> str:
+    """What a source itself says. In the answers note that is the answers: the questions are ours."""
+    text = source.text
+    if source.title == ANSWERS_TITLE:
+        text = " ".join(re.findall(r"^A: (.*?)(?=\n\nQ: |\Z)", text, re.DOTALL | re.MULTILINE))
+    return _norm(text).casefold()
 
 
 def score_coverage(
@@ -266,9 +281,11 @@ def score_coverage(
 
     Challenge and solution criteria may also cite a source (source:N): they are about the problem
     and the product, which a persona needn't have absorbed. Criteria about the person may not.
+    A source is long, so its support needs MIN_PASSAGE_WORDS. That proves the words are there, not
+    that they are on topic: for a passage the topic stays the model's call.
     """
     quotes = {e.id: _norm(e.quote or "").casefold() for e in persona.evidence}
-    passages = {f"source:{i}": _norm(s.text).casefold() for i, s in enumerate(sources, start=1)}
+    passages = {f"source:{i}": passage(s) for i, s in enumerate(sources, start=1)}
     from_sources = {n.casefold() for n in SOURCE_CRITERIA}
     rows = {_norm(r.name).casefold(): r for r in draft.criteria}
     before = {c.name.casefold(): c for c in previous.criteria} if previous else {}
@@ -290,7 +307,11 @@ def score_coverage(
         else:
             ids = [x for x in dict.fromkeys(row.evidence_ids) if x in known]
             support = _norm(row.support).casefold()
-            backed = len(support.split()) >= 2 and any(support in citable[x] for x in ids)
+            words = len(support.split())
+            backed = any(
+                support in citable[x] and words >= (MIN_PASSAGE_WORDS if x in passages else 2)
+                for x in ids
+            )
             status = row.status
             if status == "covered" and not backed:
                 status = "guessed"
@@ -305,8 +326,8 @@ def score_coverage(
         old = before.get(name.casefold())
         if old is not None:
             still_backed = old.status != "covered" or set(old.evidence_ids) <= known
-            # shortcut: a guessed row can't fall to missing after a fact is deleted; fine while
-            # answers only add facts, revisit if edits should lower the score.
+            # An edit forgets the report (update_persona), so this floor only ever holds across
+            # answers. shortcut: a fact an answer replaces keeps its row; answers mostly add.
             if still_backed and _value(old) > _value(current):
                 current = old.model_copy(update={"custom": custom})
             current = current.model_copy(update={"weight": old.weight})
@@ -318,13 +339,15 @@ def score_coverage(
     gaps = any(c.weight >= 2 and c.status != "covered" for c in criteria)
     categories = [score_category(name, criteria) for name in CATEGORY_CRITERIA]
     diversity = source_diversity(sources)
-    good = diversity.met and all(c.level != "red" for c in categories)
+    ready = score >= READY_SCORE and not blocked
+    # Never "good enough" here while Add more says "Gaps to fill" for the same report.
+    good = ready and diversity.met and all(c.level != "red" for c in categories)
     return CoverageReport(
         persona_id=persona.id,
         persona_version=persona.version,
         test_goal=request.test_goal,
         score=score,
-        recommendation="ready" if score >= READY_SCORE and not blocked else "needs_input",
+        recommendation="ready" if ready else "needs_input",
         overall="good_enough" if good else "add_more",
         categories=categories,
         source_diversity=diversity,
@@ -454,7 +477,7 @@ def add_answers(
         raise HTTPException(503, "persona provider unavailable") from None
     except ExtractionFailed as exc:
         raise HTTPException(502, f"answers unusable: {exc}") from None
-    source = PersonaSource(kind="note", title="Answers to gap questions", text=answers_text(body))
+    source = PersonaSource(kind="note", title=ANSWERS_TITLE, text=answers_text(body))
     stored = store.get_persona_sources(persona.id)
     if stored is None:
         stored = PersonaCreate(
@@ -654,4 +677,8 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
         )
     persona = persona.model_copy(update=changes)
     store.update_persona(persona)
+    # The next check judges the edited persona afresh; the old rows must not hold its level up.
+    # A new face or voice changes nothing the persona knows.
+    if body.model_fields_set - {"face_id", "voice_id"}:
+        store.delete_coverage(persona.id)
     return persona

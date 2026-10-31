@@ -183,6 +183,9 @@ class Store:
             # ground, and its criteria differ anyway, so it is as good as no report.
             return None
 
+    def delete_coverage(self, persona_id: str) -> None:
+        self._call("delete", f"{PREFIX}:coverage:{persona_id}")
+
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:
         self._put(f"{PREFIX}:persona:{persona_id}:sources", request)

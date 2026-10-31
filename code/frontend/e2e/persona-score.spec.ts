@@ -74,8 +74,29 @@ test("the screens click through, and the detail stays one click away", async ({ 
   await page.getByRole("button", { name: "Next: add more" }).click();
   await expect(page.getByTestId("coverage-check")).toBeVisible();
   await page.getByRole("button", { name: "Back to the score" }).click();
-  await page.getByTestId("persona-score").getByRole("button", { name: "Go to the interview" }).click();
+  await expect(page.getByTestId("persona-score")).toBeVisible();
+  await page.getByTestId("persona-score").getByRole("button", { name: "Add more" }).click();
+  await page.getByTestId("verify").getByRole("button", { name: "Go to the interview" }).click();
   await expect(page.getByRole("button", { name: "Start video interview" })).toBeVisible();
+});
+
+test("another test goal outdates the levels, and an empty one asks for a goal", async ({ page }) => {
+  await createPersona(page);
+  await expect(page.getByTestId("score-overall")).toHaveText("Add more first.");
+  await page.getByTestId("persona-score").getByRole("button", { name: "Add more" }).click();
+  const goal = page.getByLabel("What will you test with this persona?");
+  await goal.fill("Another test entirely");
+  await expect(page.getByTestId("verify")).toContainText("The test changed since this check.");
+  await page.getByRole("button", { name: "Back to the score" }).click();
+  const overall = page.getByTestId("score-overall");
+  await expect(overall).toContainText("The test changed since the last check.");
+  await expect(page.getByTestId("score-Persona")).toContainText("Not checked");
+
+  await page.getByRole("button", { name: "Add more", exact: true }).first().click();
+  await goal.fill("");
+  await page.getByRole("button", { name: "Back to the score" }).click();
+  await page.getByRole("button", { name: "Check now" }).click();
+  await expect(overall).toContainText("Say what you will test first");
 });
 
 test("good enough makes the interview the primary choice", async ({ page }) => {
