@@ -25,6 +25,8 @@ BUDGET_SECONDS = 60
 # The browser comes through a rewrite, and Vercel gives up on those after 120 s, long before the
 # 300 s function limit. If extraction took long, probes get less, leaving time to save and respond.
 LATEST_END_SECONDS = 110
+# With less time left the ten paid calls can't be expected to finish, so they aren't started.
+MIN_BUDGET_SECONDS = 5
 
 # Closed questions, so two runs can be compared without a further provider call. Any persona can
 # answer them, whatever the sprint is about.
@@ -97,7 +99,7 @@ def score_readiness(
     """The persona's score, or None if any run fails; `elapsed` is the time the request has used."""
     try:
         budget = min(BUDGET_SECONDS, LATEST_END_SECONDS - elapsed)
-        if budget <= 0:
+        if budget < MIN_BUDGET_SECONDS:
             raise TimeoutError
         facts = _numbered_facts(persona)
         instructions = "\n\n".join(

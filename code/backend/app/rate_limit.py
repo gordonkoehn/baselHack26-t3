@@ -20,7 +20,7 @@ WINDOW_SECONDS = 3600
 # bucket: (per IP, all visitors together), per window. Generous on purpose: a venue shares one
 # public IP and every reconnect fetches fresh tokens.
 LIMITS = {
-    "personas": (60, 150),
+    "personas": (60, 150),  # each success is 11 provider calls: extraction + 10 readiness probes
     "sources": (120, 300),
     "tokens": (120, 300),  # token + avatar-token: an interview start uses one of each
     "debrief": (60, 150),

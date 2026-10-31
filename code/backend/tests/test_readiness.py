@@ -3,6 +3,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import openai
@@ -14,6 +15,7 @@ from app.contracts import Persona, PersonaSource
 from app.extract import ExtractionFailed, PersonaDraft, ProbeAnswer, ProviderUnavailable
 from app.main import REQUEST_ID_HEADER, app
 from app.readiness import PROBES, score_readiness
+from app.routers import personas
 from app.routers.personas import get_extractor, get_prober
 from app.store import Store, get_store
 from tests.fakes import FakeRedis
@@ -168,6 +170,7 @@ def test_one_failed_run_means_no_score_and_logs_only_the_type(error, caplog):
 
 def test_budget_ends_a_hanging_probe_without_waiting_for_it(monkeypatch):
     monkeypatch.setattr(readiness, "BUDGET_SECONDS", 0.05)
+    monkeypatch.setattr(readiness, "MIN_BUDGET_SECONDS", 0)
     release = threading.Event()
 
     def ask(_instructions, _question):
@@ -204,15 +207,21 @@ def test_one_failed_run_ends_the_wait_for_hanging_runs():
         release.set()
 
 
-def test_probes_get_only_the_time_extraction_left():
+@pytest.mark.parametrize("time_left", [0, readiness.MIN_BUDGET_SECONDS - 0.1])
+def test_too_little_time_left_spends_nothing_on_probes(time_left):
     calls = []
 
     def ask(_instructions, question):
         calls.append(question)
         return answer()
 
-    assert score(ask, elapsed=readiness.LATEST_END_SECONDS) is None
-    assert calls == []  # no time left: no money spent on probes
+    assert score(ask, elapsed=readiness.LATEST_END_SECONDS - time_left) is None
+    assert calls == []
+
+
+def test_probes_run_when_the_minimum_time_is_left():
+    elapsed = readiness.LATEST_END_SECONDS - readiness.MIN_BUDGET_SECONDS
+    assert score(always(answer()), elapsed=elapsed) is not None
 
 
 def test_response_comes_before_the_rewrite_proxy_gives_up():
@@ -222,7 +231,8 @@ def test_response_comes_before_the_rewrite_proxy_gives_up():
     assert readiness.LATEST_END_SECONDS < min(next_proxy_seconds, vercel_proxy_seconds)
 
 
-def test_slow_extraction_shortens_the_budget():
+def test_slow_extraction_shortens_the_budget(monkeypatch):
+    monkeypatch.setattr(readiness, "MIN_BUDGET_SECONDS", 0)
     release = threading.Event()
 
     def ask(_instructions, _question):
@@ -254,6 +264,28 @@ def test_create_survives_failed_probes_with_null_readiness(client):
     assert res.status_code == 201
     assert res.json()["readiness"] is None
     assert client.get(f"/api/personas/{res.json()['id']}").json() == res.json()
+
+
+def test_create_counts_extraction_time_against_the_probes(client, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(personas, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    extract_draft = app.dependency_overrides[get_extractor]()
+    calls = []
+
+    def slow_extraction(request):
+        now[0] += readiness.LATEST_END_SECONDS
+        return extract_draft(request)
+
+    def ask(_instructions, question):
+        calls.append(question)
+        return answer()
+
+    app.dependency_overrides[get_extractor] = lambda: slow_extraction
+    app.dependency_overrides[get_prober] = lambda: ask
+    res = client.post("/api/personas", json=REQUEST)
+    assert res.status_code == 201
+    assert res.json()["readiness"] is None
+    assert calls == []
 
 
 def test_editing_clears_the_score_without_new_probes(client):
