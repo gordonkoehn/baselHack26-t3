@@ -25,9 +25,12 @@ export function Avatar({
 
   useEffect(() => {
     let client: SimliClient | null = null;
+    // Unmounted or failed: either way this attempt is over and nothing may revive it.
     let cancelled = false;
+    let failed = false;
     const fail = () => {
-      if (cancelled) return;
+      if (cancelled || failed) return;
+      failed = true;
       // A failed or ended session still holds a connection: release it.
       void client?.stop();
       onActive(null);
@@ -36,12 +39,13 @@ export function Avatar({
     (async () => {
       try {
         const { token } = await api.avatarToken(sessionId);
-        if (cancelled || !token || !video.current || !audio.current) return;
+        if (cancelled || failed || !token || !video.current || !audio.current) return;
         client = new SimliClient(token, video.current, audio.current, null, LogLevel.ERROR);
         client.on("error", fail);
         client.on("stop", fail);
         await client.start();
-        if (cancelled) return;
+        // An "error"/"stop" can arrive while start() is still pending; it wins.
+        if (cancelled || failed) return;
         client.listenToMediastreamTrack(track);
         const live = client;
         onActive({ clear: () => live.ClearBuffer() });
