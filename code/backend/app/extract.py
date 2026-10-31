@@ -138,20 +138,25 @@ def extract_persona(request: PersonaCreate) -> PersonaDraft:
 
 
 TRANSCRIBE = """\
-Transcribe all text visible in this image verbatim, in reading order, in its original language.
+Transcribe all text visible in this image or scanned document verbatim, in reading order, in its original language.
 One sticky note, card or speech bubble per line. Keep the exact wording and spelling; do not
 translate, summarize, correct or describe the image. Output only the transcribed text, or nothing
 if the image contains no readable text.
 """
 
 
-def transcribe_image(data: bytes, mime: str) -> str:
-    """Return the text visible in an image, so it can be quoted like any other source."""
+def transcribe(data: bytes, mime: str) -> str:
+    """Return the text visible in an image or scanned PDF, so it can be quoted like any source."""
     url = f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    part = (
+        {"type": "input_file", "filename": "scan.pdf", "file_data": url}
+        if mime == "application/pdf"
+        else {"type": "input_image", "image_url": url}
+    )
     with _provider_errors():
         response = _client().responses.create(
             model=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL,
             instructions=TRANSCRIBE,
-            input=[{"role": "user", "content": [{"type": "input_image", "image_url": url}]}],
+            input=[{"role": "user", "content": [part]}],
         )
     return response.output_text.strip()

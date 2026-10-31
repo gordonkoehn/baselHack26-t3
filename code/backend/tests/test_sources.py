@@ -57,9 +57,32 @@ def test_broken_pdf_is_422_not_500():
     )
 
 
-def test_pdf_without_text_is_422():
+def test_scanned_pdf_is_transcribed(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "Deine 12 kg sind gutgeschrieben.")
     res = client.post("/api/sources/pdf", content=make_pdf(""), headers=PDF)
-    assert res.status_code == 422 and "no text" in res.json()["detail"]
+    assert res.json() == {"text": "Deine 12 kg sind gutgeschrieben.", "pages": 1}
+    assert calls == ["application/pdf"]
+
+
+def test_scanned_pdf_without_readable_text_is_422(monkeypatch):
+    fake_transcribe(monkeypatch, "")
+    res = client.post("/api/sources/pdf", content=make_pdf(""), headers=PDF)
+    assert res.status_code == 422 and "no readable text" in res.json()["detail"]
+
+
+def test_long_scanned_pdf_is_413_without_provider_call(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "x")
+    monkeypatch.setattr(sources, "MAX_SCANNED_PAGES", 0)
+    res = client.post("/api/sources/pdf", content=make_pdf(""), headers=PDF)
+    assert res.status_code == 413 and calls == []
+
+
+def test_text_layer_pdf_never_calls_provider(monkeypatch):
+    calls = fake_transcribe(monkeypatch, "x")
+    assert (
+        client.post("/api/sources/pdf", content=make_pdf("Hallo"), headers=PDF).status_code == 200
+    )
+    assert calls == []
 
 
 def test_too_large_is_413():
@@ -107,7 +130,7 @@ def fake_transcribe(monkeypatch, result: str | Exception):
             raise result
         return result
 
-    monkeypatch.setattr(sources.extract, "transcribe_image", transcribe)
+    monkeypatch.setattr(sources.extract, "transcribe", transcribe)
     return calls
 
 
