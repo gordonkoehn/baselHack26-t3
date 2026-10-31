@@ -35,16 +35,26 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// Shared demo passcode. Opening the team link (?code=...) stores it; paid routes send it.
+// Shared demo passcode. Opening the team link (?code=...) keeps it for this page and removes it
+// from the address bar. Storage is only a convenience for reloads, and may be blocked.
+let linkCode: string | null = null;
+
 function passcode(): Record<string, string> {
   try {
-    const fromLink = new URLSearchParams(window.location.search).get("code");
-    if (fromLink) localStorage.setItem("demoPasscode", fromLink);
-    const code = fromLink ?? localStorage.getItem("demoPasscode");
-    return code ? { "X-Demo-Passcode": code } : {};
-  } catch {
-    return {};
-  }
+    const url = new URL(window.location.href);
+    const fromLink = url.searchParams.get("code");
+    if (fromLink) {
+      linkCode = fromLink;
+      url.searchParams.delete("code");
+      window.history.replaceState(null, "", url);
+    }
+  } catch {}
+  let code = linkCode;
+  try {
+    if (linkCode) localStorage.setItem("demoPasscode", linkCode);
+    else code = localStorage.getItem("demoPasscode");
+  } catch {}
+  return code ? { "X-Demo-Passcode": code } : {};
 }
 
 export const api = {

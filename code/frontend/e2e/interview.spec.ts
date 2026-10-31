@@ -174,3 +174,18 @@ test("failed last transcription cannot claim a complete transcript or show debri
   // This is only a negative read of the real debrief gate; no events are manufactured via HTTP.
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
 });
+
+test("the team link passcode is sent, leaves the address bar and survives blocked storage", async ({ page }) => {
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new Error("storage blocked");
+    };
+  });
+  const created = page.waitForRequest(
+    (request) => request.method() === "POST" && request.url().endsWith("/api/personas"),
+  );
+  await page.goto("/?code=team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  expect((await created).headers()["x-demo-passcode"]).toBe("team-pass");
+  await expect.poll(() => page.url()).not.toContain("code=");
+});

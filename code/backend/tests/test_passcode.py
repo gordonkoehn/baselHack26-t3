@@ -29,6 +29,15 @@ def test_paid_route_fails_closed_on_vercel_without_passcode(route, monkeypatch):
     assert client.post(route).status_code == 503
 
 
+def test_non_ascii_passcodes_are_refused_not_crashed(monkeypatch):
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    assert (
+        client.post("/api/sources/pdf", headers={"X-Demo-Passcode": b"caf\xe9"}).status_code == 401
+    )
+    monkeypatch.setenv("DEMO_PASSCODE", "café")
+    assert client.post("/api/sources/pdf", headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+
+
 def test_right_passcode_passes_the_gate(monkeypatch):
     monkeypatch.setenv("DEMO_PASSCODE", "right")
     response = client.post("/api/sources/pdf", headers={"X-Demo-Passcode": "right"})

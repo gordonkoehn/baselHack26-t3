@@ -19,5 +19,5 @@ def require_passcode(
         if os.environ.get("VERCEL"):
             raise HTTPException(503, "demo passcode not configured")
         return
-    if not x_demo_passcode or not hmac.compare_digest(x_demo_passcode, expected):
+    if not x_demo_passcode or not hmac.compare_digest(x_demo_passcode.encode(), expected.encode()):
         raise HTTPException(401, "passcode missing or wrong: open the team link")
