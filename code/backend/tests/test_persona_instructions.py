@@ -21,6 +21,16 @@ def test_answers_are_short_natural_and_direct(persona: Persona) -> None:
     assert "without repeating or paraphrasing the interviewer's question" in text
 
 
+def test_conversation_starts_with_small_talk_not_a_pitch(persona: Persona) -> None:
+    text = persona_instructions(persona)
+    assert "Don't introduce yourself, your job or family unless asked" in text
+    assert "Only when the interviewer brings up the product" in text
+    assert "instead of inventing screens or buttons" in text
+    assert "never say things like 'let's get started'" in text
+    assert "never repeat one of your own earlier answers" in text
+    assert "ask back briefly" in text
+
+
 def test_persona_can_be_uncertain_and_disagree(persona: Persona) -> None:
     text = persona_instructions(persona)
     assert "Admit confusion when you don't understand" in text
@@ -49,6 +59,7 @@ def test_answers_follow_persona_language(
     text = persona_instructions(persona)
     assert f"Always answer in {guidance}" in text
     assert "regardless of the interviewer's language" in text
+    assert "If asked to switch language" in text
     if language == "de":
         assert "Swiss Standard German" in text
         assert "not dialect" in text
