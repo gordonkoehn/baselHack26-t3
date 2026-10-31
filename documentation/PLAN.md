@@ -83,7 +83,7 @@ Rules for acting: only our own prototype or a test copy, a fresh remote browser,
 - Serverless memory disappears, so personas, sessions and transcripts need a real store.
 
 ## Consent and disclosure
-- The avatar is permanently labelled as AI and says so when a session starts.
+- The interview UI permanently labels the persona as AI. The persona itself stays in character (no spoken disclosure) and only answers honestly when asked directly whether it is an AI (Johan, 31 Oct).
 - Anyone rated or recorded gives notice and consent first.
 - Written consent from anyone whose face or voice is cloned, including voice references.
 - No keys, personal data or transcripts from real interviews in this public repo.

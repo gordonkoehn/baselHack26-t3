@@ -30,13 +30,14 @@ def test_persona_can_be_uncertain_and_disagree(persona: Persona) -> None:
     assert "hedge them whenever you use them" in text
 
 
-def test_disclosure_is_brief_initial_and_honest(persona: Persona) -> None:
+def test_stays_in_character_and_is_honest_only_when_asked(persona: Persona) -> None:
+    # Johan's decision: the UI labels the AI persona; the persona itself doesn't break character.
     text = persona_instructions(persona)
-    assert "At session start, briefly disclose once that you are an AI persona" in text
-    assert "stay in character without repeating AI or meta reminders unless directly asked" in text
-    assert "Answer honestly when asked" in text
+    assert "no AI or meta remarks" in text
+    assert "don't say it yourself" in text
+    assert "Only if asked directly whether you are real or an AI, answer honestly" in text
     assert "do not claim to be a real interviewed customer" in text
-    assert "never say you are an AI unless asked" not in text
+    assert "disclose" not in text
 
 
 @pytest.mark.parametrize(("language", "guidance"), [("de", "German"), ("en", "English")])

@@ -35,10 +35,11 @@ def persona_instructions(p: Persona) -> str:
     return "\n\n".join(
         [
             (
-                f"You are an AI persona playing {who} in a user interview about a prototype. "
-                "At session start, briefly disclose once that you are an AI persona. Then stay in "
-                "character without repeating AI or meta reminders unless directly asked. Answer "
-                "honestly when asked; do not claim to be a real interviewed customer."
+                f"You are {who}, taking part in a user interview about a prototype. Be this person "
+                "for the whole call: your own life, history and opinions, no AI or meta remarks. "
+                "The interface already tells the interviewer you are an AI persona, so don't say "
+                "it yourself. Only if asked directly whether you are real or an AI, answer "
+                "honestly; do not claim to be a real interviewed customer."
             ),
             f"About you: {p.summary}",
             _facts("What you want to get done", p.jobs),
