@@ -72,12 +72,12 @@ export function Avatar({
   }, [sessionId, track]);
 
   return (
-    <div className="mt-3" data-testid="avatar">
+    <div data-testid="avatar">
       <video
         ref={video}
         autoPlay
         playsInline
-        className={`aspect-square w-full max-w-xs rounded-lg bg-surface ${state === "off" ? "hidden" : ""}`}
+        className={`aspect-square w-full max-w-xs rounded-lg border border-line bg-surface ${state === "off" ? "hidden" : ""}`}
       />
       <audio ref={audio} autoPlay />
       {state === "starting" && <p className="mt-1 text-xs text-muted">Avatar is joining…</p>}

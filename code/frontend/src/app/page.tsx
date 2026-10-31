@@ -65,6 +65,9 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [dragging, setDragging] = useState(false);
   const [reading, setReading] = useState(false);
+  // Once a persona exists the sources fold away, so the persona and the interview get the screen.
+  const [editing, setEditing] = useState(false);
+  const card = useRef<HTMLDivElement>(null);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
   // While building or reading files, nothing is editable: a late file result can't land in a
@@ -77,6 +80,11 @@ export default function Home() {
     const id = setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 100);
     return () => clearInterval(id);
   }, [loading]);
+
+  // A new persona appears below the fold: bring it into view.
+  useEffect(() => {
+    if (result) card.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [result]);
 
   const update = (id: number, patch: Partial<PersonaSource>) =>
     setDrafts((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -120,6 +128,7 @@ export default function Home() {
     try {
       const persona = await api.createPersona({ language, sources });
       setResult({ persona, sources, seconds: (Date.now() - startedAt.current) / 1000 });
+      setEditing(false);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -156,7 +165,26 @@ export default function Home() {
       <section
         className={`mb-8 space-y-4 rounded-xl border border-line bg-surface p-5 shadow-sm ${dragging ? "outline-2 outline-dashed outline-accent" : ""}`}
       >
-        <h2 className="text-sm font-semibold">Sources <span className="font-normal text-muted">({filled.length})</span></h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-sm font-semibold">
+            Sources <span className="font-normal text-muted">({filled.length})</span>
+          </h2>
+          {result && !editing && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-sm text-muted">
+                {result?.sources.map((src) => src.title || "Untitled").join(" · ")}
+              </span>
+              <button
+                type="button"
+                className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm hover:border-muted"
+                onClick={() => setEditing(true)}
+              >
+                Edit sources
+              </button>
+            </>
+          )}
+        </div>
+        <div hidden={result !== null && !editing} className="space-y-4">
         {drafts.map((d, i) => (
           <div key={d.id} className="space-y-2 rounded-lg border border-line bg-background/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -209,7 +237,11 @@ export default function Home() {
           >
             Add text source
           </button>
-          <label className="cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 hover:border-muted">
+          <label
+            className={`rounded-md border border-line bg-surface px-3 py-1.5 ${
+              busy ? "pointer-events-none opacity-40" : "cursor-pointer hover:border-muted"
+            }`}
+          >
             Add files…
             <input
               type="file"
@@ -253,10 +285,20 @@ export default function Home() {
             onClick={create}
             disabled={busy || filled.length === 0}
           >
-            {loading ? "Building persona…" : "Create persona"}
+            {loading ? "Building persona…" : result ? "Rebuild persona" : "Create persona"}
           </button>
           {loading && <span className="text-sm tabular-nums text-muted">{elapsed.toFixed(1)} s</span>}
           {filled.length === 0 && <span className="text-sm text-muted">Add at least one source.</span>}
+          {result && !loading && (
+            <button
+              type="button"
+              className="ml-auto rounded-md px-2 py-1 text-sm text-muted hover:text-foreground"
+              onClick={() => setEditing(false)}
+            >
+              Done
+            </button>
+          )}
+        </div>
         </div>
         {error && (
           <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
@@ -265,7 +307,9 @@ export default function Home() {
         )}
       </section>
 
-      {result && <PersonaCard {...result} />}
+      <div ref={card} className="scroll-mt-6">
+        {result && <PersonaCard {...result} />}
+      </div>
     </main>
   );
 }
