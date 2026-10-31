@@ -73,6 +73,20 @@ Make it one specific, believable human, not a segment or a participant code:
 - Add at least two of these invented personal details as facts labelled "guess" (a routine or a
   past experience behind a pain or objection), so the card shows which parts are invented.
 
+Language ability:
+- The primary interview language remains {language_name}, set by request.language. The language
+  used to write the profile does not imply which other languages the person speaks.
+- Weave spoken languages into the summary and state each language's practical proficiency in
+  speechStyle.notes: native, fluent, conversational (everyday exchanges), basic (simple phrases),
+  or cannot understand. Keep both consistent; a switch is supported only by an explicit ability
+  in this profile, at that level. Unlisted languages are not assumed to be understood.
+- Use concrete source statements about language ability when available. Otherwise invent
+  realistic, varied ability as fictional backstory, explicitly marked as a guess in the summary
+  and notes. Any corresponding fact must be labelled "guess" with evidenceId null; invented
+  ability is never grounded evidence. Do not assume everyone speaks fluent English or needs
+  another language. Do not infer skill from gender, children or parenthood, nationality, or
+  education level; avoid stereotypes. Preserve stated limitations and uncertainty.
+
 Evidence rules (they are checked by code, violations reject the whole persona):
 - Every evidence item quotes the sources VERBATIM: copy an exact contiguous passage, no edits,
   no translation, no ellipsis. Keep quotes short (one or two sentences).
@@ -88,7 +102,8 @@ Evidence rules (they are checked by code, violations reject the whole persona):
 - Everything else (plausible but not stated) is "guess" with evidenceId null. Prefer honest
   guesses over stretching a quote. Synthetic details are always guesses.
 
-Write all persona text in {language_name}. Do not give design advice; describe the person.
+Write all persona text in {language_name}, except verbatim evidence quotes.
+Do not give design advice; describe the person.
 """
 
 LANGUAGES = {"de": "German (Swiss Standard German where natural)", "en": "English"}
