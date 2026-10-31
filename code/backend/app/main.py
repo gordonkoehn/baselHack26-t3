@@ -11,6 +11,7 @@ REQUEST_ID_HEADER = "X-Request-Id"
 
 app = FastAPI(title="OpenTwin API")
 app.include_router(personas.router)
+app.include_router(personas.faces_router)
 app.include_router(sources.router)
 app.include_router(guides.router)
 app.include_router(sessions.router)
