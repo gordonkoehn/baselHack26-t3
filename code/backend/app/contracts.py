@@ -163,6 +163,8 @@ class Session(Model):
     started_at: str | None = None
     ended_at: str | None = None
     sample: bool = False
+    # Computed for the persona's session list, never stored.
+    debrief_ready: bool | None = _omit_none()
 
 
 class SessionCreate(Model):

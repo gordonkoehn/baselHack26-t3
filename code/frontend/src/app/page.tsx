@@ -19,6 +19,7 @@ import type {
 import { CoverageCheck } from "@/components/CoverageCheck";
 import { CustomFaceStatus, FacePhoto, IdentityEditor } from "@/components/IdentityEditor";
 import { InterviewRoom } from "@/components/InterviewRoom";
+import { PastInterviews } from "@/components/PastInterviews";
 import { Card, PersonaOverview } from "@/components/PersonaOverview";
 import { PersonaScore } from "@/components/PersonaScore";
 import {
@@ -117,6 +118,7 @@ export default function Home() {
   const [verdict, setVerdict] = useState<{ personaId: string; ok: boolean } | null>(null);
   const [recent, setRecent] = useState<PersonaSummary[]>([]);
   const [opening, setOpening] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
   // While building or reading files, nothing is editable: a late file result can't land in a
@@ -488,7 +490,9 @@ export default function Home() {
               persona={result.persona}
               startBlocked={opening}
               initialGuide={result.guide}
+              onHistoryChange={() => setHistoryVersion((v) => v + 1)}
             />
+            <PastInterviews key={`past-${result.persona.id}`} personaId={result.persona.id} version={historyVersion} />
           </div>
         </>
       )}

@@ -54,11 +54,13 @@ export function DebriefView({
   personaName,
   savedReport,
   sample,
+  onCreated,
 }: {
   sessionId: string;
   personaName: string;
   savedReport?: InsightReport;
   sample?: boolean;
+  onCreated?: () => void;
 }) {
   const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
@@ -101,6 +103,7 @@ export function DebriefView({
     try {
       // Repeated POSTs return the saved report, so a retry after a network error is safe.
       setReport(await api.debrief(sessionId));
+      onCreated?.();
     } catch (e) {
       if (!(e instanceof ApiError)) setError(NETWORK_ERROR);
       else if (e.status === 409) setError(`The transcript is not complete yet: ${e.detail}`);

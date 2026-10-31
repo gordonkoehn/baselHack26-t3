@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import extract
+from app.contracts import InsightReport
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
@@ -453,3 +454,28 @@ def test_faces_have_photos(client):
     assert {f["id"] for f in faces} == {f[0] for f in FACES.values()}
     assert all(f["photoUrl"].endswith(f"/{f['id']}.jpg") for f in faces)
     assert {f["gender"] for f in faces} == {"f", "m"}
+
+
+def test_persona_sessions_newest_first_with_debrief_state(client):
+    store = app.dependency_overrides[get_store]()
+    persona_id = client.post("/api/personas", json=REQUEST).json()["id"]
+    other_id = client.post("/api/personas", json=REQUEST).json()["id"]
+    url = f"/api/personas/{persona_id}/sessions"
+    assert client.get(url).json() == []
+
+    def start(pid: str) -> str:
+        return client.post("/api/sessions", json={"personaId": pid}).json()["id"]
+
+    first, second = start(persona_id), start(persona_id)
+    start(other_id)
+    report = json.loads((EXAMPLES / "insight-report.json").read_text())
+    store.save_report(InsightReport.model_validate({**report, "sessionId": first}))
+
+    listed = client.get(url).json()
+    assert [(s["id"], s["debriefReady"]) for s in listed] == [(second, False), (first, True)]
+    # Computed for this list only: the session itself doesn't carry it.
+    assert "debriefReady" not in client.get(f"/api/sessions/{first}").json()
+
+
+def test_sessions_of_unknown_persona(client):
+    assert client.get("/api/personas/p_missing/sessions").status_code == 404

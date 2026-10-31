@@ -120,6 +120,8 @@ export type Session = {
   endedAt?: string | null;
   /** Demo fallback: a scripted transcript with no live call. Every view of its debrief must say so. */
   sample?: boolean;
+  /** Whether a saved debrief can be opened. Only in the persona's session list. */
+  debriefReady?: boolean;
 };
 
 export type SessionCreate = { personaId: string; interviewGuide?: string[]; sample?: boolean };

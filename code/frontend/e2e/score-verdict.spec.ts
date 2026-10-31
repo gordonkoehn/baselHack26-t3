@@ -45,6 +45,7 @@ for (const scenario of cases) {
         return route.fulfill({ json: request.method() === "POST" ? persona : [] });
       }
       if (url.pathname === "/api/faces") return route.fulfill({ json: [] });
+      if (url.pathname === `/api/personas/${persona.id}/sessions`) return route.fulfill({ json: [] });
       if (url.pathname === `/api/personas/${persona.id}/coverage`) {
         const input = request.postDataJSON() as CoverageRequest;
         return route.fulfill({ json: { ...scenario.report, testGoal: input.testGoal } });

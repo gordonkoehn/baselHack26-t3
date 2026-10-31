@@ -1,8 +1,12 @@
+import json
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
+from app.contracts import Persona
 from app.main import app
-from app.store import Store, get_store
+from app.store import SESSION_LIST_SIZE, Store, get_store
 from tests.fakes import FakeRedis
 
 client = TestClient(app)
@@ -67,6 +71,48 @@ def test_shared_report_reads_need_no_passcode(route, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_persona_session_list_needs_the_passcode(monkeypatch):
+    # A shared report link reveals the persona id; it must not lead to the other interviews.
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    app.dependency_overrides[get_store] = lambda: Store(FakeRedis())
+    route = "/api/personas/p_1/sessions"
+    try:
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+        assert client.get(route, headers={"X-Demo-Passcode": "right"}).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_health_stays_open(monkeypatch):
     monkeypatch.setenv("DEMO_PASSCODE", "right")
     assert client.get("/api/health").status_code == 200
+
+
+def test_creating_a_session_needs_the_passcode(monkeypatch):
+    # The persona's list keeps the newest sessions only. A persona id from a shared report link must
+    # not be enough to push the real interviews out of it.
+    monkeypatch.setenv("DEMO_PASSCODE", "right")
+    example = Path(__file__).parents[2] / "shared/examples/persona.json"
+    persona = Persona.model_validate(json.loads(example.read_text()))
+    store = Store(FakeRedis())
+    store.save_persona(persona)
+    app.dependency_overrides[get_store] = lambda: store
+    route, body = "/api/sessions", {"personaId": persona.id}
+    team = {"X-Demo-Passcode": "right"}
+    try:
+        real = client.post(route, json=body, headers=team)
+        assert real.status_code == 201
+        for _ in range(SESSION_LIST_SIZE):
+            assert client.post(route, json=body).status_code == 401
+        assert (
+            client.post(route, json=body, headers={"X-Demo-Passcode": "wrong"}).status_code == 401
+        )
+        listed = client.get(f"/api/personas/{persona.id}/sessions", headers=team).json()
+        assert [s["id"] for s in listed] == [real.json()["id"]]
+
+        monkeypatch.delenv("DEMO_PASSCODE")
+        monkeypatch.setenv("VERCEL", "1")
+        assert client.post(route, json=body).status_code == 503
+    finally:
+        app.dependency_overrides.clear()

@@ -57,6 +57,7 @@ export function InterviewRoom({
   startBlocked,
   initialGuide = "",
   questionsRequired = true,
+  onHistoryChange,
 }: {
   persona: Persona;
   startBlocked: boolean;
@@ -64,6 +65,8 @@ export function InterviewRoom({
   initialGuide?: string;
   /** False for the short test call on the persona tab: no debrief questions needed. */
   questionsRequired?: boolean;
+  /** An interview ended or its debrief was saved. */
+  onHistoryChange?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -893,6 +896,7 @@ export function InterviewRoom({
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
       setPhase("ended");
+      onHistoryChange?.();
     } catch (error) {
       if (g !== gen.current) return;
       measure("persistence", persistStarted, error instanceof Error ? error.name : "Error");
@@ -1230,7 +1234,14 @@ export function InterviewRoom({
         </details>
       )}
       {phase === "ended" && ended && ended.questions > 0 && (
-        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
+        // A sample is not listed among the past interviews, so its debrief changes nothing there.
+        <DebriefView
+          key={ended.id}
+          sessionId={ended.id}
+          personaName={persona.name}
+          sample={ended.sample}
+          onCreated={ended.sample ? undefined : onHistoryChange}
+        />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
         <p className="mt-4 text-sm text-muted">

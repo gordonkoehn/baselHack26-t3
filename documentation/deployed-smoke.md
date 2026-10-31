@@ -16,6 +16,8 @@ Remote mode never starts or terminates servers:
 ```bash
 export SMOKE_ALLOWED_ORIGIN=https://your-owned-project.vercel.app
 export SMOKE_PERSONA_ID=p_deployment_smoke
+export SMOKE_AUTH_HEADER_NAME=X-Demo-Passcode
+export SMOKE_AUTH_HEADER_VALUE=...  # the demo passcode; session create needs it
 bash code/scripts/smoke.sh "$SMOKE_ALLOWED_ORIGIN"
 ```
 
@@ -97,16 +99,17 @@ requests. Direct script equivalents: `SMOKE_AUTH_HEADER_NAME` and
 `SMOKE_AUTH_HEADER_VALUE`. Set both or neither. Values go to curl via stdin,
 never command arguments or logs. Header control characters are rejected.
 
-None of these four smoke routes uses `require_passcode`: `/api/health` returns a
-static status, `/` serves the frontend, and session create/read use the store
-without checking `X-Demo-Passcode`. Supplying that header therefore does not
-validate `DEMO_PASSCODE`. On Vercel, a missing passcode makes protected routes
-return 503 while this smoke can still pass. A wrong passcode similarly remains
-undetected here. Session creation supplies its own synthetic guide and calls no
+One of these four smoke routes uses `require_passcode`: session create (#96).
+`/api/health` returns a static status, `/` serves the frontend, and session read
+uses the store without checking `X-Demo-Passcode`. On a deployment with a demo
+passcode, set the header name to `X-Demo-Passcode` and the value to the passcode.
+Without them, or with a wrong passcode, session create answers 401 and the job
+fails. On Vercel, a missing `DEMO_PASSCODE` makes it answer 503, which also fails
+the job. Session creation supplies its own synthetic guide and calls no
 provider. The create/read roundtrip covers the persona lookup and session store
 through the frontend `/api/*` rewrite (`BACKEND_URL`), not paid-route readiness.
 
-Demo-passcode configuration and rejection/acceptance on protected routes, realtime
+Demo-passcode rejection and acceptance on the other protected routes, realtime
 and avatar token minting, and actual provider availability require separate owner
 validation. Do not invoke a paid route merely to make this smoke green. The local
 mock suite verifies optional header transport only; protected deployment and
