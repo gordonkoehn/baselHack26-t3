@@ -55,6 +55,12 @@ describe("formatReportMarkdown", () => {
     expect(markdown).toContain("Persona: Anna");
   });
 
+  it("says the transcript has gaps, and stays silent when it has none", () => {
+    expect(formatReportMarkdown(report({ transcriptGaps: true }), "Anna")).toContain("This transcript has gaps");
+    expect(formatReportMarkdown(report({ transcriptGaps: false }), "Anna")).not.toContain("gaps");
+    expect(formatReportMarkdown(report(), "Anna")).not.toContain("gaps");
+  });
+
   it("says when the date is unavailable", () => {
     expect(formatReportMarkdown(report({ generatedAt: "nonsense" }), "Anna")).toContain("Date (UTC): unavailable");
   });

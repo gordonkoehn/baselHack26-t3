@@ -199,6 +199,48 @@ def test_finalized_but_empty_persona_transcript_is_explicit_422(context, change)
     assert_not_generated(context)
 
 
+def test_call_with_only_an_interrupted_placeholder_has_nothing_to_debrief(context):
+    events = context.store.get_events(SID)
+    kept = [
+        events[1].model_copy(update={"seq": 1}),
+        events[1].model_copy(
+            update={"seq": 2, "data": {"speaker": "persona", "text": "(interrupted)"}}
+        ),
+        events[-1].model_copy(update={"seq": 3}),
+    ]
+    replace_events(context, kept)
+    response = context.client.post(DEBRIEF)
+    assert response.status_code == 422 and "persona utterance" in response.json()["detail"]
+    assert_not_generated(context)
+
+
+def test_a_transcript_with_gaps_reaches_a_flagged_saved_report(context):
+    events = context.store.get_events(SID)
+    events[-1].data["transcriptGaps"] = True
+    replace_events(context, events)
+    response = context.client.post(DEBRIEF)
+    assert response.status_code == 200 and response.json()["transcriptGaps"] is True
+    assert context.client.get(INSIGHTS).json()["transcriptGaps"] is True
+
+
+def test_reworded_guide_question_reaches_a_report_with_the_guides_text(context):
+    context.provider.return_value.questions[0].question += " (reworded)"
+    response = context.client.post(DEBRIEF)
+    assert response.status_code == 200
+    guide = load("session.json")["interviewGuide"]
+    assert [q["question"] for q in response.json()["questions"]] == guide
+
+
+def test_a_report_saved_before_the_gap_field_still_reads_as_no_known_gaps(context):
+    assert context.client.post(DEBRIEF).status_code == 200
+    key = next(k for k in context.store.redis.data if "report" in k or "insight" in k)
+    context.store.redis.data[key] = context.store.redis.data[key].replace(
+        '"transcriptGaps":false,', ""
+    )
+    assert "transcriptGaps" not in context.store.redis.data[key]
+    assert context.client.get(INSIGHTS).json()["transcriptGaps"] is False
+
+
 @pytest.mark.parametrize("change", ["invented", "interviewer"])
 def test_invalid_provider_quotes_are_dropped_not_fatal(context, change):
     draft = context.provider.return_value
@@ -276,7 +318,8 @@ def test_provider_cannot_choose_report_identity_or_time(context, monkeypatch):
     body = response_body(context.provider.return_value)
     provider_json = context.provider.return_value.model_dump_json(by_alias=True)
     body["output"][0]["content"][0]["text"] = (
-        '{"sessionId":"forged","generatedAt":"1900-01-01T00:00:00Z",' + provider_json[1:]
+        '{"sessionId":"forged","generatedAt":"1900-01-01T00:00:00Z","transcriptGaps":true,'
+        + provider_json[1:]
     )
     mock_provider(monkeypatch, body)
     app.dependency_overrides.pop(get_debriefer)
@@ -284,6 +327,7 @@ def test_provider_cannot_choose_report_identity_or_time(context, monkeypatch):
     assert response.status_code == 200
     assert response.json()["sessionId"] == SID
     assert datetime.fromisoformat(response.json()["generatedAt"]).year == datetime.now(UTC).year
+    assert response.json()["transcriptGaps"] is False
 
 
 @pytest.mark.parametrize("method", ["get_session", "get_persona", "get_report", "get_events"])

@@ -102,6 +102,7 @@ def test_integral_float_suggestion_turn_seq_preserved(client: TestClient) -> Non
         ("copilot.suggestion", {"kind": "coverage", "text": "ok", "turnSeq": -1}),
         ("session.ended", {}),
         ("session.ended", {"durationSeconds": -0.5}),
+        ("session.ended", {"durationSeconds": 3, "transcriptGaps": True}),
     ],
 )
 def test_schema_optional_null_and_extra_fields_preserved(
@@ -160,6 +161,9 @@ def test_schema_optional_null_and_extra_fields_preserved(
         ("session.ended", {"durationSeconds": "1800"}),
         ("session.ended", {"durationSeconds": True}),
         ("session.ended", {"durationSeconds": {}}),
+        ("session.ended", {"transcriptGaps": "yes"}),
+        ("session.ended", {"transcriptGaps": 1}),
+        ("session.ended", {"transcriptGaps": None}),
     ],
 )
 def test_invalid_data_rejected_before_any_batch_write(
