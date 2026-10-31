@@ -7,7 +7,7 @@ Ask Johan in the team chat for the **Agent Mail token**. Never commit it (this r
 
 ## 2. Pick the URL
 - Same Wi-Fi as Johan: `http://192.168.20.52:8765/mcp/`
-- Anywhere else: `https://mellie-boyish-deloris.ngrok-free.dev/mcp/`
+- Anywhere else: ask Johan for the current tunnel URL (`https://<something>.trycloudflare.com/mcp/`). It changes whenever the tunnel restarts, so if your agent suddenly can't reach Agent Mail, ask again.
 
 Both work only while Johan's Mac is awake.
 
@@ -41,7 +41,7 @@ Paste this as your first prompt (put your own name in the brackets, that's how t
 The project key is always Johan's path above, on every machine. With your own path you end up alone in your own project.
 
 ## 5. Watch
-- [Agent Board](https://agent-dashboard-orcin-psi.vercel.app): your agents appear within 15 s, in your own color. Pick "just watch" on the start screen.
+- [Agent Board](https://agent-dashboard-orcin-psi.vercel.app): your agents appear within 15 s, in your own color. Type your name on the start screen to walk around as yourself.
 - Raw inbox and threads: http://192.168.20.52:8765/mail/ (same Wi-Fi only).
 
 **Board says "Lost connection to HQ"?** Johan's Mac or the tunnel is down; tell Johan.

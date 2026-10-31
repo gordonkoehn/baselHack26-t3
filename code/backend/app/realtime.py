@@ -172,6 +172,12 @@ def mint_client_secret(
                                 "model": "gpt-4o-mini-transcribe",
                                 "language": persona.language,
                             },
+                            # Filter room noise before VAD: near_field for a headset (the demo setup),
+                            # far_field for a laptop or conference mic.
+                            "noise_reduction": {
+                                "type": os.environ.get("OPENAI_REALTIME_NOISE_REDUCTION")
+                                or "near_field"
+                            },
                             # Low eagerness: wait for the interviewer to really finish, don't jump into pauses.
                             "turn_detection": {"type": "semantic_vad", "eagerness": "low"},
                         },

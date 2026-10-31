@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
 from app.auth import require_passcode
-from app.contracts import Evidence, Fact, Persona, PersonaCreate
+from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaUpdate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.rate_limit import rate_limit
@@ -117,4 +117,36 @@ def read_persona(persona_id: str, store: StoreDep) -> Persona:
     persona = store.get_persona(persona_id)
     if persona is None:
         raise HTTPException(404, "persona not found")
+    return persona
+
+
+@router.patch(
+    "/{persona_id}", response_model_by_alias=True, dependencies=[Depends(require_passcode)]
+)
+def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Persona:
+    persona = store.get_persona(persona_id)
+    if persona is None:
+        raise HTTPException(404, "persona not found")
+
+    def relabel(new: list[Fact], old: list[Fact]) -> list[Fact]:
+        # Humans may remove facts or downgrade them; only an untouched grounded fact keeps its evidence.
+        grounded = {(f.text, f.evidence_id) for f in old if f.label == "grounded"}
+        return [
+            f
+            if f.label == "grounded" and (f.text, f.evidence_id) in grounded
+            else f.model_copy(update={"label": "guess", "evidence_id": None})
+            for f in new
+        ]
+
+    changes: dict = {"version": persona.version + 1}
+    for name in ("jobs", "pains", "objections"):
+        new = getattr(body, name)
+        if new is not None:
+            changes[name] = relabel(new, getattr(persona, name))
+    if body.speech_style is not None:
+        changes["speech_style"] = persona.speech_style.model_copy(
+            update={"notes": body.speech_style.notes}
+        )
+    persona = persona.model_copy(update=changes)
+    store.save_persona(persona)
     return persona
