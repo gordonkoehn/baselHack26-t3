@@ -9,6 +9,7 @@
     "readySeconds": null,
     "startedAt": "2026-10-31T15:30:00Z",
     "endedAt": null,
+    "sample": false,
     "debriefReady": false
   },
   {
@@ -21,6 +22,7 @@
     "readySeconds": 412,
     "startedAt": "2026-10-31T14:00:00Z",
     "endedAt": "2026-10-31T14:12:30Z",
+    "sample": false,
     "debriefReady": true
   }
 ]

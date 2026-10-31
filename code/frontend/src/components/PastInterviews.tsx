@@ -29,16 +29,17 @@ export function PastInterviews({ personaId, version }: { personaId: string; vers
     };
   }, [personaId, version]);
 
-  // A session that never went live (mic refused, connection failed) was no interview.
-  const interviews = sessions.filter((s) => s.startedAt);
+  // Not interviews: a session that never went live (mic refused, connection failed), the scripted
+  // sample, and a test call from the persona tab, which is the only start without questions.
+  const interviews = sessions.filter((s) => s.startedAt && !s.sample && s.interviewGuide?.length);
   if (interviews.length === 0) return null;
 
   return (
-    <section aria-labelledby="past-interviews" className="mt-6">
-      <h3 id="past-interviews" className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">
+    <section aria-labelledby="past-interviews" className="mt-6 rounded-xl border border-line bg-surface p-5 shadow-sm">
+      <h2 id="past-interviews" className="text-sm font-semibold">
         Past interviews
-      </h3>
-      <ul className="divide-y divide-line">
+      </h2>
+      <ul className="mt-2 divide-y divide-line">
         {interviews.map((s) => {
           const row = (
             <>

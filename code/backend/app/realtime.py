@@ -178,8 +178,12 @@ def mint_client_secret(
                                 "type": os.environ.get("OPENAI_REALTIME_NOISE_REDUCTION")
                                 or "near_field"
                             },
-                            # Low eagerness: wait for the interviewer to really finish, don't jump into pauses.
-                            "turn_detection": {"type": "semantic_vad", "eagerness": "low"},
+                            # Lower eagerness waits longer before replying: speed against cut-offs.
+                            # Tune it per room with OPENAI_REALTIME_EAGERNESS.
+                            "turn_detection": {
+                                "type": "semantic_vad",
+                                "eagerness": os.environ.get("OPENAI_REALTIME_EAGERNESS") or "high",
+                            },
                         },
                         "output": {"voice": voice_for(persona)},
                     },

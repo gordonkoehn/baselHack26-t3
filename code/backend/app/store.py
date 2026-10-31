@@ -4,6 +4,7 @@ Endpoints call `get_store()`; tests pass a fake client to `Store(...)`. Values a
 contract JSON, so what we read back validates against the same models.
 """
 
+import base64
 import json
 import time
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from app.contracts import (
+    CoverageReport,
     InsightReport,
     Persona,
     PersonaCreate,
@@ -157,6 +159,25 @@ class Store:
 
     def get_persona(self, persona_id: str) -> Persona | None:
         return self._load(f"{PREFIX}:persona:{persona_id}", Persona)
+
+    # The picture as base64 next to its type; kept apart so persona reads stay small.
+    def save_photo(self, persona_id: str, mime: str, data: bytes) -> None:
+        value = json.dumps({"mime": mime, "data": base64.b64encode(data).decode()})
+        self._call("set", f"{PREFIX}:photo:{persona_id}", value, ex=TTL_SECONDS)
+
+    def get_photo(self, persona_id: str) -> tuple[str, bytes] | None:
+        raw = self._call("get", f"{PREFIX}:photo:{persona_id}")
+        if raw is None:
+            return None
+        value = json.loads(raw)
+        return value["mime"], base64.b64decode(value["data"])
+
+    # Only the last check per persona: a re-check compares against it so the score stays stable.
+    def save_coverage(self, report: CoverageReport) -> None:
+        self._put(f"{PREFIX}:coverage:{report.persona_id}", report)
+
+    def get_coverage(self, persona_id: str) -> CoverageReport | None:
+        return self._load(f"{PREFIX}:coverage:{persona_id}", CoverageReport)
 
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:

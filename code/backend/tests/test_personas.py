@@ -9,7 +9,8 @@ from app.contracts import InsightReport
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.main import app
-from app.routers.personas import get_extractor
+from app.routers import personas
+from app.routers.personas import get_extractor, get_prober
 from app.store import PERSONA_LIST_SIZE, Store, get_store
 from tests.fakes import FakeRedis
 
@@ -26,6 +27,10 @@ REQUEST = {
 }
 
 
+def no_probes(_instructions, _question):
+    raise ProviderUnavailable("readiness probes are covered in test_readiness.py")
+
+
 def draft(**changes) -> PersonaDraft:
     data = {
         k: v for k, v in EXAMPLE.items() if k in PersonaDraft.model_fields or k == "speechStyle"
@@ -38,6 +43,7 @@ def client():
     store = Store(FakeRedis())
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_extractor] = lambda: lambda _req: draft()
+    app.dependency_overrides[get_prober] = lambda: no_probes
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -362,6 +368,92 @@ def test_patch_example_and_unknown_persona(client):
     created = client.post("/api/personas", json=REQUEST).json()
     assert client.patch(f"/api/personas/{created['id']}", json=example).status_code == 200
     assert client.patch("/api/personas/p_missing", json=example).status_code == 404
+
+
+def test_patch_identity_and_face(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}"
+    res = client.patch(
+        url,
+        json={
+            "name": "Marco Keller",
+            "age": None,
+            "summary": "New backstory.",
+            "context": {"job": "Baker", "toolsToday": ["TWINT"]},
+            "faceId": FACES["Victor"][0],
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["name"] == "Marco Keller" and body["age"] is None
+    assert body["summary"] == "New backstory." and body["context"]["job"] == "Baker"
+    assert body["location"] == created["location"]  # not sent: kept
+    assert body["faceId"] == FACES["Victor"][0] and body["voiceId"] == VOICES["m"]
+    assert body["jobs"] == created["jobs"] and body["version"] == created["version"] + 1
+    # A null name is ignored, an empty one and an unknown face are rejected.
+    assert client.patch(url, json={"name": None}).json()["name"] == "Marco Keller"
+    assert client.patch(url, json={"name": ""}).status_code == 422
+    assert client.patch(url, json={"faceId": "not-a-face"}).status_code == 422
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+
+
+def test_photo_upload_read_replace_and_remove(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}/photo"
+    assert client.get(url).status_code == 404
+    body = client.put(url, content=PNG).json()
+    assert body["photoUrl"].startswith(f"{url}?v=")
+    # A picture isn't persona content: no version bump, so coverage checks stay valid.
+    assert body["version"] == created["version"]
+    assert body["faceId"] == created["faceId"]  # the call keeps its face
+    res = client.get(url)
+    assert res.status_code == 200 and res.content == PNG
+    assert res.headers["content-type"] == "image/png"
+    jpeg = b"\xff\xd8\xff" + b"\0" * 32
+    replaced = client.put(url, content=jpeg).json()["photoUrl"]
+    assert replaced != body["photoUrl"]  # new URL, so the browser doesn't show the cached one
+    assert client.get(url).content == jpeg
+    removed = client.delete(url).json()
+    assert removed["photoUrl"] is None and removed["version"] == created["version"]
+    assert client.get(url).status_code == 404
+
+
+def test_photo_rejects_other_files(client, monkeypatch):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}/photo"
+    assert client.put(url, content=b"%PDF-1.7").status_code == 422
+    assert client.put(url, content=b"GIF89a" + b"\0" * 32).status_code == 422
+    monkeypatch.setattr(personas, "MAX_PHOTO_BYTES", 10)
+    assert client.put(url, content=PNG).status_code == 413
+    assert client.put("/api/personas/p_missing/photo", content=PNG).status_code == 404
+    assert client.delete("/api/personas/p_missing/photo").status_code == 404
+
+
+def test_patch_attitudes_and_speech_style_change_only_what_is_sent(client):
+    created = client.post("/api/personas", json=REQUEST).json()
+    url = f"/api/personas/{created['id']}"
+    body = client.patch(
+        url,
+        json={
+            "attitudes": {"techAffinity": 5},
+            "speechStyle": {"register": "formal", "fillers": False},
+        },
+    ).json()
+    assert body["attitudes"] == {**created["attitudes"], "techAffinity": 5}
+    assert body["speechStyle"]["register"] == "formal"
+    assert body["speechStyle"]["fillers"] is False
+    assert body["speechStyle"]["notes"] == created["speechStyle"]["notes"]
+    assert body["speechStyle"]["verbosity"] == created["speechStyle"]["verbosity"]
+    assert client.patch(url, json={"attitudes": {"techAffinity": 9}}).status_code == 422
+
+
+def test_faces_have_photos(client):
+    faces = client.get("/api/faces").json()
+    assert {f["id"] for f in faces} == {f[0] for f in FACES.values()}
+    assert all(f["photoUrl"].endswith(f"/{f['id']}.jpg") for f in faces)
+    assert {f["gender"] for f in faces} == {"f", "m"}
 
 
 def test_persona_sessions_newest_first_with_debrief_state(client):

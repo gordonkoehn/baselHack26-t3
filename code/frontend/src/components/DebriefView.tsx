@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import type { InsightReport } from "@/lib/contracts";
+import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
 
 const SIGNAL = {
@@ -10,6 +11,38 @@ const SIGNAL = {
   contradicts: { text: "contradicts", className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
   unclear: { text: "unclear", className: "bg-line text-foreground" },
 } as const;
+
+function SummaryGroup({ title, items }: { title: string; items: SummaryItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h4 className="text-lg font-bold tracking-tight">{title}</h4>
+      <ul className="mt-2 space-y-3">
+        {items.map((item) => (
+          <li key={item.question}>
+            <p className="font-medium">
+              <span className="evidence-bar mr-2 !w-6" data-grounded={item.grounded} aria-hidden />
+              {item.theme}
+            </p>
+            <p className="mt-1 text-sm text-muted">{item.grounded ? "Also in the sources" : "Persona's guess"}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// The short version, first thing after a call. Details and quotes stay below.
+function DebriefSummaryPanel({ report }: { report: InsightReport }) {
+  const { heldUp, didNot, open } = summarizeDebrief(report);
+  return (
+    <div data-testid="debrief-summary" className="mt-3 space-y-5 rounded-lg border border-line bg-surface p-5">
+      <SummaryGroup title="What held up" items={heldUp} />
+      <SummaryGroup title="What didn't" items={didNot} />
+      <SummaryGroup title="Still open" items={open} />
+    </div>
+  );
+}
 
 // Debrief of one ended interview: per sprint question, what the persona's answers say about it.
 // Quotes are verbatim from the synthetic interview; "grounded" means the persona's sources say it
@@ -19,11 +52,13 @@ export function DebriefView({
   sessionId,
   personaName,
   savedReport,
+  sample,
   onCreated,
 }: {
   sessionId: string;
   personaName: string;
   savedReport?: InsightReport;
+  sample?: boolean;
   onCreated?: () => void;
 }) {
   const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
@@ -92,7 +127,7 @@ export function DebriefView({
     setCopying(true);
     setExportStatus(null);
     try {
-      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName));
+      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample));
       setExportStatus({ error: false, text: "Markdown copied to clipboard." });
     } catch {
       setExportStatus({ error: true, text: "Could not copy Markdown. Try again or use Download .md." });
@@ -106,7 +141,7 @@ export function DebriefView({
     const link = document.createElement("a");
     let url: string | null = null;
     try {
-      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName)], { type: "text/markdown;charset=utf-8" }));
+      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample)], { type: "text/markdown;charset=utf-8" }));
       link.href = url;
       link.download = reportMarkdownFilename(report, personaName);
       document.body.append(link);
@@ -150,10 +185,19 @@ export function DebriefView({
       ) : (
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
-            findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
-          </p>
+          <DebriefSummaryPanel report={report} />
+          {sample ? (
+            <p className="mt-2 rounded-md bg-amber-100 p-3 text-sm font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-100" data-testid="sample-label">
+              Sample interview: a scripted demo transcript with no live call. Nobody was interviewed and {personaName} did not
+              say these lines. If this persona uses the prefilled example sources, they contain the same script, so
+              &ldquo;also in the sources&rdquo; proves nothing here.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Quotes are from the interview with {personaName}, an AI persona: hypotheses to check with real users, not
+              findings. &ldquo;grounded&rdquo; means the persona&apos;s real sources say it too.
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -214,7 +258,7 @@ export function DebriefView({
                       >
                         “{i.quote}”
                         <span className="mt-0.5 block text-xs text-muted">
-                          {personaName} · interview turn {i.turnSeq}
+                          {sample ? "Sample script" : personaName} · {sample ? "turn" : "interview turn"} {i.turnSeq}
                           {i.label === "grounded" ? " · also in the sources" : " · not backed by the sources"}
                         </span>
                       </blockquote>

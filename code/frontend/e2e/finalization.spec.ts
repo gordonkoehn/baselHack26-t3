@@ -22,9 +22,10 @@ async function start(page: Page, waitForLive = true, beforeStart?: () => Promise
   await beforeStart?.();
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-card")).toBeVisible();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByLabel("Interview questions, one per line (the debrief answers these)").fill(exampleReport.questions.map((question) => question.question).join("\n"));
   const response = page.waitForResponse((res) => res.url().endsWith("/api/sessions") && res.request().method() === "POST");
-  await page.getByRole("button", { name: "Start voice interview", exact: true }).click();
+  await page.getByRole("button", { name: "Start video interview", exact: true }).click();
   if (waitForLive) await expect(page.getByText("Live, speak now")).toBeVisible();
   return (await response).json() as Promise<Session>;
 }
