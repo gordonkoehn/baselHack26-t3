@@ -32,6 +32,16 @@ redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 return out
 """
 
+# KEYS[1] = counter, ARGV[1] = window seconds. Returns {count, seconds left in the window}.
+# Atomic, so a counter never exists without its expiry; later hits don't extend the window.
+COUNT_HIT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return {count, redis.call('TTL', KEYS[1])}
+"""
+
 
 class StoreUnavailable(Exception):
     """Store not configured or not reachable. Endpoints map this to 503."""
@@ -118,6 +128,13 @@ class Store:
         raw = self._call("hgetall", f"{PREFIX}:session:{session_id}:events") or {}
         events = [SessionEvent.model_validate_json(v) for v in raw.values()]
         return sorted(events, key=lambda e: e.seq)
+
+    def count_hit(self, name: str, window_seconds: int) -> tuple[int, int]:
+        """Counts one hit in a fixed window, returns (hits so far, seconds until it resets)."""
+        count, seconds_left = self._call(
+            "eval", COUNT_HIT, keys=[f"{PREFIX}:rate:{name}"], args=[str(window_seconds)]
+        )
+        return int(count), int(seconds_left)
 
 
 @lru_cache

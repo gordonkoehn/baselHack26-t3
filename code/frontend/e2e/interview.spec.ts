@@ -158,6 +158,17 @@ test("backend unavailable is announced and the same sources can be retried", asy
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
+test("rate limit is announced with the backend's wait time and keeps the sources", async ({ page }) => {
+  await page.goto("/");
+  const source = await page.getByLabel("Source 2 text").inputValue();
+  const detail = "Too many requests from this network. Try again in 12 min.";
+  await page.route("**/api/personas", (route) => route.fulfill({ status: 429, headers: { "Retry-After": "720" }, json: { detail } }));
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(detail);
+  await expect(page.getByTestId("persona-card")).toHaveCount(0);
+  await expect(page.getByLabel("Source 2 text")).toHaveValue(source);
+});
+
 test("failed last transcription cannot claim a complete transcript or show debrief", async ({ page, request }) => {
   const session = await startInterview(page);
   await page.getByLabel("Type a question").fill(typedQuestion);

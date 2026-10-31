@@ -21,7 +21,9 @@ class FakeRedis:
         return dict(self.data.get(key, {}))
 
     def eval(self, script, keys, args):
-        """Runs the APPEND_EVENTS script's semantics in one locked step, like Redis would."""
+        """Runs the store's Lua scripts' semantics in one locked step, like Redis would."""
+        if "INCR" in script:
+            return self._count_hit(script, keys, args)
         assert "HSETNX" in script and "EXPIRE" in script
         with self.lock:
             h = self.data.setdefault(keys[0], {})
@@ -34,3 +36,11 @@ class FakeRedis:
                     out.append("")
             self.ttl[keys[0]] = int(args[0])
             return out
+
+    def _count_hit(self, script, keys, args):
+        assert "EXPIRE" in script and "TTL" in script
+        with self.lock:
+            self.data[keys[0]] = self.data.get(keys[0], 0) + 1
+            if self.data[keys[0]] == 1:
+                self.ttl[keys[0]] = int(args[0])
+            return [self.data[keys[0]], self.ttl[keys[0]]]
