@@ -135,7 +135,7 @@ export function ScreenShareButton({
       )}
       {stream && !note && (
         <span className="text-xs text-muted">
-          A fresh image goes to the persona every 10 seconds. Share the prototype&apos;s tab or window, not this call.
+          Share the prototype&apos;s tab or window, not this call.
         </span>
       )}
       {note && <span className="text-xs text-muted">{note}</span>}
