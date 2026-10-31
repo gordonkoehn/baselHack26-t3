@@ -84,7 +84,12 @@ export function ScreenShareButton({
       // Sharing stopped (or the card closed) while capturing: send nothing.
       if (!mounted.current || current.current !== shared) return;
       // The persona reacts to what it now sees, in character.
-      setNote(ask([{ type: "input_image", image_url: image }]) ? "Shown to the persona." : "The call is not open.");
+      const shown = ask([
+        // The persona prompt (realtime.py) keys on this exact label; keep them in sync.
+        { type: "input_text", text: "(Interviewer's shared screen, the prototype, right now.)" },
+        { type: "input_image", image_url: image },
+      ]);
+      setNote(shown ? "Shown to the persona." : "The call is not open.");
     } catch (e) {
       if (mounted.current) setNote(e instanceof Error ? e.message : "Could not capture the screen.");
     } finally {
