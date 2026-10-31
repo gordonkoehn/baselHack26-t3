@@ -4,6 +4,7 @@ Looks described from https://docs.simli.com/api-reference/preset-faces (Standard
 The voice follows the face, so a man never speaks with a woman's voice.
 """
 
+import re
 from typing import Literal
 
 FaceName = Literal[
@@ -33,6 +34,23 @@ FACES: dict[str, tuple[str, str, str]] = {
     "Fred": ("c1cf7312-5b70-454b-a3c2-a0b0b7e32caf", "m", "man ~25, Black, white t-shirt"),
     "Margaret": ("1d032d8b-0cff-4156-9f0d-f001f0738d9c", "f", "woman ~70, white, grey hair, glasses, cardigan"),
 }  # fmt: skip
+
+Gender = Literal["f", "m"]
+
+
+def _age(name: str) -> int:
+    return int(re.search(r"~(\d+)", FACES[name][2]).group(1))  # type: ignore[union-attr]
+
+
+def fitting_face(face: str, gender: Gender, age: int | None) -> str:
+    """The chosen face if it has the persona's gender, else the closest-in-age face that does."""
+    if FACES[face][1] == gender:
+        return face
+    target = age if age is not None else _age(face)
+    # "Doctor" wears a medical coat; only the model may pick it, for someone who fits it.
+    options = (n for n, f in FACES.items() if f[1] == gender and n != "Doctor")
+    return min(options, key=lambda n: abs(_age(n) - target))
+
 
 # OpenAI Realtime voices.
 VOICES = {"f": "marin", "m": "cedar"}

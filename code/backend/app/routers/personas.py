@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import extract
 from app.contracts import Evidence, Fact, Persona, PersonaCreate
 from app.extract import ExtractionFailed, PersonaDraft, ProviderUnavailable
-from app.faces import FACES, VOICES
+from app.faces import FACES, VOICES, fitting_face
 from app.store import Store, get_store
 
 router = APIRouter(prefix="/api/personas", tags=["personas"])
@@ -88,13 +88,14 @@ def create_persona(body: PersonaCreate, store: StoreDep, extractor: ExtractorDep
         # The reason names ids and rules only, never source text.
         raise HTTPException(502, f"persona extraction unusable: {exc}") from None
 
-    face_id, gender, _ = FACES[draft.face]
+    # The model sometimes picks a face of the other gender; a woman must never get a man's face or voice.
+    face_id = FACES[fitting_face(draft.face, draft.gender, draft.age)][0]
     persona = Persona(
-        **draft.model_dump(exclude={"face"}),
+        **draft.model_dump(exclude={"face", "gender"}),
         id=f"p_{uuid.uuid4().hex[:12]}",
         sprint_id=body.sprint_id,
         language=body.language,
-        voice_id=VOICES[gender],
+        voice_id=VOICES[draft.gender],
         face_id=face_id,
         cloned=False,
         readiness=None,
