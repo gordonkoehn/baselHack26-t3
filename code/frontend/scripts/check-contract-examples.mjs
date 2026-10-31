@@ -11,6 +11,7 @@ const examples = resolve(frontend, "../shared/examples");
 const contracts = resolve(frontend, "src/lib/contracts.ts");
 const definitions = {
   "persona.json": "Persona",
+  "persona-summaries.json": "PersonaSummary[]",
   "persona-update.json": "PersonaUpdate",
   "session.json": "Session",
   "session-events.json": "SessionEvent[]",
@@ -31,7 +32,7 @@ function checkExamples(examplesDirectory = examples, contractsPath = contracts) 
     // `satisfies` preserves enum literals and mutable arrays without unchecked casts.
     cpSync(contractsPath, join(temporary, "contracts.ts"));
     const source = [
-      'import type { Persona, PersonaUpdate, Session, SessionEvent, InsightReport, GuideReview } from "./contracts.js";',
+      'import type { Persona, PersonaSummary, PersonaUpdate, Session, SessionEvent, InsightReport, GuideReview } from "./contracts.js";',
       ...files.map((file, index) =>
         `const example${index} = ${JSON.stringify(JSON.parse(readFileSync(join(examplesDirectory, file), "utf8")))} satisfies ${definitions[file]};`,
       ),

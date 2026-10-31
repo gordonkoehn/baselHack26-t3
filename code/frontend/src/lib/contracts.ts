@@ -49,6 +49,16 @@ export type Persona = {
   evidence: Evidence[];
 };
 
+/** One row of the persona library (GET /api/personas). */
+export type PersonaSummary = {
+  id: string;
+  name: string;
+  /** The persona's context.job. */
+  role: string | null;
+  createdAt: string;
+  readiness: { score: number; consistency: number; grounding: number } | null;
+};
+
 /** PATCH /api/personas/{id}: given lists replace the stored ones; edited or new facts come back as guesses. */
 export type PersonaUpdate = {
   jobs?: Fact[];

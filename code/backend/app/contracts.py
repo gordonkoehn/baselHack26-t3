@@ -86,6 +86,14 @@ class Persona(Model):
     evidence: list[Evidence]
 
 
+class PersonaSummary(Model):
+    id: str
+    name: str
+    role: str | None
+    created_at: str
+    readiness: Readiness | None
+
+
 class SpeechNotes(Model):
     notes: str | None = None
 

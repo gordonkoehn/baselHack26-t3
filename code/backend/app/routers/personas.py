@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import extract
 from app.auth import require_passcode
-from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaUpdate
+from app.contracts import Evidence, Fact, Persona, PersonaCreate, PersonaSummary, PersonaUpdate
 from app.extract import ExtractionFailed, PersonaDraft, ProbeAnswer, ProviderUnavailable
 from app.faces import FACES, VOICES, fitting_face
 from app.rate_limit import rate_limit
@@ -121,9 +121,17 @@ def create_persona(
     )
     readiness = score_readiness(persona, body.sources, prober, time.monotonic() - started)
     persona = persona.model_copy(update={"readiness": readiness})
-    store.save_persona(persona)
+    # Sources first: saving the persona lists it, and a listed persona can be picked for an interview.
     store.save_persona_sources(persona.id, body)
+    store.save_persona(persona)
     return persona
+
+
+# Costs no credit, but needs the passcode anyway: a persona's random id is what keeps its facts and
+# quotes from the sources private, and this list would hand every id to anyone on the public URL.
+@router.get("", response_model_by_alias=True, dependencies=[Depends(require_passcode)])
+def list_personas(store: StoreDep) -> list[PersonaSummary]:
+    return store.list_personas()
 
 
 @router.get("/{persona_id}", response_model_by_alias=True)
@@ -164,5 +172,5 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             update={"notes": body.speech_style.notes}
         )
     persona = persona.model_copy(update=changes)
-    store.save_persona(persona)
+    store.update_persona(persona)
     return persona

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.contracts import InsightReport, Persona, Session, SessionEvent
+from app.contracts import InsightReport, Persona, PersonaSummary, Session, SessionEvent
 from app.main import app
 
 client = TestClient(app)
@@ -22,6 +22,8 @@ def test_examples_match_contracts():
     Persona.model_validate(load("persona.json"))
     Session.model_validate(load("session.json"))
     InsightReport.model_validate(load("insight-report.json"))
+    for summary in load("persona-summaries.json"):
+        PersonaSummary.model_validate(summary)
     for event in load("session-events.json"):
         SessionEvent.model_validate(event)
 

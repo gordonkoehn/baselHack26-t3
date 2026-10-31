@@ -89,6 +89,18 @@
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/Evidence" } }
       }
     },
+    "PersonaSummary": {
+      "type": "object",
+      "description": "One row of the persona library: enough to recognise a persona, none of its facts or evidence.",
+      "required": ["id", "name", "role", "createdAt", "readiness"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": ["string", "null"], "description": "The persona's context.job." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "readiness": { "$ref": "#/$defs/Persona/properties/readiness" }
+      }
+    },
     "PersonaUpdate": {
       "type": "object",
       "description": "Human edits before the interview. Lists given replace the stored ones; absent fields stay. A fact stays grounded only if the same text and evidenceId were already grounded in that list; edited or new facts become guesses. Bumps version and clears readiness.",
@@ -317,6 +329,7 @@
   "endpoints": {
     "GET /api/health": { "response": { "status": "ok" } },
     "POST /api/personas": { "body": "PersonaCreate", "response": "Persona", "status": "draft" },
+    "GET /api/personas": { "response": "PersonaSummary[]", "note": "Newest first, max 20. An edit (PATCH) keeps a persona's place and createdAt. Needs the demo passcode (X-Demo-Passcode, 401 without it): the list exposes the ids that GET /api/personas/{id} reads. 503 store unavailable." },
     "GET /api/personas/{id}": { "response": "Persona", "status": "draft" },
     "PATCH /api/personas/{id}": { "body": "PersonaUpdate", "response": "Persona", "note": "404 unknown persona. Only labels can be downgraded: grounded needs an unchanged grounded fact." },
     "POST /api/sources/pdf": { "body": "raw PDF bytes (Content-Type: application/pdf, max 10 MB)", "response": "ExtractedText", "status": "draft", "note": "Text layer first; scanned PDFs (no text layer, max 20 pages) are transcribed by the vision model. 413 over 10 MB, 100 pages (20 if scanned) or 200,000 characters (never truncated); 422 not a PDF, corrupt, password protected or no readable text; 502/503 transcription failed or provider unavailable." },

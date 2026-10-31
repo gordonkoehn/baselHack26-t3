@@ -1,0 +1,9 @@
+[
+  {
+    "id": "p_1",
+    "name": "Sandra",
+    "role": "HR specialist, 80 %",
+    "createdAt": "2026-10-31T09:12:00Z",
+    "readiness": { "score": 0.74, "consistency": 0.85, "grounding": 0.87 }
+  }
+]

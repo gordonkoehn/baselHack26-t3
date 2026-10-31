@@ -1,7 +1,7 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import exampleReport from "../../shared/examples/insight-report.json";
 import exampleEvents from "../../shared/examples/session-events.json";
-import type { Session, SessionEvent, InsightReport } from "../src/lib/contracts";
+import type { Persona, Session, SessionEvent, InsightReport } from "../src/lib/contracts";
 import { emit, installRealtime } from "./realtime";
 
 const questions = exampleReport.questions.map((question) => question.question);
@@ -42,6 +42,32 @@ async function answer(page: Page, id: string, text: string) {
   await emit(page, event);
   await emit(page, event); // Provider redelivery must not duplicate transcript turns.
   await emit(page, { type: "response.done", response: { id, status: "completed" } });
+}
+
+// Two personas from the same sources: same name and facts, told apart only by id.
+async function twoPersonas(page: Page): Promise<{ first: Persona; second: Persona }> {
+  const built = () => page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  const firstBuilt = built();
+  await createPersona(page);
+  const first: Persona = await (await firstBuilt).json();
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  const secondBuilt = built();
+  await page.getByRole("button", { name: "Rebuild persona" }).click();
+  const second: Persona = await (await secondBuilt).json();
+  await expect(page.getByRole("button", { name: "Edit sources" })).toBeVisible();
+  return { first, second };
+}
+
+// The rows look alike, so find the row by its place in the list, then prove it by the request it sends.
+async function pickFromLibrary(page: Page, request: APIRequestContext, id: string) {
+  const list: { id: string }[] = await (await request.get("/api/personas")).json();
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  const rows = page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ });
+  await expect(rows).toHaveCount(list.length);
+  const opened = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${id}`) && response.request().method() === "GET");
+  await rows.nth(list.findIndex((persona) => persona.id === id)).click();
+  await opened;
+  await expect(page.getByRole("button", { name: "New persona" })).toBeVisible();
 }
 
 let unexpected: string[] = [];
@@ -244,6 +270,141 @@ test("failed last transcription cannot claim a complete transcript or show debri
   expect(events.map((event) => event.type)).toEqual(["utterance", "utterance"]);
   // This is only a negative read of the real debrief gate; no events are manufactured via HTTP.
   expect((await request.post(`/api/sessions/${session.id}/debrief`)).status()).toBe(409);
+});
+
+test("a persona created earlier can be picked after a reload and interviewed", async ({ page }) => {
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  await createPersona(page);
+  const persona = await (await created).json();
+  await page.reload();
+  const card = page.getByTestId("persona-card");
+  await expect(card).toHaveCount(0);
+  let rebuilt = false;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/personas")) rebuilt = true;
+  });
+  // Newest first, and other tests share this store.
+  await page.getByRole("region", { name: "Recent personas" }).getByRole("button", { name: /Sandra/ }).first().click();
+  await expect(card.getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(card).not.toContainText("Ready in");
+  await expect(page.getByRole("heading", { name: "Sources", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
+
+  const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  const session: Session = await (await started).json();
+  expect(session.personaId).toBe(persona.id);
+  const dialog = page.getByRole("dialog", { name: "Interview with Sandra" });
+  await expect(dialog.getByText("Live, speak now")).toBeVisible();
+  expect(rebuilt).toBe(false);
+});
+
+test("a persona edited from the library keeps its place and comes back edited after a reload", async ({ page, request }) => {
+  const created = page.waitForResponse((response) => response.url().endsWith("/api/personas") && response.request().method() === "POST");
+  await createPersona(page);
+  const persona = await (await created).json();
+  const before = await (await request.get("/api/personas")).json();
+  expect(before[0].id).toBe(persona.id);
+
+  await page.reload();
+  const library = page.getByRole("region", { name: "Recent personas" });
+  const card = page.getByTestId("persona-card");
+  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  const original = persona.jobs[0].text;
+  await card.getByRole("button", { name: `Edit: ${original}`, exact: true }).click();
+  const saved = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}`) && response.request().method() === "PATCH");
+  await card.getByLabel("Fact text").fill("Edited by hand");
+  await card.getByLabel("Fact text").press("Enter");
+  expect((await saved).status()).toBe(200);
+  await expect(card.getByText("Edited by hand")).toBeVisible();
+  await expect(card).not.toContainText("Ready in");
+  // An edit drops the readiness score (it is not re-checked) but keeps the persona's place.
+  expect(await (await request.get("/api/personas")).json()).toEqual([{ ...before[0], readiness: null }, ...before.slice(1)]);
+
+  await page.reload();
+  await expect(card).toHaveCount(0);
+  await library.getByRole("button", { name: /Sandra/ }).first().click();
+  await expect(card.getByText("Edited by hand")).toBeVisible();
+  await expect(card.getByText(original, { exact: true })).toHaveCount(0);
+});
+
+test("a save that finishes after a library pick cannot bring the previous persona back", async ({ page, request }) => {
+  const { first, second } = await twoPersonas(page);
+  const card = page.getByTestId("persona-card");
+  let release = () => {};
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`**/api/personas/${second.id}`, async (route) => {
+    await released;
+    await route.fallback();
+  });
+  await card.getByRole("button", { name: `Edit: ${second.jobs[0].text}`, exact: true }).click();
+  await card.getByLabel("Fact text").fill("Meant for the second persona");
+  await card.getByLabel("Fact text").press("Enter");
+
+  await pickFromLibrary(page, request, first.id);
+  const saved = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${second.id}`) && response.request().method() === "PATCH");
+  release();
+  expect((await saved).status()).toBe(200);
+
+  await expect(card.getByText("Meant for the second persona")).toHaveCount(0);
+  const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Start voice interview" }).click();
+  expect(((await (await started).json()) as Session).personaId).toBe(first.id);
+});
+
+test("an open fact edit and a failed save stay behind when another persona is picked", async ({ page, request }) => {
+  const { first, second } = await twoPersonas(page);
+  const card = page.getByTestId("persona-card");
+  await page.route(`**/api/personas/${second.id}`, (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({ status: 503, contentType: "application/json", body: '{"detail":"store down"}' })
+      : route.fallback(),
+  );
+  await card.getByRole("button", { name: `Remove: ${second.jobs[0].text}`, exact: true }).click();
+  await expect(card.getByRole("alert")).toContainText("Could not save");
+  await card.getByRole("button", { name: `Edit: ${second.jobs[0].text}`, exact: true }).click();
+  await card.getByLabel("Fact text").fill("Meant for the second persona");
+
+  await pickFromLibrary(page, request, first.id);
+  await expect(card.getByLabel("Fact text")).toHaveCount(0);
+  await expect(card.getByRole("alert")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: `Edit: ${first.jobs[0].text}`, exact: true })).toBeVisible();
+});
+
+test("a call can't start while a library pick is loading, so the pick can't cut it off", async ({ page, request }) => {
+  const { first } = await twoPersonas(page);
+  const start = page.getByRole("button", { name: "Start voice interview" });
+  let release = () => {};
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`**/api/personas/${first.id}`, async (route) => {
+    await released;
+    await route.fallback();
+  });
+
+  const picking = pickFromLibrary(page, request, first.id);
+  await expect(start).toBeDisabled();
+  release();
+  await picking;
+
+  const started = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
+  await start.click();
+  expect(((await (await started).json()) as Session).personaId).toBe(first.id);
+});
+
+test("the persona list sends the passcode and stays away when refused", async ({ page }) => {
+  await page.route("**/api/personas", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ status: 401, contentType: "application/json", body: '{"detail":"passcode missing or wrong"}' })
+      : route.fallback(),
+  );
+  const listed = page.waitForRequest((request) => request.method() === "GET" && request.url().endsWith("/api/personas"));
+  await page.goto("/?code=team-pass");
+  expect((await listed).headers()["x-demo-passcode"]).toBe("team-pass");
+  await page.getByRole("button", { name: "Create persona", exact: true }).click();
+  await expect(page.getByTestId("persona-card").getByRole("heading", { name: "Sandra" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit sources" }).click();
+  await expect(page.getByRole("region", { name: "Recent personas" })).toHaveCount(0);
 });
 
 test("mute silences the microphone without ending the call; typing still works", async ({ page }) => {

@@ -14,6 +14,7 @@ from app.contracts import (
     GuideReview,
     InsightReport,
     Persona,
+    PersonaSummary,
     PersonaUpdate,
     Session,
     SessionEvent,
@@ -31,6 +32,7 @@ SCHEMA = json.loads((SHARED / "schema.json").read_text())
 # Explicit coverage: adding or renaming a file requires choosing its contract here.
 EXAMPLES = {
     "persona.json": ("Persona", Persona, False),
+    "persona-summaries.json": ("PersonaSummary", PersonaSummary, True),
     "persona-update.json": ("PersonaUpdate", PersonaUpdate, False),
     "session.json": ("Session", Session, False),
     "session-events.json": ("SessionEvent", SessionEvent, True),
@@ -124,6 +126,8 @@ def test_persona_session_event_and_insight_responses(client, monkeypatch, sparse
         status=201,
     )
     response(client.get(f"/api/personas/{created['id']}"), "Persona")
+    summaries = response(client.get("/api/personas"), "PersonaSummary", array=True)
+    assert [summary["id"] for summary in summaries] == [created["id"]]
     guide = load("session.json")["interviewGuide"]
     session = response(
         client.post(
