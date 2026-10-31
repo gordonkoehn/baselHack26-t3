@@ -2,25 +2,20 @@
 
 /* Design tokens. Components use them as Tailwind colors: bg-surface, text-muted, border-line, bg-accent, … */
 :root {
-  --background: #f6f5f1;
-  --foreground: #1c1b18;
-  --surface: #ffffff;
-  --muted: #6b6860;
-  --line: #e3e0d8;
-  --accent: #2f5d50;
-  --accent-soft: #e4eee9;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #121311;
-    --foreground: #ecebe6;
-    --surface: #1b1c1a;
-    --muted: #9c9a92;
-    --line: #2e2f2b;
-    --accent: #7fb8a4;
-    --accent-soft: #1f2e29;
-  }
+  /* The Record: paper holds what is on record. Solid means grounded, hatched means guess. */
+  --background: #e7e8e2;
+  --foreground: #141414;
+  --surface: #f3f4ef;
+  --muted: #45463f;
+  --line: #bfc1b6;
+  --accent: #a62814;
+  --accent-soft: #f0d9d2;
+  /* The Room: the dark stage for the live interview. */
+  --room: #111211;
+  --room-raised: #232522;
+  --room-text: #e7e8e2;
+  --room-muted: #b9bbb2;
+  --ember: #ff7a5c;
 }
 
 @theme inline {
@@ -31,7 +26,13 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-room: var(--room);
+  --color-room-raised: var(--room-raised);
+  --color-room-text: var(--room-text);
+  --color-room-muted: var(--room-muted);
+  --color-ember: var(--ember);
   --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-zilla);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -69,5 +70,31 @@
   }
   ::selection {
     background: var(--accent-soft);
+  }
+  h1,
+  h2 {
+    font-family: var(--font-display), Georgia, serif;
+    font-weight: 700;
+  }
+}
+
+/* The signature mark, readable without colour: solid is on record, hatched is a guess. */
+@layer components {
+  .evidence-bar {
+    display: inline-block;
+    width: 2rem;
+    height: 0.5rem;
+    border: 1px solid var(--foreground);
+    vertical-align: middle;
+  }
+  .evidence-bar[data-grounded="true"] {
+    background: var(--foreground);
+  }
+  .evidence-bar[data-grounded="false"] {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--foreground) 0 1.5px,
+      transparent 1.5px 5px
+    );
   }
 }

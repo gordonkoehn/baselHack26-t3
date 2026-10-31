@@ -1,6 +1,6 @@
 import threading
 
-from app.store import APPEND_EVENTS, TRANSITION_SESSION
+from app.store import APPEND_EVENTS, COUNT_HIT, TRANSITION_SESSION
 
 
 class FakeRedis:
@@ -24,6 +24,8 @@ class FakeRedis:
 
     def eval(self, script, keys, args):
         """Model the supported scripts atomically; this does not execute Lua."""
+        if script == COUNT_HIT:
+            return self._count_hit(keys, args)
         with self.lock:
             if script == TRANSITION_SESSION:
                 raw = self.data.get(keys[0])
@@ -46,3 +48,10 @@ class FakeRedis:
                     out.append("")
             self.ttl[keys[0]] = int(args[0])
             return out
+
+    def _count_hit(self, keys, args):
+        with self.lock:
+            self.data[keys[0]] = self.data.get(keys[0], 0) + 1
+            if self.data[keys[0]] == 1:
+                self.ttl[keys[0]] = int(args[0])
+            return [self.data[keys[0]], self.ttl[keys[0]]]
