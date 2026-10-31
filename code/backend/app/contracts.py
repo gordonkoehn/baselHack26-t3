@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
 
@@ -127,11 +127,13 @@ class Session(Model):
     ready_seconds: float | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    sample: bool = False
 
 
 class SessionCreate(Model):
     persona_id: str
     interview_guide: list[str] = []
+    sample: bool = False
 
 
 class SessionUpdate(Model):
@@ -179,3 +181,24 @@ class InsightReport(Model):
     session_id: str
     generated_at: str
     questions: list[InsightQuestion]
+
+
+GuideIssue = Literal["leading", "hypothetical", "closed", "pitch"]
+GuideQuestion = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
+
+
+class GuideReviewRequest(Model):
+    questions: list[GuideQuestion] = Field(min_length=1, max_length=50)
+    language: Language
+
+
+class GuideReviewItem(Model):
+    question: str
+    issues: list[GuideIssue]
+    rewrite: str | None
+
+
+class GuideReview(Model):
+    items: list[GuideReviewItem]

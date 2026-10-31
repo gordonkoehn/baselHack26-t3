@@ -39,6 +39,7 @@ def create_session(body: SessionCreate, store: StoreDep) -> Session:
         # The browser connects to realtime.CALLS_URL with the token; there's no room to join.
         join_url=None,
         interview_guide=body.interview_guide,
+        sample=body.sample,
     )
     store.save_session(session)
     return session

@@ -19,7 +19,7 @@ end marker and a real 409 debrief response.
 
 Real: Next UI/handlers/proxy, FastAPI routes/contracts, persona evidence checks, Store
 serialization/event sequencing, session transitions, debrief input/quote checks and saved
-report. Fake: deterministic extraction outputs from shared examples, token provider client,
+report. Fake: deterministic extraction outputs from shared examples, readiness probe answers, token provider client,
 existing FakeRedis transport, SDP/WebRTC data channel and a silent synthetic microphone track.
 Camera requests are explicitly rejected and the visible voice-only fallback is checked. Every
 original microphone track is retained for cleanup assertions; closing the fake peer does not
@@ -41,6 +41,18 @@ normal passing run; do not enable it in CI.
 Microphone cleanup negative control (must exit nonzero): use `E2E_KEEP_MIC_LIVE=1` instead of
 `E2E_FAIL_EVENT_SAVE=1` with the same command. It makes the original track's stop ineffective;
 the happy path must detect that the microphone remains live even after the peer closes.
+
+## Demo fallbacks (#74)
+
+`demo-fallbacks.spec.ts` covers the avatar off switch, cancelling a call stuck connecting, and the
+sample interview. The avatar runs
+the real SDK against a mocked token and a fake Simli websocket; only its first-frame and socket
+failure events are fired by the test (they need a real LiveKit video track and a real socket
+failure), through a `Map.prototype.set` hook on the SDK's private event table, so a `simli-client`
+upgrade may need that hook adjusted. No real
+Simli video or audible voice handover is claimed. The sample interview runs through the real
+routes, store and debrief checks with the fixed fake debrief, so its report has no insights; the
+label on quotes and exports is checked with a mocked saved report.
 
 ## Transcript finalization (#99)
 

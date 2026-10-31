@@ -4,6 +4,11 @@ import type { NextConfig } from "next";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Next's own rewrite proxy gives up after 30 s, shorter than creating a persona takes. Match
+    // Vercel's 120 s, which applies when deployed; backend/app/readiness.py stays below both.
+    proxyTimeout: 120_000,
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

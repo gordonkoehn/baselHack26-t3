@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { errorMessage } from "@/lib/errorMessage";
 import type { Evidence, Fact, Language, Persona, PersonaSource, SourceKind } from "@/lib/contracts";
 import { InterviewRoom } from "@/components/InterviewRoom";
 import { QUARTIER_BOERSE, SAMPLE_TRANSCRIPT } from "@/lib/sample";
@@ -44,19 +46,6 @@ async function onWhite(file: File): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas"))), "image/jpeg", 0.92),
   );
-}
-
-function errorMessage(e: unknown): string {
-  if (!(e instanceof ApiError)) return "Backend not reachable. Is `make dev` running?";
-  if (e.status === 401) return "This needs the team link with the passcode. Ask in Discord.";
-  if (e.status === 422) return `The input was rejected: ${e.detail}`;
-  // The backend's detail says how long to wait.
-  if (e.status === 429) return e.detail;
-  if (e.status === 502) return "The model's answer couldn't be used. Try again.";
-  if (e.status === 503) return "The persona service is temporarily unavailable. Try again in a moment.";
-  // The Next proxy answers 500 when the backend process isn't running at all.
-  if (e.status >= 500) return `Backend not reachable (${e.status}). Is \`make dev\` running?`;
-  return `Unexpected error ${e.status}: ${e.detail}`;
 }
 
 export default function Home() {
@@ -154,7 +143,7 @@ export default function Home() {
       }}
     >
       <header className="mb-10 pt-6">
-        <p className="mb-6 font-mono text-sm tracking-wide text-muted">OpenTwin</p>
+        <Image src="/opentwin-logo.svg" alt="OpenTwin" width={140} height={32} className="mb-8 h-8 w-auto" priority />
         <h1 className="max-w-3xl text-5xl leading-[1.05] sm:text-6xl">
           It tells you what it knows. And what it&apos;s{" "}
           <span className="relative inline-block">
@@ -330,6 +319,16 @@ export default function Home() {
 
 type FactField = "jobs" | "pains" | "objections";
 
+function readinessLine({ readiness, version }: Persona): string {
+  if (readiness) {
+    const { score, consistency, grounding } = readiness;
+    return `Readiness ${score.toFixed(2)}: consistency ${consistency.toFixed(2)} · grounding ${grounding.toFixed(2)} (do two trial runs agree, and do answers rest on sourced facts?)`;
+  }
+  return (version ?? 1) > 1
+    ? "No readiness score: this persona was edited after creation and is not re-checked."
+    : "No readiness score: the check did not finish.";
+}
+
 function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPersona: (p: Persona) => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   // The server decides the labels: an edited or new fact always comes back as a guess.
@@ -349,8 +348,11 @@ function PersonaCard({ persona, sources, seconds, onPersona }: Result & { onPers
 
   return (
     <article className="rounded-xl border border-line bg-surface p-6 shadow-sm" data-testid="persona-card">
-      <p className="mb-4 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
+      <p className="mb-2 inline-block rounded-full bg-accent-soft px-2.5 py-1 text-xs text-accent">
         Ready in {seconds.toFixed(1)} s · {grounded} grounded · {facts.length - grounded} guesses
+      </p>
+      <p className="mb-4 text-xs text-muted" data-testid="readiness">
+        {readinessLine(persona)}
       </p>
       <h2 className="text-2xl font-semibold tracking-tight">{persona.name}</h2>
       {meta && <p className="text-sm text-muted">{meta}</p>}
