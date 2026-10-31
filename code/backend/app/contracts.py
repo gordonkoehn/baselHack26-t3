@@ -38,16 +38,23 @@ class PersonaContext(Model):
     tools_today: list[str] = []
 
 
+# schema.json allows these to be absent but not null, so None is left out of the JSON.
+def _omit_none():
+    return Field(default=None, exclude_if=lambda v: v is None)
+
+
 class Attitudes(Model):
-    tech_affinity: Scale5 | None = None
-    price_sensitivity: Scale5 | None = None
-    trust_in_new_brands: Scale5 | None = None
+    tech_affinity: Scale5 | None = _omit_none()
+    price_sensitivity: Scale5 | None = _omit_none()
+    trust_in_new_brands: Scale5 | None = _omit_none()
 
 
 class SpeechStyle(Model):
-    register_: Literal["formal", "informal"] | None = Field(default=None, alias="register")
-    verbosity: Literal["short", "medium", "long"] | None = None
-    fillers: bool | None = None
+    register_: Literal["formal", "informal"] | None = Field(
+        default=None, alias="register", exclude_if=lambda v: v is None
+    )
+    verbosity: Literal["short", "medium", "long"] | None = _omit_none()
+    fillers: bool | None = _omit_none()
     notes: str | None = None
 
 
