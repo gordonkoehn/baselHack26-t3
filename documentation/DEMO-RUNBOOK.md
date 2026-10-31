@@ -12,7 +12,7 @@ Checked against `main` on 31 Oct. Update this table when the open work merges.
 | Note in a small chat | Nothing. | The chat |
 | Start the call | **Start video interview** | Fullscreen call with the script beside it (#132, draft PR #170) |
 | Show the email and presentation | **Share screen**, then **Show screen to persona**. It sends one frame per click, so click again after changing the page. | In-app viewer (#143) |
-| Report | End the call. The debrief starts by itself and labels each insight. | Short summary first (#160, open PR #169). #155 and #156 are also open. |
+| Report | End the call. The debrief starts by itself, opens with a short summary (what held up, what didn't, still open) and labels each insight. | #155 and #156 are open. |
 
 ## 30 minutes before the pitch
 
@@ -20,8 +20,8 @@ Checked against `main` on 31 Oct. Update this table when the open work merges.
 |---|---|---|
 | App is up | Open the deployed URL through the team link (`?code=…`, pinned in Discord). `/api/health` says `ok`. | Redeploy, or go to the backup video. |
 | Passcode | Click **Create persona**. A "needs the team link" message means the code is missing or wrong. | Reopen the team link. `DEMO_PASSCODE` is set on the `*-api` Vercel project. |
-| Lumen persona | Pick the prepared persona under **Recent personas**. | Create it again from the material in `documentation/usecases/lumen-ipp/`. Remove the prefilled Quartier-Börse sources first. The source pack for persona P1 is still open (#171). |
-| Interview questions | Replace the prefilled Quartier-Börse questions in the interview card with the Lumen ones from #158. The field goes back to Quartier-Börse on every page load, and the debrief answers exactly these questions. | Retype them. |
+| Lumen persona | Pick the prepared persona under **Recent personas**. | Create it again: remove the prefilled Quartier-Börse sources, upload the files from `documentation/usecases/lumen-ipp/sources/p1-miriam-kessler/`, and choose **English** (the default is Deutsch). |
+| Interview questions | Replace the prefilled Quartier-Börse questions in the interview card with the two questions quoted in #158 step 4, one per line: "We'd send you a pre-configured email 90 days before renewal. How would you like that?" and "What do you think?". To use the short guide `documentation/usecases/lumen-ipp/interview/guide-short-miriam-kessler.txt` (#172) instead, leave out its first line, the greeting. The field goes back to Quartier-Börse on every page load, and the debrief answers every line in it. | Retype them. |
 | Test object | Open the Lumen prototype from `documentation/usecases/lumen-ipp/test-object/` on the demo laptop, then **Share screen** and **Show screen to persona** in a short call. | Allow screen recording in the browser and system settings, or describe the screen out loud. |
 | `OPENAI_API_KEY` | One short call works. Check the remaining budget on the OpenAI dashboard: personas, debriefs and live calls all use it. | Top up. Without it only saved report links and the video work. |
 | `SIMLI_API_KEY` | One short call shows the face. Check the remaining Simli credit. | Keep the avatar off (below). |

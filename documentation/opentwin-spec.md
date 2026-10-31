@@ -1,6 +1,6 @@
 > **The 30 Oct vision, not what was built.** Pipecat, the Miro export and the `/twins` API don't exist in this repo, and neither do Gemini Live, MuseTalk, rrweb, Langfuse, the event bus or the MCP server. The actual stack is in [`ONBOARDING.md`](ONBOARDING.md#what-changed-vs-the-plan) and [`PLAN.md`](PLAN.md#current-stack). The demo is in [#158](https://github.com/gordonkoehn/baselHack26-t3/issues/158).
 >
-> This banner also covers `OpenTwin-Technical-Specification.pdf`, the PDF of the same draft. The PDF itself is unchanged and carries no banner.
+> `OpenTwin-Technical-Specification.pdf` is the PDF of the same draft. It opens with the same notice on an added first page.
 
 # OpenTwin Interview Stack – Technical Specification
 
