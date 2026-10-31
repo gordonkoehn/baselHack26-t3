@@ -199,10 +199,10 @@ def test_avatar_token_without_key_or_on_simli_error_is_503(client, simli, monkey
     assert client.post(f"/api/sessions/{sid}/avatar-token").status_code == 503
     assert simli.calls == []
     monkeypatch.setenv("SIMLI_API_KEY", "simli_secret")
-    for status, body in [
-        (401, {"detail": "bad key simli_secret"}),
-        (400, {"session_token": "FAIL TOKEN"}),
-    ]:
+    cases = [(401, {"detail": "bad key simli_secret"}), (400, {"session_token": "FAIL TOKEN"})]
+    # Malformed 200 answers must also be a controlled 503, never a 500.
+    cases += [(200, b) for b in ([], "tok", 3, {}, {"session_token": None}, {"session_token": ""})]
+    for status, body in cases:
         simli.status, simli.body = status, body
         res = client.post(f"/api/sessions/{sid}/avatar-token")
         assert res.status_code == 503 and "simli_secret" not in res.text

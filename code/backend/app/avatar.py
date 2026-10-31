@@ -45,8 +45,9 @@ def mint_session_token(persona: Persona) -> SessionToken:
             timeout=15,
         )
         res.raise_for_status()
-        token = res.json()["session_token"]
-    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        body = res.json()
+        token = body.get("session_token") if isinstance(body, dict) else None
+    except (httpx.HTTPError, ValueError) as exc:
         # Only the type: the response body could echo request details.
         raise ProviderUnavailable(type(exc).__name__) from None
     if not isinstance(token, str) or not token or token == "FAIL TOKEN":
