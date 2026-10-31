@@ -15,6 +15,7 @@ PAID_ROUTES = [
     "/api/sessions/s_1/token",
     "/api/sessions/s_1/avatar-token",
     "/api/sessions/s_1/debrief",
+    "/api/mcp",
 ]
 
 
