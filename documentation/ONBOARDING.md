@@ -62,7 +62,7 @@ Quality, if time:
 1. Clone, then from `code/`: `make setup && make dev` → http://localhost:3000.
 2. Keys: `cp .env.example backend/.env`, ask Johan for `OPENAI_API_KEY`, Upstash and Simli keys. Never commit them.
 3. Pick an issue above, assign yourself, branch `<issue#>-slug`, small PR with `Closes #<n>`, `make fix && make check`, auto-merge when green.
-4. Using an AI agent? Register it with Agent Mail (see `CLAUDE.md`, project key is always `/Users/kollers/Documents/dev/baselHack26-t3`), reserve files before editing. Humans watch at http://192.168.20.52:8765/mail/.
+4. Using an AI agent? Connect it to Agent Mail with [AGENT-MAIL.md](AGENT-MAIL.md) (5 min), then it shows up on the Agent Board. Reserve files before editing.
 
 ## Rules that bite
 - Main must always be green and demoable.
