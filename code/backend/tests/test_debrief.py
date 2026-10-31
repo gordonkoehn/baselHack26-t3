@@ -328,6 +328,20 @@ def test_debrief_uses_default_model_without_override(inputs, monkeypatch):
     assert calls[0]["model"] == extract.DEFAULT_MODEL
 
 
+def test_debrief_sends_concrete_theme_and_per_question_quote_rules(inputs, monkeypatch):
+    session, persona, events, draft = inputs
+    calls = mock_provider(monkeypatch, response_body(draft))
+    extract.extract_debrief(session, persona, events)
+    instructions = calls[0]["instructions"]
+    assert "short, concrete finding in the persona's words, supported by its quote" in instructions
+    assert "not a restatement of the question or a generic topic label" in instructions
+    assert "Do not invent a finding to fill a slot" in instructions
+    assert "Within each question, use each quote at most once" in instructions
+    assert "combine insights that rely on the same quote" in instructions
+    assert "keep useful followUps" in instructions
+    assert "does not prohibit reuse across different questions" in instructions
+
+
 @pytest.mark.parametrize(
     "change",
     [
