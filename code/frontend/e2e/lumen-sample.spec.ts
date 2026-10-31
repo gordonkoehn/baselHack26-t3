@@ -101,7 +101,7 @@ test("Kessler's synthetic Lumen sample persists and keeps its labels in debrief,
 
   await page.goto("/");
   const coverageChecked = page.waitForResponse((response) => response.url().endsWith(`/api/personas/${persona.id}/coverage`) && response.request().method() === "POST");
-  await page.getByRole("button", { name: new RegExp(personaName.replaceAll(".", "\\.")) }).click();
+  await page.getByRole("button", { name: new RegExp(`^${personaName.replaceAll(".", "\\.")}`) }).click();
   const score = page.getByTestId("persona-score");
   await expect(score.getByRole("heading", { name: `Your persona: ${personaName}.`, exact: true })).toBeVisible();
   // Let the harness's automatic coverage check finish before tracking sample-only requests.
