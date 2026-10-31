@@ -1066,47 +1066,54 @@ export function InterviewRoom({
         </div>
 
         <div className="mt-4 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="mx-auto w-full max-w-2xl space-y-3">
-            {screenShare && (
-              <ZoomStage label="Shared screen">
-                <ScreenSharePreview stream={screenShare} />
-                {phase === "live" && (
-                  <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
-                    {screenNote ??
-                      (screenSentAt === null
-                        ? "Sending the first screen image to the persona…"
-                        : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
-                  </p>
+          <div className={`mx-auto w-full space-y-3 ${screenShare ? "" : "max-w-2xl"}`}>
+            {/* One stage while sharing: the people shrink to a column on the left, the shared screen
+                takes the rest. The people column keeps its place in the tree, so the avatar and the
+                camera never remount when sharing starts or stops. */}
+            <ZoomStage label={screenShare ? "Video call and shared screen" : "Video call"}>
+              <div className={screenShare ? "grid w-full items-start gap-3 grid-cols-[minmax(9rem,14rem)_minmax(0,1fr)]" : ""}>
+                <div className="min-w-0">
+                  {showAvatar && sessionId.current && voice && (
+                    <Avatar
+                      sessionId={sessionId.current}
+                      track={voice}
+                      onSpeaking={() => {
+                        const ms = replyTimer.current.avatar(performance.now());
+                        if (ms !== null) setMetrics((m) => ({ ...m, avatarMs: [...m.avatarMs, ms] }));
+                      }}
+                      onActive={(control) => {
+                        avatar.current = control;
+                        if (!control) replyTimer.current.avatarGone();
+                        setAvatarOn(control !== null);
+                      }}
+                    />
+                  )}
+                  {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
+                  {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
+                  <video
+                    ref={camView}
+                    autoPlay
+                    muted
+                    playsInline
+                    aria-label="Your camera"
+                    className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
+                  />
+                  {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+                </div>
+                {screenShare && (
+                  <div className="min-w-0">
+                    <ScreenSharePreview stream={screenShare} />
+                    {phase === "live" && (
+                      <p className="mt-2 text-xs text-room-muted" data-testid="screen-status">
+                        {screenNote ??
+                          (screenSentAt === null
+                            ? "Sending the first screen image to the persona…"
+                            : `Screen image sent to the persona ${Math.max(0, liveSeconds - screenSentAt)}s ago.`)}
+                      </p>
+                    )}
+                  </div>
                 )}
-              </ZoomStage>
-            )}
-            <ZoomStage label="Video call">
-              {showAvatar && sessionId.current && voice && (
-                <Avatar
-                  sessionId={sessionId.current}
-                  track={voice}
-                  onSpeaking={() => {
-                    const ms = replyTimer.current.avatar(performance.now());
-                    if (ms !== null) setMetrics((m) => ({ ...m, avatarMs: [...m.avatarMs, ms] }));
-                  }}
-                  onActive={(control) => {
-                    avatar.current = control;
-                    if (!control) replyTimer.current.avatarGone();
-                    setAvatarOn(control !== null);
-                  }}
-                />
-              )}
-              {avatarOff && phase === "live" && <p className="mt-1 text-xs text-room-muted">Avatar off, voice only.</p>}
-              {/* Mirrored like a video call self-view; the persona gets the unmirrored frames. */}
-              <video
-                ref={camView}
-                autoPlay
-                muted
-                playsInline
-                aria-label="Your camera"
-                className={`mt-3 aspect-video w-full -scale-x-100 rounded-lg bg-black object-cover ${cam ? "" : "hidden"}`}
-              />
-              {camNote && <p className="mt-1 text-xs text-room-muted">{camNote}</p>}
+              </div>
             </ZoomStage>
           </div>
           <div className="min-w-0 space-y-3">
