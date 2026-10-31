@@ -17,8 +17,9 @@ cleanup, modal opening/closing, the visible expanded final transcript and report
 failure with preserved sources and successful retry, plus incomplete transcription with no
 end marker and a real 409 debrief response. The end-call scenarios (#99) cover End during
 speech, delayed/missing/rejected final transcription, cancelled answers, repeated and
-out-of-order events, connection loss and hung saves; they use simulated provider events, so
-real provider timing and commit behaviour during VAD stay unmeasured.
+out-of-order events, connection loss, hung saves, saves whose answer was lost after the server
+stored them, and a late startup PATCH; they use simulated provider events, so real provider
+timing and commit behaviour during VAD stay unmeasured.
 
 Real: Next UI/handlers/proxy, FastAPI routes/contracts, persona evidence checks, Store
 serialization/event sequencing, session transitions, debrief input/quote checks and saved

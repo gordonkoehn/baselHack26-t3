@@ -21,8 +21,16 @@ class FakeRedis:
         return dict(self.data.get(key, {}))
 
     def eval(self, script, keys, args):
-        """Runs the APPEND_EVENTS script's semantics in one locked step, like Redis would."""
-        assert "HSETNX" in script and "EXPIRE" in script
+        """Runs the store's scripts' semantics in one locked step, like Redis would."""
+        if "HSETNX" not in script:
+            assert "GET" in script and "SET" in script
+            with self.lock:
+                if self.data.get(keys[0]) != args[0]:
+                    return 0
+                self.data[keys[0]] = args[1]
+                self.ttl[keys[0]] = int(args[2])
+                return 1
+        assert "EXPIRE" in script
         with self.lock:
             h = self.data.setdefault(keys[0], {})
             out = []

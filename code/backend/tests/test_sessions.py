@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app import avatar, realtime
 from app.contracts import Persona, PersonaCreate
 from app.main import app
-from app.store import Store, get_store
+from app.store import TTL_SECONDS, Store, get_store
 from tests.fakes import FakeRedis
 
 PERSONA = json.loads(
@@ -87,6 +87,75 @@ def test_created_can_end_directly(client):
     sid = new_session(client)["id"]
     ended = client.patch(f"/api/sessions/{sid}", json={"status": "ended"}).json()
     assert ended["status"] == "ended" and ended["startedAt"] is None
+
+
+class RacingRedis(FakeRedis):
+    """Runs `race` once, after a PATCH has read the session but before it writes."""
+
+    race = None
+
+    def eval(self, script, keys, args):
+        race, self.race = self.race, None
+        if race:
+            race()
+        return super().eval(script, keys, args)
+
+
+@pytest.fixture
+def racing(secrets):
+    redis = RacingRedis()
+    store = Store(redis)
+    store.save_persona(Persona.model_validate(PERSONA))
+    app.dependency_overrides[get_store] = lambda: store
+    yield TestClient(app), redis
+    app.dependency_overrides.clear()
+
+
+def test_late_live_cannot_revive_an_ended_session(racing):
+    client, redis = racing
+    sid = new_session(client)["id"]
+    ended = {}
+
+    def end_first():
+        ended.update(client.patch(f"/api/sessions/{sid}", json={"status": "ended"}).json())
+
+    redis.race = end_first
+    late = client.patch(f"/api/sessions/{sid}", json={"status": "live"})
+    assert late.status_code == 409
+    stored = client.get(f"/api/sessions/{sid}").json()
+    assert stored == ended and stored["status"] == "ended" and stored["startedAt"] is None
+    assert stored["interviewGuide"] == ["Q1"]
+    assert redis.ttl[f"ot:session:{sid}"] == TTL_SECONDS
+
+
+def test_ended_racing_ended_keeps_the_first_timestamp(racing):
+    client, redis = racing
+    sid = new_session(client)["id"]
+    winner = {}
+
+    def end_first():
+        winner.update(client.patch(f"/api/sessions/{sid}", json={"status": "ended"}).json())
+
+    redis.race = end_first
+    loser = client.patch(f"/api/sessions/{sid}", json={"status": "ended"})
+    assert loser.status_code == 200 and loser.json() == winner and winner["endedAt"]
+    assert client.get(f"/api/sessions/{sid}").json() == winner
+
+
+def test_live_racing_ended_after_live_still_ends(racing):
+    client, redis = racing
+    sid = new_session(client)["id"]
+    redis.race = lambda: client.patch(f"/api/sessions/{sid}", json={"status": "live"})
+    ended = client.patch(f"/api/sessions/{sid}", json={"status": "ended"}).json()
+    assert ended["status"] == "ended" and ended["startedAt"] and ended["endedAt"]
+
+
+def test_patch_of_missing_session_is_404_and_endless_conflict_is_503(racing):
+    client, redis = racing
+    assert client.patch("/api/sessions/nope", json={"status": "ended"}).status_code == 404
+    sid = new_session(client)["id"]
+    redis.eval = lambda *_args, **_kwargs: 0
+    assert client.patch(f"/api/sessions/{sid}", json={"status": "ended"}).status_code == 503
 
 
 def test_invalid_status_is_422(client):

@@ -58,7 +58,7 @@ function passcode(): Record<string, string> {
 }
 
 // Saving must never hang the end of a call: a stuck request fails here, and the caller retries it.
-const SAVE_TIMEOUT_MS = 6_000;
+export const SAVE_TIMEOUT_MS = 6_000;
 
 export const api = {
   health: () => fetch("/api/health", { cache: "no-store" }).then(json<{ status: string }>),
@@ -88,12 +88,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then(json<Session>),
-  updateSession: (id: string, body: SessionUpdate) =>
+  // No default deadline: a slow "live" only delays the start. Pass one where a stuck request must end.
+  updateSession: (id: string, body: SessionUpdate, timeoutMs?: number) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(SAVE_TIMEOUT_MS),
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     }).then(json<Session>),
   sessionToken: (id: string) =>
     fetch(`/api/sessions/${encodeURIComponent(id)}/token`, { method: "POST", cache: "no-store", headers: passcode() }).then(

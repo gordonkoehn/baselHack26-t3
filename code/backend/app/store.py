@@ -5,6 +5,7 @@ contract JSON, so what we read back validates against the same models.
 """
 
 import json
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
@@ -30,6 +31,17 @@ for i = 2, #ARGV, 2 do
 end
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 return out
+"""
+
+
+# KEYS[1] = session, ARGV = the value it was read as, the new value, ttl.
+# Returns 1 if it replaced the value, 0 if the key has changed since it was read.
+SWAP_SESSION = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+  return 1
+end
+return 0
 """
 
 
@@ -82,6 +94,29 @@ class Store:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._load(f"{PREFIX}:session:{session_id}", Session)
+
+    def update_session(
+        self, session_id: str, change: Callable[[Session], Session]
+    ) -> Session | None:
+        """Apply `change` atomically; None if there's no such session.
+
+        A write only lands on the exact value `change` saw, otherwise `change` runs again on the
+        newer one. So a delayed "live" can't overwrite a stored "ended". Return the session it was
+        given to write nothing. Three tries: a session's status changes at most twice.
+        """
+        key = f"{PREFIX}:session:{session_id}"
+        for _ in range(3):
+            raw = self._call("get", key)
+            if raw is None:
+                return None
+            session = Session.model_validate_json(raw)
+            updated = change(session)
+            if updated is session:
+                return session
+            args = [raw, _dump(updated), str(TTL_SECONDS)]
+            if self._call("eval", SWAP_SESSION, keys=[key], args=args) == 1:
+                return updated
+        raise StoreUnavailable("session kept changing")
 
     def save_report(self, report: InsightReport) -> None:
         self._put(f"{PREFIX}:session:{report.session_id}:report", report)

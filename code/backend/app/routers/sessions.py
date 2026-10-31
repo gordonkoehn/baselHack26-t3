@@ -53,19 +53,21 @@ def read_session(session_id: str, store: StoreDep) -> Session:
 
 @router.patch("/{session_id}", response_model_by_alias=True)
 def update_session(session_id: str, body: SessionUpdate, store: StoreDep) -> Session:
-    # shortcut: read-modify-write, two racing PATCHes can both win; fine for one interviewer.
-    session = _load(store, session_id)
-    if body.status == session.status:
-        return session
-    if body.status not in NEXT[session.status]:
-        raise HTTPException(409, f"cannot go from {session.status} to {body.status}")
-    update: dict = {"status": body.status}
-    if body.status == "live":
-        update["started_at"] = _now()
-    if body.status == "ended":
-        update["ended_at"] = _now()
-    session = session.model_copy(update=update)
-    store.save_session(session)
+    def change(session: Session) -> Session:
+        if body.status == session.status:
+            return session
+        if body.status not in NEXT[session.status]:
+            raise HTTPException(409, f"cannot go from {session.status} to {body.status}")
+        update: dict = {"status": body.status}
+        if body.status == "live":
+            update["started_at"] = _now()
+        if body.status == "ended":
+            update["ended_at"] = _now()
+        return session.model_copy(update=update)
+
+    session = store.update_session(session_id, change)
+    if session is None:
+        raise HTTPException(404, "session not found")
     return session
 
 

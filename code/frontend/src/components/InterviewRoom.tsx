@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { ScreenShareButton } from "@/components/ScreenShareButton";
-import { ApiError, api } from "@/lib/api";
+import { ApiError, SAVE_TIMEOUT_MS, api } from "@/lib/api";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
 import type { Persona, SessionEvent } from "@/lib/contracts";
@@ -107,7 +107,6 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
   const [avatarOn, setAvatarOn] = useState(false);
   const avatar = useRef<AvatarControl | null>(null);
   const sessionId = useRef<string | null>(null);
-  const sessionLive = useRef<Promise<void> | null>(null);
   // When the interviewer stopped talking (or sent text); the gap to the first persona audio is latency.
   const askedAt = useRef<number | null>(null);
 
@@ -280,9 +279,11 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         pending.current.add("speech");
         break;
       case "input_audio_buffer.committed":
+        // A repeat says nothing about the speech reserved now, which may be a newer turn.
+        if (!once(`c:${e.item_id}`)) break;
         pending.current.delete("speech");
         endCommit.current = null;
-        // Already settled: a late or repeated commit must not reopen a turn that can't finish again.
+        // Already settled (out of order): this commit must not reopen a turn that can't finish again.
         if (e.item_id && !seen.current.has(`t:${e.item_id}`)) pending.current.add(`t:${e.item_id}`);
         break;
       case "conversation.item.input_audio_transcription.failed":
@@ -291,6 +292,8 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         lost.current = true;
         break;
       case "response.created": {
+        // A repeat acknowledges nothing new: the waiting typed question belongs to a later response.
+        if (!once(`rc:${e.response?.id}`)) break;
         // The oldest typed question waiting for its answer is now acknowledged by a real response.
         const ask = [...pending.current].find((k) => k.startsWith("a:"));
         if (ask) pending.current.delete(ask);
@@ -422,7 +425,6 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     callAbort.current = abort;
     const current = () => g === gen.current && !callClosed.current;
     sessionId.current = null;
-    sessionLive.current = null;
     liveSince.current = Date.now();
     cameraItem.current = null;
     cameraSeq.current = 0;
@@ -514,8 +516,7 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
         if (abort.signal.aborted) cancelled();
       });
       if (!current()) return;
-      sessionLive.current = api.updateSession(session.id, { status: "live" }).then(() => {});
-      await sessionLive.current;
+      await api.updateSession(session.id, { status: "live" });
       if (!current()) return;
       liveSince.current = Date.now();
       setLiveSeconds(0);
@@ -553,8 +554,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
     setTyped("");
   }
 
-  // The mic is off, so VAD will never hear this speech end. Commit it, only while speech is really
-  // reserved (an empty commit is a provider error). A commit starts transcription, not a response.
+  // Hypothesis from #99, not verified against the provider: with the mic off, VAD may never see this
+  // speech end. So commit it, only while speech is really reserved (the provider rejects an empty
+  // commit). Whether a commit under semantic_vad also starts a response is unmeasured; if it does,
+  // that response is reserved like any other and End waits for it.
   function commitSpeech() {
     const dc = channel.current;
     if (!pending.current.has("speech") || endCommit.current || dc?.readyState !== "open") return;
@@ -623,12 +626,10 @@ export function InterviewRoom({ persona }: { persona: Persona }) {
       const saveMs = performance.now() - since;
       setEndTimings((t) => ({ ...t, saveMs }));
       if (sid) {
-        // A loss while startup's PATCH is in flight must not let "live" overtake "ended".
-        await sessionLive.current?.catch(() => {});
-        if (g !== gen.current) return;
         since = performance.now();
-        // Repeating "ended" is a no-op on the backend, so a timed-out PATCH is safe to resend.
-        const closed = await retry(g, () => api.updateSession(sid, { status: "ended" }).then(() => true, () => false));
+        // Repeating "ended" is a no-op on the backend, so a timed-out PATCH is safe to resend. No need
+        // to wait for startup's "live": the backend refuses it once "ended" is stored.
+        const closed = await retry(g, () => api.updateSession(sid, { status: "ended" }, SAVE_TIMEOUT_MS).then(() => true, () => false));
         if (g !== gen.current) return;
         if (!closed) throw new Error("session not closed");
         const closeMs = performance.now() - since;
