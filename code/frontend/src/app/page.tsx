@@ -90,6 +90,7 @@ export default function Home() {
   const card = useRef<HTMLDivElement>(null);
   const startedAt = useRef(0);
   const filled = drafts.filter((d) => d.text.trim());
+  const exampleLoaded = guideFor(filled) !== "";
   // While building or reading files, nothing is editable: a late file result can't land in a
   // reset list, and the submitted sources can't change under a running request.
   const busy = loading || reading || opening;
@@ -305,7 +306,7 @@ export default function Home() {
         </div>
         <div hidden={result !== null && !editing} className="space-y-4">
         <p className="text-sm text-muted">
-          {guideFor(filled)
+          {exampleLoaded
             ? "Example loaded: Quartier-Börse. Create the persona, then interview them with the three sprint questions."
             : "Paste what you already know. A transcript can ground quotes. A note is context only."}
         </p>
