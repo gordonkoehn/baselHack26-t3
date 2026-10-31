@@ -128,7 +128,7 @@ def test_token_is_short_lived_client_secret_with_persona_session(client, secrets
     assert session["audio"]["input"]["transcription"]["language"] == "de"
     assert session["audio"]["input"]["turn_detection"] == {
         "type": "semantic_vad",
-        "eagerness": "low",
+        "eagerness": "high",
     }
     assert session["audio"]["input"]["noise_reduction"] == {"type": "near_field"}
 

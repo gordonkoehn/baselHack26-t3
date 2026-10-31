@@ -12,7 +12,7 @@ import type { Persona, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
 import { QUARTIER_BOERSE_GUIDE, sampleTurns } from "@/lib/sample";
 
-// Voice interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
+// Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
 
 type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
@@ -823,7 +823,7 @@ export function InterviewRoom({
   return (
     <section className="mt-8 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Voice interview</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Video interview</h3>
         {(phase === "idle" || phase === "ended" || phase === "error") && (
           <button
             type="button"
@@ -831,7 +831,7 @@ export function InterviewRoom({
             onClick={start}
             disabled={startBlocked}
           >
-            {phase === "idle" || ended?.sample ? "Start voice interview" : "Start again"}
+            {phase === "idle" || ended?.sample ? "Start video interview" : "Start again"}
           </button>
         )}
         {(phase === "idle" || phase === "ended" || phase === "error") && (
