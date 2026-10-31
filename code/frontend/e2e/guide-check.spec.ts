@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import example from "../../shared/examples/guide-review.json";
+import persona from "../../shared/examples/persona.json";
 
 const [flagged, neutral] = example.items;
 const guideLabel = "Interview questions, one per line (the debrief answers these)";
@@ -20,7 +21,7 @@ test("flags a hypothetical question and swaps in its rewrite, keeping the other 
   await page.getByRole("button", { name: "Check questions" }).click();
   const body = (await sent).postDataJSON();
   expect(body.questions).toEqual([neutral.question, flagged.question]);
-  expect(["de", "en"]).toContain(body.language);
+  expect(body.language).toBe(persona.language);
 
   const check = page.getByTestId("guide-check");
   const items = check.getByRole("listitem");
