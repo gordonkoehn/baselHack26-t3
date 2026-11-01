@@ -185,7 +185,8 @@ test("draft edits, selected personas and existing sessions keep their own produc
   await page.getByLabel("Product name", { exact: true }).fill("Synthetic bicycle service");
   await page.getByRole("button", { name: "Sources", exact: true }).click();
   const library = page.getByRole("region", { name: "Recent personas" });
-  const rows = library.getByRole("button");
+  // Each row also has a Delete button; count and click only the persona buttons.
+  const rows = library.getByRole("button").filter({ hasNotText: /^Delete$/ });
   // Identify each persona by its real GET request, using the backend list's displayed order.
   const listed = await request.get("/api/personas");
   expect(listed.ok()).toBe(true);
