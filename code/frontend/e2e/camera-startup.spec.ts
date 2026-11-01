@@ -15,7 +15,7 @@ test.beforeEach(async ({ context, page }) => {
 });
 
 async function openInterview(page: Page) {
-  await page.goto("/");
+  await page.goto("/studio");
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-score").getByRole("heading", { name: /Sandra/ })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();

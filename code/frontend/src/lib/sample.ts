@@ -1,3 +1,5 @@
+import type { Product } from "./contracts";
+
 // Copy of documentation/testcase-quartier-boerse.md below its status banner, used to prefill the example source.
 export const QUARTIER_BOERSE = `# Test case: Quartier-Börse
 
@@ -92,11 +94,31 @@ export function sampleTurns(personaName = ""): { speaker: "interviewer" | "perso
 
 // The sprint questions of the Quartier-Börse test, one per line in the interview card.
 // The debrief answers exactly these, so it never invents its own guide.
+/** The demo product, prefilled in the Product step. */
+export const QUARTIER_BOERSE_PRODUCT: Product = {
+  name: "Quartier-Börse",
+  description:
+    "A recycling pickup service (paper, PET, aluminium) pays users in Kilo-Shares: 1 Share is about CHF 0.50. " +
+    "Users split their shares between their own rewards and a neighbourhood project, here a greener playground in Littau. " +
+    "Bäckerei Muff doubles every share put into the project. The prototype has five screens: pickup message, " +
+    "split slider, project page, confirmation and project funded.",
+  prototypeUrl: null,
+};
+
 export const QUARTIER_BOERSE_GUIDE = [
   "Erleben Nutzer:innen das Teilen ihrer Kilo-Shares fürs Quartier als Mehrwert oder als Verlust?",
   "Erhöht das Partner-Matching (Bäckerei Muff verdoppelt) den Anteil fürs Projekt?",
   "Vertrauen sie darauf, dass ihr Beitrag wirklich beim Projekt ankommt?",
 ];
+
+/** Synthetic Lumen renewal-email prototype, matching Miriam's short interview guide. */
+export const LUMEN_PRODUCT: Product = {
+  name: "Lumen renewal email",
+  description: "An email sent 90 days before a university's Lumen publishing agreement ends. " +
+    "It shows savings against list price and researcher usage to help explain the partnership's value. " +
+    "Savings against list price are not an independent comparison of alternatives.",
+  prototypeUrl: null,
+};
 
 // The Lumen case's persona stack (documentation/usecases/lumen-ipp).
 export const LUMEN_PERSONAS = [

@@ -4,23 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, type AvatarControl } from "@/components/Avatar";
 import { DebriefView } from "@/components/DebriefView";
 import { GuideCheck } from "@/components/GuideCheck";
+import { productForSession } from "@/components/ProductBrief";
 import { InterviewScript } from "@/components/InterviewScript";
 import { ScreenShareButton, ScreenSharePreview, frameBudget } from "@/components/ScreenShareButton";
 import { ZoomStage } from "@/components/ZoomStage";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import { captureFrame } from "@/lib/screenFrames";
 import { watchConnection } from "@/lib/useConnectionWatch";
-import type { Persona, SessionEvent } from "@/lib/contracts";
+import type { Persona, Product, SessionEvent } from "@/lib/contracts";
 import { DRAIN_ATTEMPT_MS, SAVE_ATTEMPTS, TranscriptWork, drainDescription } from "@/lib/transcriptFinalization";
+import { TranscriptOrder, type Speaker, type Turn } from "@/lib/transcriptOrder";
 import { sampleTurns } from "@/lib/sample";
 import { ReplyTimer, describeLatency, summarizeLatency } from "@/lib/replyLatency";
 
 // Video interview pilot: the browser talks to OpenAI Realtime over WebRTC with a short-lived
 // client secret from our backend. Our backend never holds the audio connection.
 
-type Turn = { who: "interviewer" | "persona"; text: string; cancelled?: boolean };
 type Phase = "idle" | "sample" | "connecting" | "live" | "ending" | "waiting" | "ended" | "unsaved" | "error";
-type Speaker = "interviewer" | "persona";
 type Metrics = { latenciesMs: number[]; avatarMs: number[]; inputTokens: number; outputTokens: number };
 
 // How often the persona gets a fresh look at the interviewer's camera.
@@ -39,6 +40,7 @@ const SCREEN_LABEL = "(Interviewer's shared screen, the prototype, right now.)";
 type ServerEvent = {
   type: string;
   item_id?: string;
+  previous_item_id?: string | null;
   response_id?: string;
   content_index?: number;
   transcript?: string;
@@ -54,11 +56,19 @@ type ServerEvent = {
 export function InterviewRoom({
   persona,
   startBlocked,
+  product,
+  guide: sharedGuide,
+  onGuideChange,
   initialGuide = "",
   questionsRequired = true,
 }: {
   persona: Persona;
   startBlocked: boolean;
+  /** From the Product step; sent with every session so the persona and the debrief know what is tested. */
+  product?: Product;
+  /** The sprint questions, shared with the Product step. Without them the room keeps its own. */
+  guide?: string;
+  onGuideChange?: (guide: string) => void;
   /** Questions the debrief will answer. Empty for a saved persona, so the sample sprint questions never come back. */
   initialGuide?: string;
   /** False for the short test call on the persona tab: no debrief questions needed. */
@@ -69,9 +79,13 @@ export function InterviewRoom({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ latenciesMs: [], avatarMs: [], inputTokens: 0, outputTokens: 0 });
   const [typed, setTyped] = useState("");
-  const [guide, setGuide] = useState(initialGuide);
+  const [ownGuide, setOwnGuide] = useState(sharedGuide ?? initialGuide);
+  const guide = sharedGuide ?? ownGuide;
+  const setGuide = onGuideChange ?? setOwnGuide;
+  const brief = product ? productForSession(product) : null;
   const scriptQuestions = guide.split("\n").map((q) => q.trim()).filter(Boolean);
-  // Transcript persistence: every finalized turn becomes an event with the next seq. The browser is
+  const order = useRef(new TranscriptOrder());
+  // Transcript persistence: every released turn becomes an event with the next seq. The browser is
   // the only writer, so events[] is the truth and `saved` is how many the backend has confirmed.
   const events = useRef<SessionEvent[]>([]);
   const saved = useRef(0);
@@ -81,8 +95,10 @@ export function InterviewRoom({
   const liveEstablished = useRef(false);
   const startupFailure = useRef<string | null>(null);
   // The session the debrief is for, set once its transcript is fully saved and it is marked ended.
-  const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean } | null>(null);
+  const [ended, setEnded] = useState<{ id: string; questions: number; sample?: boolean; productName?: string } | null>(null);
   const questions = useRef(0);
+  // The product name the running session was created with, for the debrief header.
+  const testedProduct = useRef<string | undefined>(undefined);
   // Provider work still in flight: committed speech awaiting its transcript, and open responses.
   // "End" waits for both, so the last turn isn't cut off by closing the call.
   const work = useRef(new TranscriptWork());
@@ -395,24 +411,36 @@ export function InterviewRoom({
         break;
       case "input_audio_buffer.committed":
         work.current.commit(e.item_id);
+        if (e.item_id) order.current.speechCommitted(e.item_id, e.previous_item_id);
+        syncTranscript();
         break;
       case "conversation.item.input_audio_transcription.failed":
         work.current.transcribed(e.item_id, true);
+        if (e.item_id) order.current.speechFailed(e.item_id);
+        syncTranscript();
         lost.current = true;
         break;
       case "response.created": {
         if (!e.response?.id) lost.current = true;
         work.current.created(e.response?.id);
+        if (e.response?.id) order.current.responseCreated(e.response.id);
+        syncTranscript();
         break;
       }
       case "conversation.item.input_audio_transcription.completed":
         if (!e.item_id) lost.current = true;
         if (!e.transcript?.trim()) work.current.blank(e.item_id);
-        if (work.current.transcribed(e.item_id) && e.transcript?.trim()) addTurn("interviewer", e.transcript.trim());
+        if (e.item_id && work.current.transcribed(e.item_id)) {
+          order.current.speechDone(e.item_id, e.transcript?.trim());
+          syncTranscript();
+        }
         break;
       case "response.output_audio_transcript.done":
         if (e.transcript?.trim()) work.current.spoke(e.response_id);
-        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) addTurn("persona", e.transcript.trim());
+        if (e.transcript?.trim() && once(`o:${e.item_id}:${e.content_index ?? 0}`)) {
+          order.current.answer(e.response_id, e.item_id, e.transcript.trim());
+          syncTranscript();
+        }
         break;
       case "response.done": {
         if (!e.response?.id || !["completed", "cancelled", "failed", "incomplete"].includes(e.response.status ?? "")) lost.current = true;
@@ -423,7 +451,7 @@ export function InterviewRoom({
           item.content?.forEach((content, index) => {
             const text = content.transcript ?? content.text;
             if (text?.trim()) work.current.spoke(e.response?.id);
-            if (text?.trim() && once(`o:${item.id}:${index}`)) addTurn("persona", text.trim());
+            if (text?.trim() && once(`o:${item.id}:${index}`)) order.current.answer(e.response?.id, item.id, text.trim());
           });
         }
         if (e.response?.status === "failed" || e.response?.status === "incomplete") lost.current = true;
@@ -434,10 +462,8 @@ export function InterviewRoom({
           outputTokens: m.outputTokens + (usage?.output_tokens ?? 0),
         }));
         // Interrupted answers end as "cancelled": keep them visible but marked, never silently dropped.
-        if (e.response?.status === "cancelled") {
-          setTurns((t) => [...t, { who: "persona", text: "(interrupted)", cancelled: true }]);
-          record("utterance", { speaker: "persona", text: "(interrupted)" });
-        }
+        if (e.response?.id) order.current.responseDone(e.response.id, e.response.status === "cancelled");
+        syncTranscript();
         break;
       }
       case "error": {
@@ -481,9 +507,10 @@ export function InterviewRoom({
     return true;
   }
 
-  function addTurn(who: Speaker, text: string) {
-    setTurns((t) => [...t, { who, text }]);
-    record("utterance", { speaker: who, text });
+  // Stores what has become the next contiguous part of the conversation and shows all of it.
+  function syncTranscript() {
+    for (const { who, text } of order.current.release()) record("utterance", { speaker: who, text });
+    setTurns(order.current.turns());
   }
 
   function record(type: "utterance" | "session.ended", data: object) {
@@ -586,6 +613,7 @@ export function InterviewRoom({
     lost.current = false;
     work.current = new TranscriptWork();
     pending.current = work.current.pending;
+    order.current = new TranscriptOrder();
     providerActivity.current = Date.now();
     endStarted.current = null;
     commitAttempted.current = false;
@@ -605,7 +633,8 @@ export function InterviewRoom({
         .map((q) => q.trim())
         .filter(Boolean);
       questions.current = interviewGuide.length;
-      const session = await api.createSession({ personaId: persona.id, interviewGuide });
+      testedProduct.current = brief?.name;
+      const session = await api.createSession({ personaId: persona.id, interviewGuide, product: brief });
       if (!current()) return;
       sessionId.current = session.id;
       const token = await api.sessionToken(session.id);
@@ -687,7 +716,8 @@ export function InterviewRoom({
       startupFailure.current = e instanceof DOMException && e.name === "NotAllowedError"
         ? "Microphone access was denied. Allow microphone access in your browser and start again."
         : e instanceof ApiError ? `Could not start (${e.status}): ${e.detail}`
-          : `Could not start: ${e instanceof Error ? e.message : "the interview could not connect."}`;
+          : e instanceof TypeError ? `Could not start: ${NETWORK_ERROR}`
+            : `Could not start: ${e instanceof Error ? e.message : "the interview could not connect."}`;
       setError(startupFailure.current);
       if (sessionId.current) {
         // A failed startup may already have captured turns or mutated remote state.
@@ -741,7 +771,8 @@ export function InterviewRoom({
         .split("\n")
         .map((q) => q.trim())
         .filter(Boolean);
-      const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true });
+      testedProduct.current = brief?.name;
+      const session = await api.createSession({ personaId: persona.id, interviewGuide, sample: true, product: brief });
       if (g !== gen.current) return;
       const script = sampleTurns(persona.name);
       const at = new Date().toISOString();
@@ -753,12 +784,12 @@ export function InterviewRoom({
       await api.updateSession(session.id, { status: "ended" });
       if (g !== gen.current) return;
       setTurns(script.map(({ speaker, text }) => ({ who: speaker, text })));
-      setEnded({ id: session.id, questions: interviewGuide.length, sample: true });
+      setEnded({ id: session.id, questions: interviewGuide.length, sample: true, productName: testedProduct.current });
       setPhase("ended");
     } catch (e) {
       if (g !== gen.current) return;
       setPhase("error");
-      setError(e instanceof ApiError ? `Could not load the sample interview (${e.status}): ${e.detail}` : "Could not load the sample interview: backend not reachable.");
+      setError(e instanceof ApiError ? `Could not load the sample interview (${e.status}): ${e.detail}` : `Could not load the sample interview: ${NETWORK_ERROR}`);
     }
   }
 
@@ -782,7 +813,8 @@ export function InterviewRoom({
   function ask() {
     const text = typed.trim();
     if (!text || !askWith([{ type: "input_text", text }])) return;
-    addTurn("interviewer", text);
+    order.current.typed(text);
+    syncTranscript();
     setTyped("");
   }
 
@@ -842,7 +874,10 @@ export function InterviewRoom({
 
   async function closeDrained() {
     if (finishing.current || draining.current) return;
-    if (work.current.missingTurns || work.current.unrecordedTurns) lost.current = true;
+    // Nothing can settle any more: what is still held gets stored, and the mark states what was given up.
+    const gaveUp = order.current.close();
+    syncTranscript();
+    if (work.current.missingTurns || work.current.unrecordedTurns || gaveUp) lost.current = true;
     setLastTurnMissing(lost.current);
     measure("provider-drain", drainStarted.current, lost.current ? "incomplete" : "ok", finalProviderAt.current ?? performance.now());
     hangUp();
@@ -886,7 +921,9 @@ export function InterviewRoom({
           }
         }
         if (g !== gen.current) return;
-        if (liveEstablished.current) setEnded({ id: sid, questions: questions.current });
+        if (liveEstablished.current) {
+          setEnded({ id: sid, questions: questions.current, productName: testedProduct.current });
+        }
       }
       measure("session-patch", patchStarted);
       measure("total", drainStarted.current);
@@ -901,6 +938,9 @@ export function InterviewRoom({
     }
   }
 
+  const turnText = (t: Turn) => t.text ?? (t.pending ? "Transcribing…" : "(no transcript)");
+  const faded = (t: Turn) => t.cancelled || t.held || t.text === null;
+  const unsaved = turns.filter((t) => t.held).length;
   const showAvatar = !avatarOff && voice !== null && sessionId.current !== null && (phase === "live" || phase === "ending" || phase === "waiting");
   const questionCount = guide.split("\n").map((q) => q.trim()).filter(Boolean).length;
   const canStart = !questionsRequired || questionCount > 0;
@@ -918,9 +958,9 @@ export function InterviewRoom({
       {error}
     </p>
   );
-  const saveLine = saveState.total > 0 && (
+  const saveLine = saveState.total + unsaved > 0 && (
     <p className="mt-2 text-xs tabular-nums text-muted" data-testid="save-state">
-      Transcript saved {saveState.saved}/{saveState.total}
+      Transcript saved {saveState.saved}/{saveState.total + unsaved}
       {phase === "live" && saveState.failed && saveState.saved < saveState.total
         ? " · save paused; the next turn retries, or finish the call and choose Save again"
         : ""}
@@ -929,6 +969,18 @@ export function InterviewRoom({
 
   return (
     <section className="mt-4 rounded-xl border border-line bg-background/60 p-5" data-testid="interview-room">
+      {(phase === "idle" || phase === "ended" || phase === "error") && (
+        <p className="mb-3 text-sm text-muted" data-testid="product-under-test">
+          {brief ? (
+            <>
+              Testing <span className="font-bold text-foreground">{brief.name}</span>. The persona hears its description as
+              background; edit it in the Product step.
+            </>
+          ) : (
+            "No product described. Add one in the Product step so the persona and the debrief know what you test."
+          )}
+        </p>
+      )}
       {questionsRequired && (phase === "idle" || phase === "ended" || phase === "error") && (
         <label className="mb-1 block text-sm">
           <span className="text-muted">Interview questions, one per line (the debrief answers these)</span>
@@ -1166,12 +1218,13 @@ export function InterviewRoom({
                   key={i}
                   className={`w-fit max-w-[85%] rounded-lg px-3 py-2 leading-relaxed wrap-anywhere ${
                     t.who === "persona" ? "border border-line bg-surface" : "ml-auto bg-accent-soft"
-                  } ${t.cancelled ? "opacity-50" : ""}`}
+                  } ${faded(t) ? "opacity-50" : ""}`}
                 >
                   <span className="mb-0.5 block text-xs font-medium text-muted">
                     {t.who === "persona" ? persona.name : "You"}
+                    {t.held ? " · not saved yet" : ""}
                   </span>
-                  {t.text}
+                  {turnText(t)}
                 </li>
               ))}
             </ol>
@@ -1204,8 +1257,8 @@ export function InterviewRoom({
           </summary>
           <ol className="mt-2 space-y-1">
             {turns.map((t, i) => (
-              <li key={i} className={t.cancelled ? "opacity-50" : ""}>
-                <span className="font-medium">{speakerName(t.who)}:</span> {t.text}
+              <li key={i} className={faded(t) ? "opacity-50" : ""}>
+                <span className="font-medium">{speakerName(t.who)}:</span> {turnText(t)}
               </li>
             ))}
           </ol>
@@ -1228,7 +1281,13 @@ export function InterviewRoom({
         </details>
       )}
       {phase === "ended" && ended && ended.questions > 0 && (
-        <DebriefView key={ended.id} sessionId={ended.id} personaName={persona.name} sample={ended.sample} />
+        <DebriefView
+          key={ended.id}
+          sessionId={ended.id}
+          personaName={persona.name}
+          sample={ended.sample}
+          productName={ended.productName}
+        />
       )}
       {phase === "ended" && ended && ended.questions === 0 && (
         <p className="mt-4 text-sm text-muted">

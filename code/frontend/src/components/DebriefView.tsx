@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
+import { NETWORK_ERROR } from "@/lib/errorMessage";
 import type { InsightReport } from "@/lib/contracts";
 import { type SummaryItem, summarizeDebrief } from "@/lib/debriefSummary";
 import { TRANSCRIPT_GAPS, formatReportMarkdown, reportMarkdownFilename } from "@/lib/reportMarkdown";
@@ -53,11 +54,14 @@ export function DebriefView({
   personaName,
   savedReport,
   sample,
+  productName,
 }: {
   sessionId: string;
   personaName: string;
   savedReport?: InsightReport;
   sample?: boolean;
+  /** The product the session was created with, if the team described one. */
+  productName?: string;
 }) {
   const [report, setReport] = useState<InsightReport | null>(savedReport ?? null);
   const [loading, setLoading] = useState(false);
@@ -101,7 +105,7 @@ export function DebriefView({
       // Repeated POSTs return the saved report, so a retry after a network error is safe.
       setReport(await api.debrief(sessionId));
     } catch (e) {
-      if (!(e instanceof ApiError)) setError("Backend not reachable.");
+      if (!(e instanceof ApiError)) setError(NETWORK_ERROR);
       else if (e.status === 409) setError(`The transcript is not complete yet: ${e.detail}`);
       else if (e.status === 503) setError("The debrief model is unavailable right now. Try again in a moment.");
       else if (e.status === 422) {
@@ -129,7 +133,7 @@ export function DebriefView({
     setCopying(true);
     setExportStatus(null);
     try {
-      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample));
+      await navigator.clipboard.writeText(formatReportMarkdown(report, personaName, sample, productName));
       setExportStatus({ error: false, text: "Markdown copied to clipboard." });
     } catch {
       setExportStatus({ error: true, text: "Could not copy Markdown. Try again or use Download .md." });
@@ -143,7 +147,7 @@ export function DebriefView({
     const link = document.createElement("a");
     let url: string | null = null;
     try {
-      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample)], { type: "text/markdown;charset=utf-8" }));
+      url = URL.createObjectURL(new Blob([formatReportMarkdown(report, personaName, sample, productName)], { type: "text/markdown;charset=utf-8" }));
       link.href = url;
       link.download = reportMarkdownFilename(report, personaName);
       document.body.append(link);
@@ -189,6 +193,11 @@ export function DebriefView({
       ) : (
         <div ref={box} className="mt-6 scroll-mt-6 rounded-xl border border-line bg-background/60 p-5" data-testid="debrief">
           <h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Debrief</h3>
+          {productName && (
+            <p className="mt-1 text-sm" data-testid="debrief-product">
+              Product tested: <span className="font-bold">{productName}</span>
+            </p>
+          )}
           {report.transcriptGaps && (
             <p className="mt-2 rounded-md border-2 border-foreground bg-surface p-3 text-sm font-bold text-foreground" data-testid="transcript-gaps">
               {TRANSCRIPT_GAPS}

@@ -107,4 +107,25 @@
       transparent 1.5px 5px
     );
   }
+
+  /* On the dark ground the mark keeps its shape and switches its ink. */
+  .evidence-bar.on-room {
+    border-color: var(--room-text);
+  }
+  .evidence-bar.on-room[data-grounded="true"] {
+    background: var(--room-text);
+  }
+  .evidence-bar.on-room[data-grounded="false"] {
+    background: repeating-linear-gradient(135deg, var(--room-text) 0 1.5px, transparent 1.5px 5px);
+  }
+
+  /* The one allowed gradient: a soft emerald glow from one corner on the dark ground. */
+  .room-glow {
+    background-color: var(--room);
+    background-image: radial-gradient(
+      ellipse 70% 60% at 100% 0%,
+      color-mix(in srgb, var(--accent) 45%, transparent),
+      transparent 70%
+    );
+  }
 }

@@ -53,7 +53,7 @@ for (const scenario of cases) {
       return route.fulfill({ status: 500, json: { detail: "Unexpected API request in verdict regression" } });
     });
 
-    await page.goto("/");
+    await page.goto("/studio");
     if (scenario.report.sourceDiversity.count === 1) {
       await page.getByRole("button", { name: "Remove source 2", exact: true }).click();
     }

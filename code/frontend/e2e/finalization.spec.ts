@@ -19,7 +19,7 @@ const gaps = "Ended. Microphone and camera are off. This transcript may have gap
 const sentence = exampleEvents[6].data.text!;
 
 async function start(page: Page, waitForLive = true, beforeStart?: () => Promise<void>): Promise<Session> {
-  await page.goto("/");
+  await page.goto("/studio");
   await beforeStart?.();
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await expect(page.getByTestId("persona-score")).toBeVisible();
@@ -688,7 +688,7 @@ for (const failure of ["deadline", "gateway", "body"] as const) {
       const events = await stored(request, session);
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ seq: 1, type: "utterance", data: { text: sentence } });
-      await expect(page.getByTestId("interview-room").locator("details")).toContainText(sentence);
+      await expect(page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (" })).toContainText(sentence);
       await expect(page.getByTestId("connection-lost")).toHaveCount(connectionLoss ? 1 : 0);
       expect(await page.evaluate(() => window.e2eRealtime.microphones.every((track) => track.readyState === "ended"))).toBe(true);
     });
@@ -723,7 +723,7 @@ for (const target of ["events", "patch"] as const) {
     await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not finish saving");
     await expect(page.getByRole("button", { name: "Start again", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("interview-room").locator("details ol")).toBeVisible();
-    await expect(page.getByTestId("interview-room").locator("details")).toContainText(sentence);
+    await expect(page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (" })).toContainText(sentence);
     await expect(page.getByTestId("connection-lost")).toHaveCount(0);
     expect(await page.evaluate(() => window.e2eRealtime.microphones.every((track) => track.readyState === "ended"))).toBe(true);
     const calls = await page.evaluate(() => window.e2ePersistence.calls);
@@ -832,9 +832,10 @@ for (const manualFirst of [false, true]) {
     const events = await stored(request, session);
     expect(events.map((event) => event.seq)).toEqual([1, 2, 3]);
     expect(events.map((event) => event.type)).toEqual(["utterance", "utterance", "session.ended"]);
-    expect(events.slice(0, 2).map((event) => event.data)).toEqual([
-      { speaker: "interviewer", text: sentence }, { speaker: "interviewer", text: "Separately committed final words" },
-    ]);
+    // Commit order is conversation order (#110), whichever transcript finished first.
+    const vadTurn = { speaker: "interviewer", text: sentence };
+    const manualTurn = { speaker: "interviewer", text: "Separately committed final words" };
+    expect(events.slice(0, 2).map((event) => event.data)).toEqual(manualFirst ? [manualTurn, vadTurn] : [vadTurn, manualTurn]);
   });
 }
 
@@ -947,7 +948,7 @@ for (const target of ["events", "patch"] as const) {
       await page.clock.runFor(4_500);
       await expect(page.getByRole("button", { name: "Save again", exact: true })).toBeVisible();
       await expect(page.getByTestId("interview-room").getByRole("alert")).toContainText("Could not finish saving");
-      await expect(page.getByTestId("interview-room").locator("details")).toContainText(sentence);
+      await expect(page.getByTestId("interview-room").locator("details").filter({ hasText: "Transcript (" })).toContainText(sentence);
       await expect(page.getByTestId("interview-room").locator("details ol")).toBeVisible();
       await expect(page.getByTestId("debrief")).toHaveCount(0);
       const calls = await page.evaluate(() => window.e2ePersistence.calls);

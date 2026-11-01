@@ -138,9 +138,13 @@ async function openDebrief(page: Page, options: { failDebrief?: boolean } = {}) 
   });
   await installRealtime(page);
   await installExports(page);
-  await page.goto("/");
+  await page.goto("/studio");
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Product", exact: true }).click();
+  await page.getByLabel("Product name", { exact: true }).fill("Synthetic library tool");
+  await page.getByLabel("What it is", { exact: false }).fill("A synthetic library workflow prototype for this export test.");
+  await page.getByRole("button", { name: "Next: add sources", exact: true }).click();
   await page.getByRole("button", { name: "Create persona", exact: true }).click();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
   await page.getByRole("button", { name: "Start video interview", exact: true }).click();
@@ -163,7 +167,7 @@ test("loaded report copies and downloads identical Markdown without regenerating
   await page.keyboard.press("Enter");
   await expect(debrief.getByRole("status")).toHaveText("Markdown copied to clipboard.");
   const copied = await page.evaluate(() => window.e2eReportExport.copied);
-  expect(copied).toEqual([formatReportMarkdown(report, personaName)]);
+  expect(copied).toEqual([formatReportMarkdown(report, personaName, false, "Synthetic library tool")]);
   await page.clock.setFixedTime(new Date("2035-05-20T12:00:00Z"));
   const downloading = page.waitForEvent("download");
   await debrief.getByRole("button", { name: "Download .md", exact: true }).click();
@@ -230,6 +234,23 @@ test("failed report cannot expose export actions", async ({ page }) => {
   const state = await openDebrief(page, { failDebrief: true });
   await expect(page.getByRole("button", { name: "Copy as Markdown" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download .md" })).toHaveCount(0);
+  expect(state.calls()).toBe(1);
+  expect(state.unexpected).toEqual([]);
+});
+
+test("an ended debrief keeps the session's product after the selected brief changes", async ({ page }) => {
+  const state = await openDebrief(page);
+  await expect(page.getByTestId("debrief-product")).toHaveText("Product tested: Synthetic library tool");
+  await page.getByRole("button", { name: "Product", exact: true }).click();
+  await page.getByLabel("Product name", { exact: true }).fill("A later prototype");
+  await page.getByRole("button", { name: "Back to the interview", exact: true }).click();
+  await expect(page.getByTestId("product-under-test")).toContainText("A later prototype");
+  await expect(page.getByTestId("debrief-product")).toHaveText("Product tested: Synthetic library tool");
+  await page.getByRole("button", { name: "Copy as Markdown", exact: true }).click();
+  await expect(page.getByTestId("debrief").getByRole("status")).toHaveText("Markdown copied to clipboard.");
+  expect(await page.evaluate(() => window.e2eReportExport.copied)).toEqual([
+    formatReportMarkdown(report, personaName, false, "Synthetic library tool"),
+  ]);
   expect(state.calls()).toBe(1);
   expect(state.unexpected).toEqual([]);
 });
