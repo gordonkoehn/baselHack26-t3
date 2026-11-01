@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 200 200" role="img" aria-label="OpenTwin">
+<rect width="200" height="200" rx="44" fill="#0F7A5C"/>
+<g transform="translate(38 38) scale(1.9375)">
+<path d="M29 8 A24 24 0 0 0 29 56 Z" fill="#F4F6F5"/>
+<path d="M35 10 A22 22 0 0 1 35 54" fill="none" stroke="#9FD8C2" stroke-width="4" stroke-linecap="round"/>
+<circle cx="44" cy="32" r="5" fill="#F4F6F5"/>
+</g>
+</svg>
