@@ -466,6 +466,14 @@ def apply_answers(persona: Persona, n: int, body: PersonaAnswers, draft: Answers
     )
 
 
+def _save_edit(store: Store, persona: Persona) -> None:
+    """Saves a change made after a slow call (a model, Simli, an upload). If the persona was
+    deleted meanwhile, it stays deleted: whatever this request wrote beside it goes too."""
+    if not store.update_persona(persona):
+        store.delete_persona(persona.id)
+        raise HTTPException(404, "persona not found")
+
+
 @router.post(
     "/{persona_id}/answers",
     response_model_by_alias=True,
@@ -496,7 +504,7 @@ def add_answers(
     # Sources first: the live interview reads them, and the facts cite source:N.
     store.save_persona_sources(persona.id, stored)
     persona = apply_answers(persona, len(stored.sources), body, draft)
-    store.save_persona(persona)
+    _save_edit(store, persona)
     return persona
 
 
@@ -524,8 +532,20 @@ async def upload_photo(persona_id: str, request: Request, store: StoreDep) -> Pe
     persona = persona.model_copy(
         update={"photo_url": f"/api/personas/{persona.id}/photo?v={token}"}
     )
-    store.save_persona(persona)
+    _save_edit(store, persona)
     return persona
+
+
+@router.delete("/{persona_id}", status_code=204, dependencies=[Depends(require_passcode)])
+def delete_persona(persona_id: str, store: StoreDep) -> None:
+    """Removes the persona from the library with its sources, photo and coverage check."""
+    # Only the form create_persona hands out, so an id can never reach into another key.
+    if (
+        not re.fullmatch(r"p_[A-Za-z0-9_-]{1,64}", persona_id)
+        or store.get_persona(persona_id) is None
+    ):
+        raise HTTPException(404, "persona not found")
+    store.delete_persona(persona_id)
 
 
 @router.delete(
@@ -537,7 +557,7 @@ def remove_photo(persona_id: str, store: StoreDep) -> Persona:
         raise HTTPException(404, "persona not found")
     # The stored bytes expire with the usual TTL; without photoUrl nothing serves them.
     persona = persona.model_copy(update={"photo_url": None})
-    store.save_persona(persona)
+    _save_edit(store, persona)
     return persona
 
 
@@ -572,7 +592,7 @@ def start_custom_face(persona_id: str, store: StoreDep) -> Persona:
         requested_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     )
     persona = persona.model_copy(update={"custom_face": custom})
-    store.save_persona(persona)
+    _save_edit(store, persona)
     return persona
 
 
@@ -600,7 +620,7 @@ def refresh_custom_face(persona_id: str, store: StoreDep) -> Persona:
         changes["face_id"] = custom.face_id
         changes["version"] = persona.version + 1
     persona = persona.model_copy(update=changes)
-    store.save_persona(persona)
+    _save_edit(store, persona)
     return persona
 
 
@@ -684,7 +704,7 @@ def update_persona(persona_id: str, body: PersonaUpdate, store: StoreDep) -> Per
             update={k: getattr(body.attitudes, k) for k in body.attitudes.model_fields_set}
         )
     persona = persona.model_copy(update=changes)
-    store.update_persona(persona)
+    _save_edit(store, persona)
     # The next check judges the edited persona afresh; the old rows must not hold its level up.
     # A new face or voice changes nothing the persona knows.
     if body.model_fields_set - {"face_id", "voice_id"}:

@@ -197,6 +197,11 @@ export const api = {
     fetch(`/api/personas/${encodeURIComponent(id)}/face/refresh`, { method: "POST", headers: passcode() }).then(
       json<Persona>,
     ),
+  // 204 has no body, so only an error goes through json().
+  deletePersona: async (id: string) => {
+    const res = await fetch(`/api/personas/${encodeURIComponent(id)}`, { method: "DELETE", headers: passcode() });
+    if (!res.ok) await json<never>(res);
+  },
   removePhoto: (id: string) =>
     fetch(`/api/personas/${encodeURIComponent(id)}/photo`, { method: "DELETE", headers: passcode() }).then(
       json<Persona>,

@@ -34,6 +34,11 @@ class FakeRedis:
                 self.data.pop(key, None)
                 self.ttl.pop(key, None)
 
+    def zrem(self, key, *members):
+        with self.lock:
+            index = self.data.get(key, {})
+            return sum(1 for member in members if index.pop(member, None) is not None)
+
     def get(self, key):
         return self.data.get(key)
 

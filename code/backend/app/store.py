@@ -132,11 +132,12 @@ class Store:
         args = [str(time.time()), persona.id, str(-PERSONA_LIST_SIZE - 1), str(TTL_SECONDS)]
         self._call("eval", INDEX_PERSONA, keys=[f"{PREFIX}:personas"], args=args)
 
-    def update_persona(self, persona: Persona) -> None:
+    def update_persona(self, persona: Persona) -> bool:
         """An edit, leaving the library and the expiry alone: a persona that fell off the list must
         not come back as newly created, or outlive the sources its interview needs. XX: a persona
-        that expired since it was read must not return without a TTL."""
-        self._call("set", f"{PREFIX}:persona:{persona.id}", _dump(persona), xx=True, keepttl=True)
+        that expired or was deleted since it was read must not return. False when it is gone."""
+        key = f"{PREFIX}:persona:{persona.id}"
+        return bool(self._call("set", key, _dump(persona), xx=True, keepttl=True))
 
     def list_personas(self) -> list[PersonaSummary]:
         """Newest first. Skips personas that expired before their index entry or that an older
@@ -200,6 +201,18 @@ class Store:
 
     def delete_coverage(self, persona_id: str) -> None:
         self._call("delete", f"{PREFIX}:coverage:{persona_id}")
+
+    def delete_persona(self, persona_id: str) -> None:
+        """Off the library first, so a half-done delete never lists a persona that won't open.
+        Sessions aren't indexed by persona; they expire with the usual TTL."""
+        self._call("zrem", f"{PREFIX}:personas", persona_id)
+        self._call(
+            "delete",
+            f"{PREFIX}:persona:{persona_id}",
+            f"{PREFIX}:persona:{persona_id}:sources",
+            f"{PREFIX}:photo:{persona_id}",
+            f"{PREFIX}:coverage:{persona_id}",
+        )
 
     # The voice persona needs the product material later; the persona itself only keeps facts.
     def save_persona_sources(self, persona_id: str, request: PersonaCreate) -> None:

@@ -151,6 +151,11 @@ export default function Home() {
   // reset list, and the submitted sources can't change under a running request.
   const busy = loading || reading || opening;
   const personaId = result?.persona.id;
+  // For late replies: which persona is open right now, not when the request started.
+  const openId = useRef(personaId);
+  useEffect(() => {
+    openId.current = personaId;
+  }, [personaId]);
   const picked = result?.seconds === null;
   const sourceBrief = mergeBrief(briefForSources(filled), draftBrief);
   const brief = editingDraft || !result ? sourceBrief : result.brief;
@@ -281,6 +286,24 @@ export default function Home() {
     }
   }
 
+  // No undo: the confirm is the safety net. Deleting the open persona goes back to the sources.
+  async function remove(p: PersonaSummary) {
+    const question = `Delete ${p.name}? Its sources, photo and score go too. Shared debrief links keep working.`;
+    if (busy || !window.confirm(question)) return;
+    setError(null);
+    try {
+      await api.deletePersona(p.id);
+      setRecent((list) => list.filter((r) => r.id !== p.id));
+      if (openId.current === p.id) {
+        openId.current = undefined;
+        setResult(null);
+        setTab("sources");
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   return (
     <>
     <WorkspaceBar
@@ -348,10 +371,10 @@ export default function Home() {
           </h2>
           <ul className="mt-2 divide-y divide-line">
             {library(recent).personas.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="flex items-baseline gap-3">
                 <button
                   type="button"
-                  className="flex w-full flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
+                  className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 py-2 text-left text-sm hover:text-accent disabled:opacity-40"
                   onClick={() => pick(p.id)}
                   disabled={busy}
                 >
@@ -361,6 +384,15 @@ export default function Home() {
                     {p.readiness && `${Math.round(p.readiness.score * 100)} % ready · `}
                     {new Date(p.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-muted hover:bg-accent-soft hover:text-foreground disabled:opacity-40"
+                  onClick={() => remove(p)}
+                  disabled={busy}
+                  aria-label={`Delete ${p.name}`}
+                >
+                  Delete
                 </button>
               </li>
             ))}
@@ -544,6 +576,8 @@ export default function Home() {
                 setResult((current) => (current?.persona.id === persona.id ? { ...current, persona } : current))
               }
               onAnswered={(persona, source) => {
+                // A late reply for a persona that was deleted or closed meanwhile must not reopen it.
+                if (openId.current !== persona.id) return;
                 // The answers are now source N on the backend; keep the card's citations and a later
                 // rebuild in step with that.
                 setResult({ ...result, persona, sources: [...result.sources, source] });

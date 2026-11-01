@@ -22,11 +22,16 @@ export function ReportView({ sessionId }: { sessionId: string }) {
     void (async () => {
       try {
         const session = await api.getSession(sessionId);
-        const [persona, report] = await Promise.all([api.getPersona(session.personaId), api.getInsights(sessionId)]);
+        // A deleted persona keeps its reports, so a shared link still opens; only the name is gone.
+        const persona = api.getPersona(session.personaId).catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        });
+        const [found, report] = await Promise.all([persona, api.getInsights(sessionId)]);
         if (!cancelled) setState({
             kind: "ready",
             report,
-            personaName: persona.name,
+            personaName: found?.name ?? "a deleted persona",
             sample: session.sample,
             productName: session.product?.name,
           });
